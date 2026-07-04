@@ -1,0 +1,22 @@
+appId: com.huyudong.electronmanager
+productName: Electron Manager
+electronVersion: 39.8.10
+electronDist: node_modules/.pnpm/electron@39.8.10/node_modules/electron/dist
+directories:
+  app: build/mac-app
+  output: release
+files:
+  - dist/**/*
+  - renderer/**/*
+  - preload.cjs
+  - package.json
+  - node_modules/@electron-manager/project-core/**/*
+asar: true
+mac:
+  category: public.app-category.developer-tools
+  identity: null
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  target:
+    - target: zip
+      arch:
+        - arm64

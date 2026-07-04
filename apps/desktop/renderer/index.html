@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Electron Manager</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-theme="dark">
+    <main class="page-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="mark">E</span>
+          <div>
+            <strong>Agent Manager</strong>
+            <small>Local Project Hub</small>
+          </div>
+        </div>
+        <nav>
+          <a class="active" href="#overview" data-section="overview" data-icon="layoutDashboard"><span>总览</span></a>
+          <a href="#capture" data-section="capture" data-icon="messageCircle"><span>想法</span></a>
+          <a href="#board" data-section="board" data-icon="listChecks"><span>任务</span></a>
+          <a href="#dialogues" data-section="dialogues" data-icon="messagesSquare"><span>研究</span></a>
+          <a href="#collaboration" data-section="collaboration" data-icon="gitPullRequest"><span>协作</span> <span id="collaborationNavCount" class="nav-count" hidden>0</span></a>
+          <a href="#agent-logs" data-section="agent-logs" data-icon="scrollText"><span>工作记录</span></a>
+          <a href="#knowledge" data-section="knowledge" data-icon="bookOpen"><span>知识库</span></a>
+          <a href="#documents" data-section="documents" data-icon="fileText"><span>文档</span></a>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="themeToggleButton" class="theme-toggle" type="button" aria-pressed="true" title="切换亮色模式">
+            <span class="theme-toggle-icon"></span>
+            <span class="theme-toggle-label">暗色</span>
+          </button>
+        </div>
+      </aside>
+
+      <section class="content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" aria-hidden="true"></p>
+            <small id="appStatus">等待选择项目</small>
+          </div>
+          <div class="topbar-actions">
+            <button id="openFolderButton" class="btn icon-button btn-outline-primary" type="button" title="打开项目" aria-label="打开项目"></button>
+            <button id="refreshButton" class="btn icon-button btn-ghost" type="button" title="手动刷新" aria-label="手动刷新" disabled></button>
+          </div>
+        </header>
+
+        <section id="overview" class="section view active-view">
+          <div class="section-head">
+            <h2>总览</h2>
+            <span id="generatedAt">尚未读取</span>
+          </div>
+          <section id="statusPanel" class="card status-panel"></section>
+          <div class="stats">
+            <article class="card stat">
+              <div class="stat-head">
+                <span class="stat-icon" data-icon="listChecks"></span>
+                <span>任务</span>
+              </div>
+              <strong id="taskCount">0</strong>
+            </article>
+            <article class="card stat">
+              <div class="stat-head">
+                <span class="stat-icon" data-icon="messageCircle"></span>
+                <span>想法</span>
+              </div>
+              <strong id="thoughtCount">0</strong>
+            </article>
+            <article class="card stat">
+              <div class="stat-head">
+                <span class="stat-icon" data-icon="messagesSquare"></span>
+                <span>研究</span>
+              </div>
+              <strong id="dialogueCount">0</strong>
+            </article>
+            <article class="card stat">
+              <div class="stat-head">
+                <span class="stat-icon" data-icon="bookOpen"></span>
+                <span>知识</span>
+              </div>
+              <strong id="knowledgeCount">0</strong>
+            </article>
+            <article class="card stat">
+              <div class="stat-head">
+                <span class="stat-icon" data-icon="gitPullRequest"></span>
+                <span>未确认</span>
+              </div>
+              <strong id="openQuestionCount">0</strong>
+            </article>
+            <article class="card stat">
+              <div class="stat-head">
+                <span class="stat-icon" data-icon="scrollText"></span>
+                <span>记录</span>
+              </div>
+              <strong id="logCount">0</strong>
+            </article>
+          </div>
+          <div class="card paths">
+            <div>
+              <span>当前项目</span>
+              <code id="projectPath">尚未打开项目</code>
+            </div>
+            <div>
+              <span>数据层</span>
+              <div class="path-value">
+                <code id="dataRoot">初始化后显示</code>
+                <button id="openDataRootButton" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开数据层文件夹" aria-label="打开数据层文件夹" disabled></button>
+              </div>
+            </div>
+          </div>
+          <div class="card agent-sync-card">
+            <div class="agent-sync-head">
+              <div>
+                <span class="badge">Agent 同步</span>
+              </div>
+              <div class="agent-sync-actions">
+                <button id="copyBriefButton" class="btn icon-button btn-outline-primary btn-sm" type="button" title="复制同步" aria-label="复制同步" disabled></button>
+              </div>
+            </div>
+            <p id="briefSummary" class="brief-summary">打开项目后显示同步入口。</p>
+            <small id="briefCopyStatus">未复制</small>
+          </div>
+        </section>
+
+        <section id="capture" class="section view">
+          <div class="section-head">
+            <h2>想法</h2>
+            <span></span>
+          </div>
+          <form id="thoughtForm" class="card capture-panel" hidden>
+            <textarea id="thoughtInput" rows="5" placeholder="把你的想法、问题、下一步判断先写在这里。它会进入本地管理数据层，后面再整理成任务。"></textarea>
+            <div class="capture-actions">
+              <span id="thoughtStatus"></span>
+              <button id="saveThoughtButton" class="btn icon-button btn-primary" type="submit" title="保存输入" aria-label="保存输入"></button>
+            </div>
+          </form>
+          <div id="thoughtList" class="thoughts"></div>
+        </section>
+
+        <section id="board" class="section view">
+          <div class="section-head">
+            <h2>任务</h2>
+            <span></span>
+          </div>
+          <form id="taskForm" class="card task-form" hidden>
+            <div class="task-form-grid">
+              <label>
+                标题
+                <input id="taskTitleInput" type="text" placeholder="例如：补充首页路由设计" />
+              </label>
+              <label>
+                优先级
+                <select id="taskPriorityInput">
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
+            </div>
+            <textarea id="taskDetailInput" rows="3" placeholder="背景、影响面或下一步。"></textarea>
+            <textarea id="taskAcceptanceInput" rows="2" placeholder="验收标准。"></textarea>
+            <div class="capture-actions">
+              <span id="taskSaveStatus"></span>
+              <button id="createTaskButton" class="btn icon-button btn-primary" type="submit" title="新建任务" aria-label="新建任务"></button>
+            </div>
+          </form>
+          <div id="boardSummary" class="board-summary"></div>
+          <div id="taskBoard" class="board"></div>
+        </section>
+
+        <section id="dialogues" class="section view">
+          <div class="section-head">
+            <h2>研究</h2>
+            <span></span>
+          </div>
+          <div id="dialogueList" class="dialogue-layout"></div>
+        </section>
+
+        <section id="collaboration" class="section view">
+          <div class="section-head">
+            <h2>协作</h2>
+            <span></span>
+          </div>
+          <div id="collaborationBody">
+            <div id="collaborationOpenQuestions" class="collab-open-questions"></div>
+            <div id="collaborationReplies" class="collab-replies"></div>
+            <div id="collaborationRules" class="collab-rules"></div>
+          </div>
+        </section>
+
+        <section id="agent-logs" class="section view">
+          <div class="agent-log-layout">
+            <aside class="agent-log-index">
+              <div class="section-head compact-head">
+                <h2>目录</h2>
+                <span id="logIndexCount">0 条</span>
+              </div>
+              <div id="logIndex" class="agent-log-toc"></div>
+            </aside>
+            <div class="agent-log-list-wrap">
+              <div class="agent-log-list-spacer" aria-hidden="true"></div>
+              <div id="logDetail" class="agent-log-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="knowledge" class="section view">
+          <div class="section-head">
+            <h2>知识库</h2>
+            <span></span>
+          </div>
+          <div id="knowledgeList" class="knowledge-layout"></div>
+        </section>
+
+        <section id="documents" class="section view">
+          <div class="section-head">
+            <h2>文档</h2>
+            <span id="documentsCount">0 条</span>
+          </div>
+          <div id="documentsList" class="notes"></div>
+        </section>
+      </section>
+    </main>
+
+    <div class="quick-task" id="quickTask">
+      <button id="quickTaskToggle" class="btn btn-primary icon-button quick-task-button" type="button" title="新建" aria-label="新建" aria-expanded="false"></button>
+      <div id="quickCreateMenu" class="card quick-create-menu" aria-label="新建类型" hidden>
+        <button class="btn btn-outline-primary quick-create-option" type="button" data-quick-create-kind="task">
+          <span class="quick-create-icon" data-icon="listChecks"></span>
+          <span>任务</span>
+        </button>
+        <button class="btn btn-outline-primary quick-create-option" type="button" data-quick-create-kind="thought">
+          <span class="quick-create-icon" data-icon="messageCircle"></span>
+          <span>想法</span>
+        </button>
+        <button class="btn btn-outline-primary quick-create-option" type="button" data-quick-create-kind="dialogue">
+          <span class="quick-create-icon" data-icon="messagesSquare"></span>
+          <span>研究</span>
+        </button>
+      </div>
+      <form id="quickTaskForm" class="card quick-task-panel" aria-label="快速新建任务" hidden>
+        <div class="quick-task-head">
+          <strong>新建任务</strong>
+          <button id="quickTaskClose" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭"></button>
+        </div>
+        <input id="quickTaskTitle" type="text" placeholder="任务标题" />
+        <textarea id="quickTaskDetail" rows="3" placeholder="看到的信息、上下文或下一步。"></textarea>
+        <textarea id="quickTaskAcceptance" rows="2" placeholder="验收标准（可选）。"></textarea>
+        <div class="quick-task-grid">
+          <select id="quickTaskPriority" aria-label="优先级">
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="quick-task-actions">
+          <span id="quickTaskStatusText"></span>
+          <button id="quickTaskSubmit" class="btn icon-button btn-primary" type="submit" title="保存任务" aria-label="保存任务"></button>
+        </div>
+      </form>
+      <form id="quickThoughtForm" class="card quick-task-panel" aria-label="快速保存想法" hidden>
+        <div class="quick-task-head">
+          <strong>保存想法</strong>
+          <button id="quickThoughtClose" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭"></button>
+        </div>
+        <textarea id="quickThoughtInput" rows="5" placeholder="把想法、问题或下一步判断写在这里。"></textarea>
+        <div class="quick-task-actions">
+          <span id="quickThoughtStatusText"></span>
+          <button id="quickThoughtSubmit" class="btn icon-button btn-primary" type="submit" title="保存想法" aria-label="保存想法"></button>
+        </div>
+      </form>
+      <form id="quickDialogueForm" class="card quick-task-panel" aria-label="快速保存研究" hidden>
+        <div class="quick-task-head">
+          <strong>保存研究</strong>
+          <button id="quickDialogueClose" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭"></button>
+        </div>
+        <textarea id="quickDialogueInput" rows="6" placeholder="保存思路演进、关键问答、方案比较、技术背景或重要上下文。"></textarea>
+        <textarea id="quickDialogueAcceptance" rows="2" placeholder="验收标准（可选）。"></textarea>
+        <div class="quick-task-actions">
+          <span id="quickDialogueStatusText"></span>
+          <button id="quickDialogueSubmit" class="btn icon-button btn-primary" type="submit" title="保存研究" aria-label="保存研究"></button>
+        </div>
+      </form>
+    </div>
+
+    <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
+
+    <div id="initOverlay" class="modal-overlay" hidden>
+      <section class="card init-dialog" role="dialog" aria-modal="true" aria-labelledby="initDialogTitle">
+        <h2 id="initDialogTitle">初始化项目管理数据</h2>
+        <p>为当前项目创建本地管理数据和 Agent 协作入口。</p>
+        <div class="init-dialog-actions">
+          <button id="overlayInitButton" class="btn icon-button btn-primary" type="button" title="初始化" aria-label="初始化"></button>
+          <button id="overlayChooseButton" class="btn icon-button btn-outline-secondary" type="button" title="重新选择项目" aria-label="重新选择项目"></button>
+        </div>
+      </section>
+    </div>
+
+    <div id="projectOverlay" class="modal-overlay" hidden>
+      <section class="card project-dialog" role="dialog" aria-modal="true" aria-labelledby="projectDialogTitle">
+        <div class="project-dialog-head">
+          <div>
+            <h2 id="projectDialogTitle">打开项目</h2>
+            <p>选择最近项目，或打开其他项目文件夹。</p>
+          </div>
+          <button id="closeProjectOverlay" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭"></button>
+        </div>
+        <div id="recentProjectsList" class="recent-project-list"></div>
+        <div class="init-dialog-actions">
+          <button id="chooseOtherProjectButton" class="btn icon-button btn-primary" type="button" title="打开其他项目" aria-label="打开其他项目"></button>
+        </div>
+      </section>
+    </div>
+
+    <div id="replyOverlay" class="modal-overlay" hidden>
+      <form id="replyForm" class="card reply-dialog" role="dialog" aria-modal="true" aria-labelledby="replyDialogTitle">
+        <div class="project-dialog-head">
+          <div>
+            <h2 id="replyDialogTitle">回复待确认</h2>
+            <p id="replyQuestionText">待确认内容</p>
+          </div>
+          <button id="replyCloseButton" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭"></button>
+        </div>
+        <textarea id="replyInput" rows="5" placeholder="写下回复或处理结论。"></textarea>
+        <div class="quick-task-actions">
+          <span id="replyStatusText"></span>
+          <button id="replySubmitButton" class="btn icon-button btn-primary" type="submit" title="保存回复" aria-label="保存回复"></button>
+        </div>
+      </form>
+    </div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

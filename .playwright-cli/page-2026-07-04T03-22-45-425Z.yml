@@ -1,0 +1,107 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: E
+        - generic [ref=e6]:
+          - strong [ref=e7]: Agent Manager
+          - generic [ref=e8]: Local Project Hub
+      - navigation [ref=e9]:
+        - link "总览" [ref=e10] [cursor=pointer]:
+          - /url: "#overview"
+          - img [ref=e12]
+          - generic [ref=e17]: 总览
+        - link "想法" [ref=e18] [cursor=pointer]:
+          - /url: "#capture"
+          - img [ref=e20]
+          - generic [ref=e22]: 想法
+        - link "任务" [ref=e23] [cursor=pointer]:
+          - /url: "#board"
+          - img [ref=e25]
+          - generic [ref=e28]: 任务
+        - link "研究记录" [ref=e29] [cursor=pointer]:
+          - /url: "#dialogues"
+          - img [ref=e31]
+          - generic [ref=e34]: 研究记录
+        - link "协作 0" [ref=e35] [cursor=pointer]:
+          - /url: "#collaboration"
+          - img [ref=e37]
+          - generic [ref=e41]: 协作
+          - generic [ref=e42]: "0"
+        - link "工作记录" [ref=e43] [cursor=pointer]:
+          - /url: "#agent-logs"
+          - img [ref=e45]
+          - generic [ref=e48]: 工作记录
+        - link "知识库" [ref=e49] [cursor=pointer]:
+          - /url: "#knowledge"
+          - img [ref=e51]
+          - generic [ref=e54]: 知识库
+        - link "文档" [ref=e55] [cursor=pointer]:
+          - /url: "#documents"
+          - img [ref=e57]
+          - generic [ref=e60]: 文档
+    - generic [ref=e61]:
+      - generic [ref=e62]:
+        - generic [ref=e63]: preload API 未注入，请重新启动 Electron。
+        - generic [ref=e64]:
+          - button "打开项目" [ref=e65] [cursor=pointer]:
+            - img [ref=e66]
+          - button "手动刷新" [disabled] [ref=e70]:
+            - img [ref=e71]
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - heading "总览" [level=2] [ref=e78]
+          - generic [ref=e79]: 尚未读取
+        - generic [ref=e80]:
+          - generic [ref=e81]: Ready
+          - heading "选择任意项目开始" [level=2] [ref=e82]
+          - paragraph [ref=e83]: 选择项目文件夹后，会创建 Markdown 主数据、JSON 同步包和本地协作 skill。
+        - generic [ref=e84]:
+          - article [ref=e85]:
+            - generic [ref=e86]:
+              - img [ref=e88]
+              - generic [ref=e91]: 任务
+            - strong [ref=e92]: "0"
+          - article [ref=e93]:
+            - generic [ref=e94]:
+              - img [ref=e96]
+              - generic [ref=e98]: 想法
+            - strong [ref=e99]: "0"
+          - article [ref=e100]:
+            - generic [ref=e101]:
+              - img [ref=e103]
+              - generic [ref=e106]: 研究记录
+            - strong [ref=e107]: "0"
+          - article [ref=e108]:
+            - generic [ref=e109]:
+              - img [ref=e111]
+              - generic [ref=e114]: 知识
+            - strong [ref=e115]: "0"
+          - article [ref=e116]:
+            - generic [ref=e117]:
+              - img [ref=e119]
+              - generic [ref=e123]: 未确认
+            - strong [ref=e124]: "0"
+          - article [ref=e125]:
+            - generic [ref=e126]:
+              - img [ref=e128]
+              - generic [ref=e131]: 记录
+            - strong [ref=e132]: "0"
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - generic [ref=e135]: 当前项目
+            - code [ref=e136]: 尚未打开项目
+          - generic [ref=e137]:
+            - generic [ref=e138]: 数据层
+            - generic [ref=e139]:
+              - code [ref=e140]: 初始化后显示
+              - button "打开数据层文件夹" [disabled] [ref=e141]:
+                - img [ref=e142]
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - generic [ref=e148]: Agent 同步
+            - button "复制同步" [disabled] [ref=e150]:
+              - img [ref=e151]
+          - paragraph [ref=e154]: 打开项目后显示同步入口。
+  - button "新建" [ref=e156] [cursor=pointer]:
+    - img [ref=e157]

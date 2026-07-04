@@ -1,0 +1,19 @@
+{
+  "name": "@electron-manager/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "pnpm build && electron .",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@electron-manager/project-core": "workspace:*",
+    "electron": "^39.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2"
+  }
+}
