@@ -10,7 +10,7 @@ await rm(staging, { recursive: true, force: true })
 await mkdir(path.join(staging, 'node_modules', '@electron-manager'), { recursive: true })
 
 await cp(path.join(desktop, 'dist'), path.join(staging, 'dist'), { recursive: true })
-await cp(path.join(desktop, 'renderer'), path.join(staging, 'renderer'), { recursive: true })
+await cp(path.join(desktop, 'renderer-vue'), path.join(staging, 'renderer-vue'), { recursive: true })
 await cp(path.join(desktop, 'preload.cjs'), path.join(staging, 'preload.cjs'))
 
 await mkdir(path.join(staging, 'node_modules', '@electron-manager', 'project-core'), { recursive: true })

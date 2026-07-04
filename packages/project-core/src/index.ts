@@ -357,6 +357,7 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
       `先读取 ${path.join(dataRoot, 'agent-brief.json')} 建立最新上下文。`,
       `然后读取 ${path.join(dataRoot, SKILL_PATH)}，按其中规则写任务和工作记录。`,
       `需要完整任务时读取 ${path.join(dataRoot, TASKS_PATH)}。`,
+      `处理 Dxxx 研究时读取 ${path.join(dataRoot, DIALOGUES_PATH)}，必须同时理解 ### 内容 和 ### 验收标准，并按验收标准组织回答或执行。`,
       `工作记录必须包含 ### 用户目标、### 需求理解、### 产出、### 关键步骤、### 验证、### 验收标准、### 未确认事项。`,
       '工作流顺序：想法/输入 -> 整理回答 -> 必要时产生任务 -> 任务进入 todo/doing/done -> 任务执行并验收后写 Agent 工作记录。',
       '整理想法只更新想法回答和必要任务卡；未执行工程任务时不要写 Agent 工作记录。',
@@ -1466,6 +1467,7 @@ function dataSpecTemplate() {
 - 任务卡必须保留用户原话、Agent 理解、执行范围、验收和未确认事项。
 - 工作记录必须保留用户目标、需求理解、产出、关键步骤、验证、验收标准和未确认事项。
 - 研究保存学习/预研过程中的思路演进、关键问答、方案比较、技术背景，也可保存常规项目的重要判断、约定和上下文，使用 \`Dxxx\` 作为引用 ID。
+- 处理 \`Dxxx\` 研究时，必须同时读取 \`### 内容\` 和 \`### 验收标准\`；\`### 验收标准\` 是 Agent 回答或执行的约束，不是仅供 UI 展示的备注。
 - 知识条目保存沉淀后的稳定知识、文档、方案和运行经验，使用 \`Kxxx\` 作为引用 ID。
 - 数据结构、字段或文件名调整后，应直接迁移旧 Markdown 数据并补齐缺失字段；没有内容写 \`无\` 或 \`暂无\`，不要新增长期运行时兼容判断或只在界面兜底。
 - 未确认事项由 Electron Manager 展示为独立 QID；任务 \`Txxx\`、想法 \`Ixxx\` 和工作记录引用 \`Lxxx\` 只作为 relation，不复用为未确认事项 ID。工作记录仍是任务副产品，不是独立执行模块。
@@ -1577,6 +1579,8 @@ related_thoughts:: I001
 无
 \`\`\`
 
+当用户要求处理某条 \`Dxxx\` 研究，或新 Agent 根据研究继续回答/执行时，必须把 \`### 验收标准\` 作为完成口径；如果验收标准为空或写 \`无\`，才按内容本身判断回答范围。
+
 研究不替代想法或任务：可执行事项仍应进入任务，待确认事项仍使用独立 QID，任务执行和验收仍写入工作记录。
 
 写入触发规则：
@@ -1651,9 +1655,10 @@ function handoffTemplate(projectRoot: string) {
 1. 先读取 Electron Manager 管理数据目录中的 \`agent-brief.json\`。
 2. 再读取 \`skills/project-collaboration/SKILL.md\`，写任务和工作记录时必须遵守其中规则。
 3. 需要完整上下文时读取 \`00_项目管理/工程任务.md\` 和 \`04_记录库/Agent 工作记录.md\`。
-4. 执行任务前更新任务状态为 doing。
-5. 完成验收后更新任务状态为 done，并写入工作记录。
-6. 整理输入/想法时只写回想法回答和必要任务卡；没有执行工程任务时，不写入 Agent 工作记录。
+4. 处理 \`Dxxx\` 研究时读取 \`04_记录库/研究.md\`，同时使用 \`### 内容\` 和 \`### 验收标准\`；验收标准是回答或执行的完成口径。
+5. 执行任务前更新任务状态为 doing。
+6. 完成验收后更新任务状态为 done，并写入工作记录。
+7. 整理输入/想法时只写回想法回答和必要任务卡；没有执行工程任务时，不写入 Agent 工作记录。
 
 ## 工作流顺序
 
@@ -1663,6 +1668,7 @@ function handoffTemplate(projectRoot: string) {
 
 - 想法是入口，任务是执行单位，工作记录是任务执行后的记录。
 - 研究保存思路演进、关键问答、方案比较、技术背景、重要约定和上下文，使用 \`Dxxx\` 引用。
+- 处理研究时不要只看标题或内容；必须检查同一条记录的 \`### 验收标准\`，并用它校准回答深度、列举范围、验证方式或交付边界。
 - 想法被采纳时，在 \`### 回答\` 中写清关联任务短 ID。
 - 待确认事项是独立 QID；用 relation 标明关联的 \`Txxx\`、\`Ixxx\` 或工作记录引用 \`Lxxx\`。
 - 任务开始前更新为 \`doing\`，验收通过后更新为 \`done\`。
@@ -1837,6 +1843,7 @@ Use this skill when working on this project with Electron Manager initialized da
 - Treat work logs as task execution byproducts. Use \`Lxxx\` only for reference, jump, and audit trails; do not treat logs as execution modules.
 - Use knowledge notes in \`01_知识结构/\` for stable knowledge, detailed answers, documents, decisions refined from research notes, runbooks, and reusable context. Reference them as \`Kxxx\`. The Knowledge Base view shows only \`Kxxx\` notes; the Documents view shows all Markdown files as the local data-layer browser. Research notes do not automatically become knowledge notes; when the user asks to distill or summarize into knowledge, collect currently undistilled \`Dxxx\`, compare them with existing \`Kxxx\`, then create, update, merge, or refine knowledge. If there is a conflict or missing decision, create an open question linked to the relevant \`Dxxx\`/\`Kxxx\`.
 - Use research notes in \`04_记录库/研究.md\` for learning/research thought evolution, key Q&A, comparisons, technical background, and important project decisions or context. Reference them as \`Dxxx\`. Research entries should use \`### 内容\`, \`### 回答\`, and \`### 验收标准\`; keep \`### 回答\` brief and put detailed answers or reusable conclusions into knowledge notes. If the user explicitly asks to save something, write a record; if you judge something is worth preserving, ask before saving it. Executable work still belongs in tasks, task execution still belongs in agent logs, and open questions still use QIDs.
+- When a user asks an agent to answer, continue, verify, or execute a \`Dxxx\` research record, read that specific record from \`04_记录库/研究.md\` and treat its \`### 验收标准\` as the completion criteria. Do not answer from \`### 内容\` alone unless the acceptance section is explicitly \`无\` or \`暂无\`.
 - If an input/thought itself raises an open question, add \`### 未确认事项\`; Electron Manager displays it as a QID with the thought's \`Ixxx\` relation.
 - When handling an input/thought in \`04_记录库/想法与问题.md\`, do not only change \`status\`; add \`### 回答\` with the conclusion, related task short ID, or reason for not acting.
 - Follow the workflow: thought/input -> answered triage -> optional task -> task status -> agent log after task execution and verification.
@@ -1847,7 +1854,7 @@ Use this skill when working on this project with Electron Manager initialized da
 ## Copyable Sync Prompt
 
 \`\`\`text
-请读取当前项目的 .agent-collaboration.md，找到 Electron Manager 数据目录；然后读取 agent-brief.json 和 skills/project-collaboration/SKILL.md。先按 brief 建立上下文；只有执行具体任务时，再按 brief.paths/skill 读取对应 Markdown。按 brief/skill 更新任务状态和工作记录，不要回滚无关改动。
+请读取当前项目的 .agent-collaboration.md，找到 Electron Manager 数据目录；然后读取 agent-brief.json 和 skills/project-collaboration/SKILL.md，按这些文件中的规则建立上下文并协作。
 \`\`\`
 `
 }

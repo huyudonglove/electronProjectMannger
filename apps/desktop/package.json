@@ -5,15 +5,18 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && vite build --config vite.renderer.config.ts",
     "dev": "pnpm build && electron .",
     "start": "electron ."
   },
   "dependencies": {
     "@electron-manager/project-core": "workspace:*",
-    "electron": "^39.2.6"
+    "electron": "^39.2.6",
+    "vue": "^3.5.39"
   },
   "devDependencies": {
-    "@types/node": "^24.13.2"
+    "@types/node": "^24.13.2",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "vite": "^8.1.3"
   }
 }

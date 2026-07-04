@@ -42,7 +42,7 @@ async function createWindow() {
     },
   })
 
-  await mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
+  await mainWindow.loadFile(path.join(__dirname, '..', 'renderer-vue', 'index.html'))
 
   if (process.env.ELECTRON_MANAGER_DEVTOOLS === '1') {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
