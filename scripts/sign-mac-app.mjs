@@ -15,3 +15,4 @@ function run(command, args) {
 run('xattr', ['-cr', appPath])
 run('codesign', ['--force', '--deep', '--sign', '-', '--timestamp=none', appPath])
 run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])
+run('xattr', ['-cr', appPath])

@@ -19,6 +19,8 @@ declare global {
       addThought: (projectRoot: string, content: string) => Promise<any>
       deleteThought: (projectRoot: string, thoughtId: string) => Promise<any>
       addDialogue: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      addConstraint: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      deleteConstraint: (projectRoot: string, constraintId: string) => Promise<any>
       replyOpenQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
       onProjectDataChanged?: (callback: (payload: AnyRecord) => void) => () => void
     }
@@ -64,17 +66,11 @@ const icons: Record<string, string> = {
   refresh: '<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M3 21v-5h5" /><path d="M3 12a9 9 0 0 1 15.74-6.26L21 8" /><path d="M16 8h5V3" />',
   rotateLeft: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
   scrollText: '<path d="M8 21h8" /><path d="M12 21V7" /><path d="M16 7h3a2 2 0 0 1 2 2v8" /><path d="M8 7H5a2 2 0 0 0-2 2v8" /><path d="M7 3h10" /><path d="M7 7h10" />',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="M9 12l2 2 4-5" />',
   slash: '<circle cx="12" cy="12" r="8" /><path d="M7 17 17 7" />',
   sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
   trash: '<path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 13h10l1-13" /><path d="M9 7V4h6v3" />',
   x: '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
-}
-
-const taskActionIcons: Record<string, string> = {
-  abandoned: 'slash',
-  doing: 'play',
-  done: 'check',
-  todo: 'cornerUpLeft',
 }
 
 const sections = [
@@ -84,8 +80,12 @@ const sections = [
   ['dialogues', '研究', 'messagesSquare'],
   ['collaboration', '协作', 'gitPullRequest'],
   ['agent-logs', '工作记录', 'scrollText'],
-  ['knowledge', '知识库', 'bookOpen'],
   ['documents', '文档', 'fileText'],
+  ['constraints', '约束', 'shield'],
+] as const
+
+const utilitySections = [
+  ['knowledge', '知识库', 'bookOpen'],
 ] as const
 
 const state = reactive({
@@ -100,17 +100,16 @@ const state = reactive({
   autoRefreshing: false,
   selectedLogIndex: 0,
   dialogueTocCollapsed: false,
-  knowledgeTocCollapsed: false,
   quickOpen: false,
   quickCreateMode: '',
   replyItem: null as AnyRecord | null,
+  markdownDocument: null as AnyRecord | null,
   status: '等待选择项目',
   theme: 'dark',
   toasts: [] as Array<{ id: number; message: string; leaving: boolean }>,
   highlightedTask: '',
   highlightedThought: '',
   highlightedDialogue: -1,
-  highlightedKnowledge: -1,
   highlightedLog: -1,
 })
 
@@ -119,12 +118,12 @@ const thoughtForm = reactive({ content: '', status: '' })
 const quickTaskForm = reactive({ title: '', priority: 'medium', detail: '', acceptance: '', status: '' })
 const quickThoughtForm = reactive({ content: '', status: '' })
 const quickDialogueForm = reactive({ content: '', acceptance: '', status: '' })
+const quickConstraintForm = reactive({ title: '', content: '', status: '' })
 const replyForm = reactive({ answer: '', status: '' })
 
 const taskRefs = new Map<string, Element>()
 const thoughtRefs = new Map<string, Element>()
 const dialogueRefs = new Map<number, Element>()
-const knowledgeRefs = new Map<number, Element>()
 const logRefs = new Map<number, Element>()
 
 const dashboard = computed(() => state.dashboard)
@@ -133,6 +132,7 @@ const thoughts = computed(() => dashboard.value?.thoughts || [])
 const dialogues = computed(() => dashboard.value?.dialogues || [])
 const knowledge = computed(() => dashboard.value?.knowledge || [])
 const documents = computed(() => dashboard.value?.documents || [])
+const constraints = computed(() => dashboard.value?.constraints || [])
 const logs = computed(() => dashboard.value?.logs || [])
 const openQuestions = computed(() => dashboard.value?.openQuestions || [])
 const replyRecords = computed(() => dashboard.value?.replyRecords || [])
@@ -158,6 +158,8 @@ const statusDescription = computed(() => {
 })
 
 const groupedDocuments = computed(() => groupDocumentsByFolder(documents.value))
+const userConstraints = computed(() => constraints.value.filter((item: AnyRecord) => item.source !== 'system'))
+const systemConstraints = computed(() => constraints.value.filter((item: AnyRecord) => item.source === 'system'))
 
 onMounted(() => {
   applyTheme(localStorage.getItem('electron-manager-theme') || 'dark')
@@ -176,7 +178,8 @@ function icon(name: string) {
 }
 
 function setActiveSection(section: string) {
-  state.section = sections.some(([key]) => key === section) ? section : 'overview'
+  const validSections = [...sections, ...utilitySections]
+  state.section = validSections.some(([key]) => key === section) ? section : 'overview'
   history.replaceState(null, '', `#${state.section}`)
 }
 
@@ -273,6 +276,11 @@ async function openProjectPath(projectRoot: string) {
 }
 
 async function removeRecentProject(projectId: string) {
+  if (!String(projectId || '').trim()) {
+    state.status = '项目 ID 不能为空。'
+    return
+  }
+  if (!confirm('移除这条最近项目记录？项目文件和管理数据不会被删除。')) return
   await runAction('正在移除历史记录...', async () => {
     const api = ensureApi()
     state.recentProjects = sortRecentProjects(await api.removeRecentProject(projectId))
@@ -308,6 +316,16 @@ async function openDataRoot() {
     const api = ensureReady()
     const folderPath = dashboard.value?.agentBrief?.dataRoot
     if (!api || !folderPath) throw new Error('数据层路径不存在')
+    await api.openFolderPath(folderPath)
+    state.status = ''
+  })
+}
+
+async function openKnowledgeRoot() {
+  await runAction('正在打开知识库...', async () => {
+    const api = ensureReady()
+    const folderPath = dashboard.value?.agentBrief?.knowledgeRoot
+    if (!api || !folderPath) throw new Error('知识库路径不存在')
     await api.openFolderPath(folderPath)
     state.status = ''
   })
@@ -400,7 +418,57 @@ async function saveDialogue() {
   })
 }
 
+async function saveConstraint() {
+  await runAction('正在保存约束...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    const title = quickConstraintForm.title.trim()
+    const content = quickConstraintForm.content.trim()
+    if (!title) {
+      quickConstraintForm.status = '先写约束标题'
+      return
+    }
+    if (!content) {
+      quickConstraintForm.status = '先写约束内容'
+      return
+    }
+    quickConstraintForm.status = '保存中...'
+    updateDashboard(await api.addConstraint(state.projectRoot, {
+      title,
+      content,
+      scope: 'project',
+      status: 'active',
+    }))
+    quickConstraintForm.title = ''
+    quickConstraintForm.content = ''
+    quickConstraintForm.status = ''
+    closeQuickTask()
+    showToast('已保存')
+    state.status = ''
+  })
+}
+
+async function deleteConstraintRecord(constraint: AnyRecord) {
+  if (constraint.source === 'system') return
+  if (!String(constraint.id || '').trim()) {
+    state.status = '约束 ID 不能为空。'
+    return
+  }
+  if (!confirm(`删除这条项目约束？\n\n${constraint.shortId || ''} ${constraint.title || ''}`.trim())) return
+  await runAction('正在删除约束...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    updateDashboard(await api.deleteConstraint(state.projectRoot, constraint.id))
+    state.status = ''
+  })
+}
+
 async function deleteThought(thoughtId: string) {
+  if (!String(thoughtId || '').trim()) {
+    state.status = '输入 ID 不能为空。'
+    return
+  }
+  if (!confirm('删除这条输入/想法？')) return
   await runAction('正在删除输入...', async () => {
     const api = ensureReady()
     if (!api) return
@@ -410,6 +478,10 @@ async function deleteThought(thoughtId: string) {
 }
 
 async function deleteTask(taskId: string) {
+  if (!String(taskId || '').trim()) {
+    state.status = '任务 ID 不能为空。'
+    return
+  }
   if (!confirm('删除这张任务卡？')) return
   await runAction('正在删除任务...', async () => {
     const api = ensureReady()
@@ -420,6 +492,14 @@ async function deleteTask(taskId: string) {
 }
 
 async function updateTaskStatus(taskId: string, status: string) {
+  if (!String(taskId || '').trim()) {
+    state.status = '任务 ID 不能为空。'
+    return
+  }
+  if (!String(status || '').trim()) {
+    state.status = '任务状态不能为空。'
+    return
+  }
   await runAction('正在更新任务状态...', async () => {
     const api = ensureReady()
     if (!api) return
@@ -449,6 +529,10 @@ async function submitReply() {
     const answer = replyForm.answer.trim()
     if (!answer) {
       replyForm.status = '先写回复'
+      return
+    }
+    if (!String(item.openQuestions || '').trim()) {
+      replyForm.status = '待确认内容不能为空'
       return
     }
     replyForm.status = '保存中...'
@@ -528,11 +612,6 @@ function setDialogueRef(index: number, el: Element | null) {
   else dialogueRefs.delete(index)
 }
 
-function setKnowledgeRef(index: number, el: Element | null) {
-  if (el) knowledgeRefs.set(index, el)
-  else knowledgeRefs.delete(index)
-}
-
 function setLogRef(index: number, el: Element | null) {
   if (el) logRefs.set(index, el)
   else logRefs.delete(index)
@@ -560,8 +639,12 @@ function openDialogue(index: number) {
   scrollToRef(dialogueRefs, index, () => { state.highlightedDialogue = index }, () => { state.highlightedDialogue = -1 })
 }
 
-function openKnowledge(index: number) {
-  scrollToRef(knowledgeRefs, index, () => { state.highlightedKnowledge = index }, () => { state.highlightedKnowledge = -1 })
+function openMarkdownDocument(note: AnyRecord, kind: 'knowledge' | 'document' | 'constraint') {
+  state.markdownDocument = { ...note, kind }
+}
+
+function closeMarkdownDocument() {
+  state.markdownDocument = null
 }
 
 function openAgentLog(index: number) {
@@ -588,27 +671,6 @@ function boardItems(status: string) {
 function hiddenDoneCount(status: string) {
   if (status !== 'done') return 0
   return tasks.value.filter((task: AnyRecord) => task.status === 'done').length - boardItems(status).length
-}
-
-function taskActions(task: AnyRecord) {
-  if (task.status === 'todo') {
-    return [
-      { status: 'doing', label: '开始' },
-      { status: 'done', label: '完成' },
-      { status: 'abandoned', label: 'Abandon' },
-    ]
-  }
-  if (task.status === 'doing') {
-    return [
-      { status: 'done', label: '完成' },
-      { status: 'todo', label: '退回' },
-      { status: 'abandoned', label: 'Abandon' },
-    ]
-  }
-  if (task.status === 'done') return [{ status: 'todo', label: '重开' }]
-  if (task.status === 'backlog') return [{ status: 'todo', label: '移入待办' }]
-  if (task.status === 'abandoned') return [{ status: 'todo', label: '恢复' }]
-  return []
 }
 
 function boardSummaryParts() {
@@ -639,8 +701,13 @@ function dialogueTocSummary(dialogue: AnyRecord) {
   return summary.length > 44 ? `${summary.slice(0, 44).trimEnd()}...` : summary || formatTime(dialogue.created)
 }
 
+function dialogueSummary(dialogue: AnyRecord) {
+  const text = String(dialogue.recordContent || dialogue.answer || '').replace(/\s+/g, ' ').trim()
+  return text.length > 180 ? `${text.slice(0, 180).trimEnd()}...` : text || '暂无概要。'
+}
+
 function dialogueRefsList(dialogue: AnyRecord) {
-  return [...(dialogue.relatedTasks || []), ...(dialogue.relatedThoughts || []), ...(dialogue.tags || []).map((tag: string) => `#${tag}`)]
+  return [...(dialogue.relatedTasks || []), ...(dialogue.relatedThoughts || []), ...(dialogue.relatedDocuments || []), ...(dialogue.tags || []).map((tag: string) => `#${tag}`)]
 }
 
 function resolveLogTasks(log: AnyRecord) {
@@ -653,6 +720,75 @@ function resolveLogTasks(log: AnyRecord) {
       status: task.status || matched?.status || '',
     }
   })
+}
+
+function replyFollowUpState(item: AnyRecord) {
+  const laterLog = findLaterHandlingLog(item)
+  if (laterLog) {
+    return {
+      label: '已处理',
+      badgeClass: '',
+      title: `回复后已有相关工作记录：${formatTime(laterLog.created)}`,
+    }
+  }
+
+  if (item.source === 'task') {
+    const task = tasks.value.find((record: AnyRecord) => record.shortId === item.shortId)
+    if (['done', 'abandoned'].includes(task?.status) && displayTimeKey(task.updated) > displayTimeKey(item.replyCreated)) {
+      return { label: '已处理', badgeClass: '', title: `关联任务状态：${statusText(task.status)}` }
+    }
+    if (task?.status === 'doing') {
+      return { label: '处理中', badgeClass: 'warning-badge', title: '关联任务正在处理' }
+    }
+    return { label: '待跟进', badgeClass: 'warning-badge', title: '已回复，关联任务尚未完成' }
+  }
+
+  if (item.source === 'thought') {
+    const thought = thoughts.value.find((record: AnyRecord) => record.shortId === item.shortId)
+    if (['done', 'handled'].includes(thought?.status)) {
+      return { label: '已处理', badgeClass: '', title: `关联想法状态：${statusText(thought.status)}` }
+    }
+    return { label: '待跟进', badgeClass: 'warning-badge', title: '已回复，关联想法尚未标记处理完成' }
+  }
+
+  if (item.source === 'log') {
+    return { label: '待跟进', badgeClass: 'warning-badge', title: '已回复，尚未看到回复后的相关工作记录' }
+  }
+
+  return { label: '已记录', badgeClass: 'muted-badge', title: '回复已记录' }
+}
+
+function findLaterHandlingLog(item: AnyRecord) {
+  const replyKey = displayTimeKey(item.replyCreated)
+  if (!replyKey) return null
+  return logs.value.find((log: AnyRecord) => displayTimeKey(log.created) > replyKey && logMatchesReply(log, item)) || null
+}
+
+function logMatchesReply(log: AnyRecord, item: AnyRecord) {
+  const text = [
+    log.shortId,
+    log.title,
+    log.userGoal,
+    log.userOriginal,
+    log.understanding,
+    log.answer,
+    log.executionScope,
+    log.acceptance,
+    ...(log.outputs || []),
+    ...(log.keySteps || []),
+    ...(log.decisions || []),
+    ...(log.actions || []),
+    ...(log.changedFiles || []),
+    ...(log.verification || []),
+    ...(log.followUps || []),
+    log.content,
+  ].map((value) => String(value || '')).join('\n')
+  if (item.questionId && text.includes(item.questionId)) return true
+  if (item.displayId && text.includes(item.displayId)) return true
+  if (item.openQuestions && text.includes(item.openQuestions)) return true
+  if (item.shortId && text.includes(item.shortId)) return true
+  if (item.shortId && resolveLogTasks(log).some((task: AnyRecord) => task.shortId === item.shortId)) return true
+  return false
 }
 
 function primaryLogPrompt(log: AnyRecord) {
@@ -678,15 +814,70 @@ function knowledgeSummaryHeadline(summary: string, fallbackTitle: string) {
   return text.split(/[。.!！\n]/).map((item) => item.trim()).find(Boolean) || ''
 }
 
-function knowledgeTocSummary(note: AnyRecord, displayTitle: string) {
-  if (displayTitle !== note.title) return note.title
-  return note.summary || noteCategory(note.path)
-}
-
 function knowledgeDisplaySummary(note: AnyRecord, displayTitle: string) {
   const summary = String(note.summary || '').trim()
   if (isUsefulKnowledgeSummary(summary, note.title)) return summary
   return knowledgeSectionSummary(note.content, displayTitle) || summary || '暂无摘要。'
+}
+
+function documentDisplayTitle(note: AnyRecord) {
+  return note.title || note.path?.split(/[\\/]/).pop()?.replace(/\.md$/, '') || '未命名文档'
+}
+
+function noteCardSummary(note: AnyRecord, kind: 'knowledge' | 'document') {
+  const title = kind === 'knowledge' ? knowledgeDisplayTitle(note) : documentDisplayTitle(note)
+  const summary = kind === 'knowledge'
+    ? knowledgeDisplaySummary(note, title)
+    : String(note.summary || firstMeaningfulLine(note.content || '') || '').trim()
+  const text = summary || firstMeaningfulLine(note.content || '') || '暂无摘要。'
+  return text.length > 96 ? `${text.slice(0, 96).trimEnd()}...` : text
+}
+
+function noteOriginProject(note: AnyRecord, kind: 'knowledge' | 'document') {
+  if (kind === 'document') return dashboard.value?.config?.name || projectDisplayName(state.projectRoot) || '当前项目'
+  const fields = noteFields(note)
+  const project = note.sourceProject || fields.source_project || fields.sourceProject || fields.project || fields.project_name || fields.projectName
+  return validRefs([project])[0] || '未标注项目'
+}
+
+function noteFields(note: AnyRecord) {
+  const fields: Record<string, string> = {}
+  String(note.content || '').split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^([A-Za-z0-9_-]+)::\s*(.+)$/)
+    if (match) fields[match[1]] = match[2].trim()
+  })
+  return fields
+}
+
+function markdownDialogTitle() {
+  const note = state.markdownDocument
+  if (!note) return ''
+  if (note.kind === 'constraint') return note.title || '项目约束'
+  return note.kind === 'knowledge' ? knowledgeDisplayTitle(note) : documentDisplayTitle(note)
+}
+
+function markdownDialogSubtitle() {
+  const note = state.markdownDocument
+  if (!note) return ''
+  if (note.kind === 'constraint') return `约束 · ${note.path || '未标注路径'}`
+  return `${note.kind === 'knowledge' ? '知识库' : '文档'} · ${note.path || '未标注路径'}`
+}
+
+function markdownDialogOrigin() {
+  const note = state.markdownDocument
+  if (!note) return ''
+  if (note.kind === 'constraint') return note.source === 'system' ? '系统规则' : (dashboard.value?.config?.name || projectDisplayName(state.projectRoot) || '当前项目')
+  return noteOriginProject(note, note.kind)
+}
+
+function markdownDialogBadges() {
+  const note = state.markdownDocument
+  if (!note) return []
+  if (note.kind === 'constraint') return validRefs([note.shortId, constraintStatusText(note.status), note.scope, note.source === 'system' ? '只读' : '可编辑'])
+  const refs = note.kind === 'knowledge'
+    ? [note.shortId, note.status, note.source, ...(note.relatedRecords || []), ...(note.relatedTasks || []), ...(note.relatedNotes || [])]
+    : [note.shortId, note.type, note.status]
+  return validRefs(refs)
 }
 
 function isUsefulKnowledgeSummary(summary: string, title: string) {
@@ -828,10 +1019,10 @@ function renderReadableMarkdown(markdown: string) {
       closeList()
       continue
     }
-    const heading = line.match(/^(#{2,4})\s+(.+)$/)
+    const heading = line.match(/^(#{1,4})\s+(.+)$/)
     if (heading) {
       closeList()
-      const level = heading[1].length === 2 ? 'h4' : 'h5'
+      const level = heading[1].length <= 2 ? 'h4' : 'h5'
       html.push(`<${level}>${escapeHtml(heading[2])}</${level}>`)
       continue
     }
@@ -871,12 +1062,29 @@ function firstMeaningfulLine(value: string) {
 }
 
 function noteCategory(filePath: string) {
-  if (filePath.startsWith('00_')) return '项目管理'
-  if (filePath.startsWith('01_')) return '知识结构'
-  if (filePath.startsWith('02_')) return '运行说明'
-  if (filePath.startsWith('03_')) return '可视化入口'
-  if (filePath.startsWith('04_')) return '记录'
+  if (filePath.startsWith('tasks/')) return '任务'
+  if (filePath.startsWith('thoughts/')) return '想法'
+  if (filePath.startsWith('research/')) return '研究'
+  if (filePath.startsWith('collaboration/')) return '协作'
+  if (filePath.startsWith('work-logs/')) return '工作记录'
+  if (filePath.startsWith('documents/')) return '文档'
+  if (filePath.startsWith('constraints/')) return '约束'
+  if (filePath.startsWith('knowledge/')) return '知识库'
   return '文档'
+}
+
+function constraintStatusText(status: string) {
+  return {
+    active: '生效中',
+    draft: '草稿',
+    archived: '已归档',
+    readonly: '只读',
+  }[status] || status || '生效中'
+}
+
+function constraintSummary(constraint: AnyRecord) {
+  const text = String(constraint.summary || firstMeaningfulLine(constraint.content || '') || '').replace(/\s+/g, ' ').trim()
+  return text.length > 120 ? `${text.slice(0, 120).trimEnd()}...` : text || '暂无摘要。'
 }
 
 function syncEntryText(brief: AnyRecord) {
@@ -898,6 +1106,12 @@ function formatTime(value: string) {
   if (Number.isNaN(date.getTime())) return value
   const pad = (number: number) => String(number).padStart(2, '0')
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function displayTimeKey(value: string) {
+  if (!value) return 0
+  const date = parseDisplayDate(value)
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime()
 }
 
 function parseDisplayDate(value: any) {
@@ -945,6 +1159,17 @@ function escapeHtml(value: any) {
         </a>
       </nav>
       <div class="sidebar-footer">
+        <a
+          v-for="[key, label, iconName] in utilitySections"
+          :key="key"
+          :href="`#${key}`"
+          class="utility-nav-link"
+          :class="{ active: state.section === key }"
+          @click.prevent="setActiveSection(key)"
+        >
+          <span class="nav-icon" v-html="icon(iconName)" />
+          <span>{{ label }}</span>
+        </a>
         <button class="theme-toggle" type="button" :aria-pressed="state.theme === 'dark'" :title="state.theme === 'dark' ? '切换亮色模式' : '切换暗色模式'" @click="toggleTheme">
           <span class="theme-toggle-icon" v-html="icon(activeThemeIcon)" />
           <span class="theme-toggle-label">{{ state.theme === 'dark' ? '暗色' : '亮色' }}</span>
@@ -999,6 +1224,10 @@ function escapeHtml(value: any) {
             <div class="stat-head"><span class="stat-icon" v-html="icon('scrollText')" /><span>记录</span></div>
             <strong>{{ logs.length }}</strong>
           </article>
+          <article class="card stat">
+            <div class="stat-head"><span class="stat-icon" v-html="icon('shield')" /><span>约束</span></div>
+            <strong>{{ constraints.length }}</strong>
+          </article>
         </div>
         <div class="card paths">
           <div>
@@ -1010,6 +1239,13 @@ function escapeHtml(value: any) {
             <div class="path-value">
               <code>{{ dashboard?.agentBrief?.dataRoot || '初始化后显示' }}</code>
               <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开数据层文件夹" aria-label="打开数据层文件夹" :disabled="state.busy || !state.initialized || !dashboard?.agentBrief?.dataRoot" @click="openDataRoot" v-html="icon('folderOpen')" />
+            </div>
+          </div>
+          <div>
+            <span>全局知识库</span>
+            <div class="path-value">
+              <code>{{ dashboard?.agentBrief?.knowledgeRoot || '初始化后显示' }}</code>
+              <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开知识库文件夹" aria-label="打开知识库文件夹" :disabled="state.busy || !state.initialized || !dashboard?.agentBrief?.knowledgeRoot" @click="openKnowledgeRoot" v-html="icon('folderOpen')" />
             </div>
           </div>
         </div>
@@ -1078,9 +1314,6 @@ function escapeHtml(value: any) {
                   <span class="badge" :class="statusBadgeClass(task.status)">{{ statusText(task.status) }}</span>
                 </div>
                 <p v-if="task.detail">{{ String(task.detail).slice(0, 180) }}</p>
-                <div class="task-actions">
-                  <button v-for="action in taskActions(task)" :key="action.status" class="btn icon-button btn-outline-secondary btn-sm" type="button" :title="action.label" :aria-label="action.label" @click="updateTaskStatus(task.id, action.status)" v-html="icon(taskActionIcons[action.status] || 'check')" />
-                </div>
               </article>
               <button v-if="status === 'done' && tasks.filter((task: AnyRecord) => task.status === 'done').length > 6" class="done-toggle" type="button" @click="state.doneExpanded = !state.doneExpanded">
                 {{ state.doneExpanded ? '收起已完成任务' : `展开 ${hiddenDoneCount(status)} 个已完成任务` }}
@@ -1109,10 +1342,10 @@ function escapeHtml(value: any) {
                     <div><span class="task-short-id">{{ dialogue.shortId || 'D000' }}</span><strong>{{ dialogueDisplayTitle(dialogue) }}</strong></div>
                     <div class="dialogue-actions"><small>{{ formatTime(dialogue.created) }}</small></div>
                   </div>
-                  <section v-if="dialogue.recordContent" class="dialogue-block dialogue-prompt"><strong>内容</strong><p>{{ dialogue.recordContent }}</p></section>
+                  <section class="dialogue-block dialogue-prompt"><strong>概要</strong><p>{{ dialogueSummary(dialogue) }}</p></section>
                   <section class="dialogue-block dialogue-answer">
-                    <div class="dialogue-block-head"><strong>回答</strong><span>Agent</span></div>
-                    <div class="rendered-markdown" v-html="renderReadableMarkdown(dialogue.answer || '暂无。')" />
+                    <div class="dialogue-block-head"><strong>详细文档</strong><span>Wxxx</span></div>
+                    <p>{{ dialogue.answer || '暂无关联文档。' }}</p>
                   </section>
                   <section class="dialogue-block dialogue-meta-block"><strong>验收标准</strong><p>{{ dialogue.acceptance || '无。' }}</p></section>
                   <div v-if="dialogueRefsList(dialogue).length" class="dialogue-relations"><span v-for="ref in dialogueRefsList(dialogue)" :key="ref" class="badge muted-badge">{{ ref }}</span></div>
@@ -1150,7 +1383,7 @@ function escapeHtml(value: any) {
                     <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看" aria-label="查看" @click="openQuestionTarget(item)" v-html="icon('eye')" />
                   </div>
                   <div class="collab-open-main">
-                    <div class="collab-question-id-row"><span class="task-short-id" :title="item.id || ''">{{ item.displayId || item.id || 'Q000' }}</span></div>
+                    <div class="collab-question-id-row"><span class="task-short-id" :title="item.id || ''">{{ item.displayId || item.id }}</span></div>
                     <strong class="collab-question-title">{{ item.title }}</strong>
                     <p class="collab-question-text">{{ item.openQuestions }}</p>
                   </div>
@@ -1166,16 +1399,17 @@ function escapeHtml(value: any) {
               <div class="collab-reply-list">
                 <article v-for="(item, index) in replyRecords" :key="item.questionId || index" class="collab-reply-item">
                   <div class="collab-card-top-right">
+                    <span class="badge" :class="replyFollowUpState(item).badgeClass" :title="replyFollowUpState(item).title">{{ replyFollowUpState(item).label }}</span>
                     <span v-for="relation in item.relations || []" :key="relation" class="badge muted-badge">{{ relation }}</span>
                     <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看" aria-label="查看" @click="openQuestionTarget(item)" v-html="icon('eye')" />
                   </div>
                   <div class="collab-reply-main">
-                    <div class="collab-question-id-row"><span class="task-short-id" :title="item.questionId || ''">{{ item.displayId || item.questionId || 'Q000' }}</span></div>
+                    <div class="collab-question-id-row"><span class="task-short-id" :title="item.questionId || ''">{{ item.displayId || item.questionId }}</span></div>
                     <strong class="collab-question-title">{{ item.title }}</strong>
                     <p class="collab-question-text">{{ item.openQuestions || '暂无内容' }}</p>
                     <div class="collab-reply-answer"><time>{{ formatTime(item.replyCreated) }}</time><p>回复：{{ item.replyAnswer || item.reply || '暂无内容' }}</p></div>
                   </div>
-                  <div class="collab-card-bottom-left"><div class="collab-question-meta"><time>{{ item.created ? formatTime(item.created) : '未知时间' }}</time></div></div>
+                  <div class="collab-card-bottom-left"><div class="collab-question-meta"><time>来源：{{ item.created ? formatTime(item.created) : '未知时间' }}</time><span>{{ replyFollowUpState(item).title }}</span></div></div>
                 </article>
               </div>
             </section>
@@ -1232,54 +1466,79 @@ function escapeHtml(value: any) {
       </section>
 
       <section id="knowledge" class="section view" :class="{ 'active-view': state.section === 'knowledge' }">
-        <div class="section-head"><h2>知识库</h2><span></span></div>
-        <div class="knowledge-layout" :class="{ 'toc-collapsed': state.knowledgeTocCollapsed }">
-          <p v-if="!knowledge.length" class="empty-panel">暂无知识条目。</p>
-          <template v-else>
-            <div class="knowledge-list-wrap">
-              <div class="knowledge-list-spacer" aria-hidden="true"></div>
-              <div class="knowledge-list">
-                <article v-for="(note, index) in knowledge" :key="note.path || note.shortId || index" :ref="(el) => setKnowledgeRef(index, el as Element | null)" class="card knowledge-item" :class="{ 'knowledge-highlight': state.highlightedKnowledge === index }">
-                  <div class="knowledge-head">
-                    <div><span class="task-short-id">{{ note.shortId || 'K000' }}</span><strong>{{ knowledgeDisplayTitle(note) }}</strong><small v-if="knowledgeDisplayTitle(note) !== note.title">{{ note.title }}</small></div>
-                    <div class="knowledge-actions"><span class="badge muted-badge">{{ knowledgeStatusText(note.status) }}</span><small v-if="note.updated">{{ formatTime(note.updated) }}</small></div>
-                  </div>
-                  <section class="knowledge-block"><strong>重点</strong><p>{{ knowledgeDisplaySummary(note, knowledgeDisplayTitle(note)) }}</p></section>
-                  <section class="knowledge-block knowledge-body"><strong>详细答案</strong><div class="rendered-markdown" v-html="renderReadableMarkdown(knowledgeBodyContent(note.content))" /></section>
-                  <div v-if="note.tags?.length" class="knowledge-tags"><span v-for="tag in note.tags" :key="tag" class="badge muted-badge">#{{ tag }}</span></div>
-                  <div v-if="validRefs([note.source, ...(note.relatedRecords || []), ...(note.relatedTasks || []), ...(note.relatedNotes || [])]).length" class="knowledge-tags"><span v-for="ref in validRefs([note.source, ...(note.relatedRecords || []), ...(note.relatedTasks || []), ...(note.relatedNotes || [])])" :key="ref" class="badge">{{ ref }}</span></div>
-                </article>
-              </div>
-            </div>
-            <aside class="knowledge-index" :class="{ 'is-collapsed': state.knowledgeTocCollapsed }">
-              <div class="section-head compact-head knowledge-index-head">
-                <h2>{{ state.knowledgeTocCollapsed ? '' : '目录' }}</h2>
-                <button class="btn icon-button btn-outline-secondary btn-sm" type="button" :title="state.knowledgeTocCollapsed ? '展开目录' : '收起目录'" :aria-label="state.knowledgeTocCollapsed ? '展开目录' : '收起目录'" @click="state.knowledgeTocCollapsed = !state.knowledgeTocCollapsed" v-html="icon(state.knowledgeTocCollapsed ? 'panelRightOpen' : 'panelRightClose')" />
-              </div>
-              <div v-if="!state.knowledgeTocCollapsed" class="knowledge-toc">
-                <button v-for="(note, index) in knowledge" :key="note.path || index" class="knowledge-toc-item" type="button" @click="openKnowledge(index)">
-                  <span>{{ note.shortId || 'K000' }}</span>
-                  <strong>{{ knowledgeDisplayTitle(note) }}</strong>
-                  <small>{{ knowledgeTocSummary(note, knowledgeDisplayTitle(note)) }}</small>
-                </button>
-              </div>
-            </aside>
-          </template>
+        <div class="section-head"><h2>知识库</h2><span>{{ knowledge.length }} 条</span></div>
+        <div class="library-shelf">
+          <div v-if="!knowledge.length" class="empty-panel empty-state">
+            <span class="empty-state-icon" v-html="icon('bookOpen')" />
+            <strong>暂无知识条目</strong>
+          </div>
+          <div v-else class="library-grid knowledge-card-grid">
+            <button v-for="(note, index) in knowledge" :key="note.path || note.shortId || index" class="library-card" type="button" @click="openMarkdownDocument(note, 'knowledge')">
+              <span class="library-card-icon" v-html="icon('bookOpen')" />
+              <span class="library-card-kicker"><span>{{ note.shortId || 'K000' }}</span><span>{{ knowledgeStatusText(note.status) }}</span></span>
+              <strong>{{ knowledgeDisplayTitle(note) }}</strong>
+              <small>{{ noteCardSummary(note, 'knowledge') }}</small>
+              <span class="library-card-origin">出处：{{ noteOriginProject(note, 'knowledge') }}</span>
+            </button>
+          </div>
         </div>
       </section>
 
       <section id="documents" class="section view" :class="{ 'active-view': state.section === 'documents' }">
         <div class="section-head"><h2>文档</h2><span>{{ documents.length }} 条</span></div>
-        <div class="notes">
-          <p v-if="!documents.length" class="empty-panel">暂无文档。</p>
+        <div class="library-shelf">
+          <div v-if="!documents.length" class="empty-panel empty-state documents-empty-state">
+            <span class="empty-state-icon" v-html="icon('fileText')" />
+            <strong>暂无文档</strong>
+          </div>
           <section v-for="(notes, folder) in groupedDocuments" :key="folder" class="document-group">
             <div class="knowledge-group-head"><strong>{{ folder || '根目录' }}</strong><span>{{ notes.length }} 条</span></div>
-            <div class="document-list">
-              <article v-for="note in notes" :key="note.path" class="card note-row">
-                <div class="document-row-head"><strong>{{ note.title }}</strong><span>{{ noteCategory(note.path) }}</span></div>
-                <code>{{ note.path }}</code>
-                <p v-if="note.summary">{{ note.summary }}</p>
-                <div v-if="[note.shortId, note.type, note.status].filter(Boolean).length" class="knowledge-tags"><span v-for="label in [note.shortId, note.type, note.status].filter(Boolean)" :key="label" class="badge muted-badge">{{ label }}</span></div>
+            <div class="library-grid document-card-grid">
+              <button v-for="note in notes" :key="note.path" class="library-card document-card" type="button" @click="openMarkdownDocument(note, 'document')">
+                <span class="library-card-icon" v-html="icon('fileText')" />
+                <span class="library-card-kicker"><span>{{ note.shortId || 'W000' }}</span><span>{{ noteCategory(note.path) }}</span></span>
+                <strong>{{ documentDisplayTitle(note) }}</strong>
+                <small>{{ noteCardSummary(note, 'document') }}</small>
+                <span class="library-card-origin">出处：{{ noteOriginProject(note, 'document') }}</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="constraints" class="section view" :class="{ 'active-view': state.section === 'constraints' }">
+        <div class="section-head"><h2>约束</h2><span>{{ constraints.length }} 条</span></div>
+        <div class="constraint-shelf">
+          <section class="constraint-group">
+            <div class="knowledge-group-head"><strong>项目约束</strong><span>{{ userConstraints.length }} 条</span></div>
+            <div v-if="!userConstraints.length" class="empty-panel empty-state">
+              <span class="empty-state-icon" v-html="icon('shield')" />
+              <strong>暂无手动约束</strong>
+            </div>
+            <div v-else class="constraint-grid">
+              <article v-for="constraint in userConstraints" :key="constraint.id || constraint.shortId" class="constraint-card">
+                <button class="constraint-card-main" type="button" @click="openMarkdownDocument(constraint, 'constraint')">
+                  <span class="library-card-icon constraint-card-icon" v-html="icon('shield')" />
+                  <span class="library-card-kicker"><span>{{ constraint.shortId || 'C000' }}</span><span>{{ constraintStatusText(constraint.status) }}</span></span>
+                  <strong>{{ constraint.title }}</strong>
+                  <small>{{ constraintSummary(constraint) }}</small>
+                  <span class="library-card-origin">范围：{{ constraint.scope || 'project' }}</span>
+                </button>
+                <button class="btn icon-button btn-outline-secondary btn-sm constraint-delete" type="button" title="删除约束" aria-label="删除约束" @click="deleteConstraintRecord(constraint)" v-html="icon('trash')" />
+              </article>
+            </div>
+          </section>
+          <section class="constraint-group">
+            <div class="knowledge-group-head"><strong>系统规则</strong><span>{{ systemConstraints.length }} 条</span></div>
+            <div class="constraint-grid system-constraint-grid">
+              <article v-for="constraint in systemConstraints" :key="constraint.id || constraint.path" class="constraint-card system-constraint-card">
+                <button class="constraint-card-main" type="button" @click="openMarkdownDocument(constraint, 'constraint')">
+                  <span class="library-card-icon constraint-card-icon" v-html="icon('scrollText')" />
+                  <span class="library-card-kicker"><span>{{ constraint.shortId }}</span><span>只读</span></span>
+                  <strong>{{ constraint.title }}</strong>
+                  <small>{{ constraintSummary(constraint) }}</small>
+                  <span class="library-card-origin">{{ constraint.path }}</span>
+                </button>
               </article>
             </div>
           </section>
@@ -1294,6 +1553,7 @@ function escapeHtml(value: any) {
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="selectQuickCreate('task')"><span class="quick-create-icon" v-html="icon('listChecks')" /><span>任务</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="selectQuickCreate('thought')"><span class="quick-create-icon" v-html="icon('messageCircle')" /><span>想法</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="selectQuickCreate('dialogue')"><span class="quick-create-icon" v-html="icon('messagesSquare')" /><span>研究</span></button>
+      <button class="btn btn-outline-primary quick-create-option" type="button" @click="selectQuickCreate('constraint')"><span class="quick-create-icon" v-html="icon('shield')" /><span>约束</span></button>
     </div>
     <form v-if="state.quickCreateMode === 'task'" class="card quick-task-panel" aria-label="快速新建任务" @submit.prevent="createTask('quick')">
       <div class="quick-task-head"><strong>新建任务</strong><button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuickTask" v-html="icon('x')" /></div>
@@ -1311,8 +1571,14 @@ function escapeHtml(value: any) {
     <form v-if="state.quickCreateMode === 'dialogue'" class="card quick-task-panel" aria-label="快速研究" @submit.prevent="saveDialogue">
       <div class="quick-task-head"><strong>研究</strong><button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuickTask" v-html="icon('x')" /></div>
       <textarea v-model="quickDialogueForm.content" rows="6" placeholder="保存思路演进、关键问答、方案比较、技术背景或重要上下文。"></textarea>
-      <textarea v-model="quickDialogueForm.acceptance" rows="2" placeholder="验收标准（可选）。"></textarea>
+      <textarea v-model="quickDialogueForm.acceptance" rows="2" placeholder="研究标准（可选，默认 Tree-of-Thought：至少 3 条路径和各自优缺点）。"></textarea>
       <div class="quick-task-actions"><span>{{ quickDialogueForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="研究" aria-label="研究" v-html="icon('check')" /></div>
+    </form>
+    <form v-if="state.quickCreateMode === 'constraint'" class="card quick-task-panel" aria-label="快速保存约束" @submit.prevent="saveConstraint">
+      <div class="quick-task-head"><strong>项目约束</strong><button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuickTask" v-html="icon('x')" /></div>
+      <input v-model="quickConstraintForm.title" type="text" placeholder="约束标题" />
+      <textarea v-model="quickConstraintForm.content" rows="6" placeholder="写入当前项目所有 Agent 都要遵守的规则、边界或长期偏好。"></textarea>
+      <div class="quick-task-actions"><span>{{ quickConstraintForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="保存约束" aria-label="保存约束" v-html="icon('check')" /></div>
     </form>
   </div>
 
@@ -1360,5 +1626,22 @@ function escapeHtml(value: any) {
       <textarea v-model="replyForm.answer" rows="5" placeholder="写下回复或处理结论。"></textarea>
       <div class="quick-task-actions"><span>{{ replyForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="保存回复" aria-label="保存回复" v-html="icon('check')" /></div>
     </form>
+  </div>
+
+  <div v-if="state.markdownDocument" class="modal-overlay" @click.self="closeMarkdownDocument">
+    <section class="card markdown-dialog" role="dialog" aria-modal="true" aria-labelledby="markdownDialogTitle">
+      <div class="project-dialog-head markdown-dialog-head">
+        <div>
+          <h2 id="markdownDialogTitle">{{ markdownDialogTitle() }}</h2>
+          <p>{{ markdownDialogSubtitle() }}</p>
+        </div>
+        <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeMarkdownDocument" v-html="icon('x')" />
+      </div>
+      <div class="markdown-dialog-meta">
+        <span class="badge">出处：{{ markdownDialogOrigin() }}</span>
+        <span v-for="label in markdownDialogBadges()" :key="label" class="badge muted-badge">{{ label }}</span>
+      </div>
+      <div class="markdown-dialog-body rendered-markdown" v-html="renderReadableMarkdown(state.markdownDocument.content || '')" />
+    </section>
   </div>
 </template>

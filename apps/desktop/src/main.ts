@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url'
 import {
   appendTask,
   appendDialogue,
+  appendConstraint,
   appendThought,
+  deleteConstraint,
   deleteTask,
   deleteThought,
   getDashboard,
@@ -24,7 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
 let managerDataRoot = ''
-let projectWatcher: FSWatcher | null = null
+let projectWatchers: FSWatcher[] = []
 let watchedProjectRoot = ''
 let watcherTimer: NodeJS.Timeout | null = null
 
@@ -101,7 +103,7 @@ function registerIpc() {
 
   ipcMain.handle('project:init', async (_event, projectRoot: string) => {
     const dashboard = await initProject(managerDataRoot, projectRoot)
-    startProjectWatcher(projectRoot, dashboard.config.dataRoot)
+    startProjectWatcher(projectRoot, [dashboard.config.dataRoot, dashboard.agentBrief.knowledgeRoot])
     return dashboard
   })
 
@@ -115,7 +117,7 @@ function registerIpc() {
 
   ipcMain.handle('project:update-guidance', async (_event, projectRoot: string) => {
     const dashboard = await updateProjectGuidance(managerDataRoot, projectRoot)
-    startProjectWatcher(projectRoot, dashboard.config.dataRoot)
+    startProjectWatcher(projectRoot, [dashboard.config.dataRoot, dashboard.agentBrief.knowledgeRoot])
     return dashboard
   })
 
@@ -137,6 +139,14 @@ function registerIpc() {
 
   ipcMain.handle('project:add-dialogue', async (_event, projectRoot: string, payload) => {
     return appendDialogue(managerDataRoot, projectRoot, payload)
+  })
+
+  ipcMain.handle('project:add-constraint', async (_event, projectRoot: string, payload) => {
+    return appendConstraint(managerDataRoot, projectRoot, payload)
+  })
+
+  ipcMain.handle('project:delete-constraint', async (_event, projectRoot: string, constraintId: string) => {
+    return deleteConstraint(managerDataRoot, projectRoot, constraintId)
   })
 
   ipcMain.handle('project:delete-thought', async (_event, projectRoot: string, thoughtId: string) => {
@@ -161,7 +171,7 @@ async function openProject(projectRoot: string) {
 
   const project = await recordProjectOpen(managerDataRoot, projectRoot)
   const dashboard = await getDashboard(managerDataRoot, projectRoot)
-  startProjectWatcher(projectRoot, dashboard.config.dataRoot)
+  startProjectWatcher(projectRoot, [dashboard.config.dataRoot, dashboard.agentBrief.knowledgeRoot])
 
   return {
     initialized,
@@ -171,21 +181,24 @@ async function openProject(projectRoot: string) {
   }
 }
 
-function startProjectWatcher(projectRoot: string, dataRoot: string) {
-  if (watchedProjectRoot === projectRoot && projectWatcher) return
+function startProjectWatcher(projectRoot: string, watchRoots: string[]) {
+  if (watchedProjectRoot === projectRoot && projectWatchers.length) return
 
   stopProjectWatcher()
   watchedProjectRoot = projectRoot
 
-  try {
-    projectWatcher = watch(dataRoot, { recursive: true }, () => {
-      if (watcherTimer) clearTimeout(watcherTimer)
-      watcherTimer = setTimeout(() => {
-        mainWindow?.webContents.send('project:data-changed', { projectRoot })
-      }, 250)
-    })
-  } catch (error) {
-    console.warn('failed to watch project data root', error)
+  const uniqueRoots = [...new Set(watchRoots.filter(Boolean))]
+  for (const watchRoot of uniqueRoots) {
+    try {
+      projectWatchers.push(watch(watchRoot, { recursive: true }, () => {
+        if (watcherTimer) clearTimeout(watcherTimer)
+        watcherTimer = setTimeout(() => {
+          mainWindow?.webContents.send('project:data-changed', { projectRoot })
+        }, 250)
+      }))
+    } catch (error) {
+      console.warn('failed to watch data root', watchRoot, error)
+    }
   }
 }
 
@@ -194,7 +207,7 @@ function stopProjectWatcher() {
     clearTimeout(watcherTimer)
     watcherTimer = null
   }
-  projectWatcher?.close()
-  projectWatcher = null
+  for (const watcher of projectWatchers) watcher.close()
+  projectWatchers = []
   watchedProjectRoot = ''
 }

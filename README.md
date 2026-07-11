@@ -11,7 +11,7 @@ It is designed for people who work with coding agents across many sessions and d
 - Keeps the main data readable as Markdown.
 - Tracks tasks, thoughts, research records, knowledge notes, work logs, and open questions.
 - Generates an `agent-brief.json` and local collaboration skill so another agent can quickly rebuild project context.
-- Provides a desktop UI for browsing and updating the local project knowledge layer.
+- Provides a desktop UI for browsing project data and a shared global knowledge base.
 
 ## Current Status
 
@@ -34,11 +34,12 @@ Electron Manager organizes project context into a few record types:
 | Thoughts | `Ixxx` | Inbox-style ideas, questions, and rough inputs. |
 | Tasks | `Txxx` | Executable work items with status and acceptance criteria. |
 | Research | `Dxxx` | Learning notes, Q&A, investigations, and thinking history. |
+| Documents | `Wxxx` | Project-local Markdown documents, manuals, source material, and specs. |
 | Knowledge | `Kxxx` | Distilled long-term knowledge, reusable answers, runbooks, and decisions. |
 | Work Logs | `Lxxx` | Agent execution records after real work is done. |
 | Open Questions | `Qxxx` | Pending decisions or confirmations surfaced from tasks, thoughts, or logs. |
 
-Research records do not automatically become knowledge notes. When you want to preserve a stable conclusion, distill one or more `Dxxx` records into `Kxxx` knowledge notes.
+Research records and project documents do not automatically become knowledge notes. When you want to preserve a stable conclusion, distill one or more `Dxxx` records or `Wxxx` documents into `Kxxx` knowledge notes yourself, or ask an agent to judge whether they are worth adding.
 
 ## Tech Stack
 
@@ -115,17 +116,25 @@ On macOS this is usually:
 ```text
 ~/Library/Application Support/@electron-manager/desktop/
   projects.json
+  knowledge/
   projects/
     <projectId>/
       project.json
       agent-brief.json
       index.json
-      00_项目管理/
-      01_知识结构/
-      04_记录库/
+      tasks/
+        工程任务.md
+      thoughts/
         想法与问题.md
+      research/
         研究.md
+      work-logs/
         Agent 工作记录.md
+      collaboration/
+        数据层规范.md
+        Agent 同步交接.md
+        需求变更索引.md
+      documents/
       skills/project-collaboration/SKILL.md
 ```
 
@@ -150,8 +159,9 @@ That file points to the managed data directory. The most important generated fil
 ```text
 <managed-data-root>/agent-brief.json
 <managed-data-root>/skills/project-collaboration/SKILL.md
-<managed-data-root>/00_项目管理/数据层规范.md
-<managed-data-root>/00_项目管理/Agent 同步交接.md
+<managed-data-root>/collaboration/数据层规范.md
+<managed-data-root>/collaboration/Agent 同步交接.md
+<app-data-root>/knowledge/
 ```
 
 The generated brief and skill explain how to read project context, update tasks, write work logs, handle research records, and preserve open questions.
@@ -161,12 +171,14 @@ The generated brief and skill explain how to read project context, update tasks,
 Electron Manager intentionally keeps data rules explicit so humans and agents can both understand the project state.
 
 - Tasks keep user wording, agent understanding, execution scope, acceptance criteria, and open questions.
+- Record Markdown is maintained in descending ID order as a writing rule: larger `Txxx`/`Ixxx`/`Dxxx`/`Wxxx`/`Kxxx`/`Lxxx` entries should appear above smaller IDs, not be fixed by UI sorting.
 - Thoughts are inbox items. Triage a thought by writing an answer and optionally creating or linking a task.
 - Work logs are written after real task execution or verification, not for ordinary thought triage.
 - Open questions are displayed as independent `Qxxx` items. Task IDs, thought IDs, and work-log IDs are relation labels, not question IDs.
-- Research records preserve thinking history and lightweight answers.
+- Research records preserve summaries and links to detailed documents. The default research standard is Tree-of-Thought: at least three paths with pros, cons, fit conditions, and a recommendation. Detailed research results are written to `Wxxx` documents, and the research action is also written to work logs.
+- Documents preserve project-local Markdown material and use independent `Wxxx` IDs.
 - Knowledge notes preserve stable, reusable conclusions.
-- When data structures change, existing Markdown should be migrated directly instead of adding long-lived compatibility branches.
+- The Documents view only shows Markdown files under the project-local `documents/` folder; it does not aggregate task, thought, research, collaboration, or work-log files. Documents are not automatically added to the knowledge base.
 
 Agent work logs should keep these sections:
 
@@ -239,7 +251,7 @@ No license has been selected yet. Add a license before publishing the repository
 
 Electron Manager 是一个本地优先的桌面工作台，用来管理项目上下文、Agent 协作记录、研究记录、任务，以及基于 Markdown 的本地知识库。
 
-它适合经常和 Coding Agent 多轮协作的人：当项目上下文、技术判断、研究过程和任务执行记录散落在不同聊天里时，Electron Manager 可以把这些信息沉淀到本地、可读、可迁移的数据层里。
+它适合经常和 Coding Agent 多轮协作的人：当项目上下文、技术判断、研究过程和任务执行记录散落在不同聊天里时，Electron Manager 可以把这些信息沉淀到本地、可读、可移植的数据层里。
 
 ## 它能做什么
 
@@ -257,7 +269,7 @@ Electron Manager 是一个本地优先的桌面工作台，用来管理项目上
 - 本地优先的项目记忆
 - Agent 交接上下文
 - 研究记录到知识库的沉淀流程
-- Markdown 数据可读性和可迁移性
+- Markdown 数据可读性和可移植性
 - Electron + Vue 桌面界面
 
 产品形态还会随着真实使用继续变化。稳定发布前，数据格式和 UI 都可能继续调整。
@@ -271,11 +283,12 @@ Electron Manager 会把项目上下文拆成几类记录：
 | 想法 | `Ixxx` | 收集临时想法、问题、粗略输入。 |
 | 任务 | `Txxx` | 需要执行的工作项，带状态和验收标准。 |
 | 研究 | `Dxxx` | 学习过程、问答、调研、思路演进和判断过程。 |
+| 文档 | `Wxxx` | 项目本地 Markdown 文档、手册、资料和规格说明。 |
 | 知识 | `Kxxx` | 沉淀后的长期知识、可复用答案、运行手册和决策。 |
 | 工作记录 | `Lxxx` | Agent 真正执行任务后的记录。 |
 | 待确认 | `Qxxx` | 从任务、想法或工作记录中提取出的待确认问题。 |
 
-研究记录不会自动进入知识库。当你希望把一段稳定结论长期保存时，可以把一个或多个 `Dxxx` 研究记录沉淀成 `Kxxx` 知识条目。
+研究记录和项目文档不会自动进入知识库。当你希望把一段稳定结论长期保存时，可以自己把一个或多个 `Dxxx` 研究记录或 `Wxxx` 文档沉淀成 `Kxxx` 知识条目，也可以让 Agent 帮你判断是否值得沉淀。
 
 ## 技术栈
 
@@ -352,17 +365,25 @@ macOS 下通常是：
 ```text
 ~/Library/Application Support/@electron-manager/desktop/
   projects.json
+  knowledge/
   projects/
     <projectId>/
       project.json
       agent-brief.json
       index.json
-      00_项目管理/
-      01_知识结构/
-      04_记录库/
+      tasks/
+        工程任务.md
+      thoughts/
         想法与问题.md
+      research/
         研究.md
+      work-logs/
         Agent 工作记录.md
+      collaboration/
+        数据层规范.md
+        Agent 同步交接.md
+        需求变更索引.md
+      documents/
       skills/project-collaboration/SKILL.md
 ```
 
@@ -387,8 +408,9 @@ macOS 下通常是：
 ```text
 <managed-data-root>/agent-brief.json
 <managed-data-root>/skills/project-collaboration/SKILL.md
-<managed-data-root>/00_项目管理/数据层规范.md
-<managed-data-root>/00_项目管理/Agent 同步交接.md
+<managed-data-root>/collaboration/数据层规范.md
+<managed-data-root>/collaboration/Agent 同步交接.md
+<app-data-root>/knowledge/
 ```
 
 这些文件会告诉 Agent 如何读取上下文、更新任务、写工作记录、处理研究记录，以及保留待确认事项。
@@ -398,12 +420,14 @@ macOS 下通常是：
 Electron Manager 会尽量把数据规则写清楚，让人和 Agent 都能理解项目状态。
 
 - 任务保留用户原话、Agent 理解、执行范围、验收标准和未确认事项。
+- 所有记录型 Markdown 都按 ID 倒序维护：更大的 `Txxx`/`Ixxx`/`Dxxx`/`Wxxx`/`Kxxx`/`Lxxx` 应该在更小 ID 上方，这是写入准则，不靠界面排序修正。
 - 想法是收集入口。整理想法时，应写入回答，并在需要时创建或关联任务。
 - 工作记录只在实际执行任务或完成验证后写入，不为普通想法整理单独写工作记录。
 - 待确认事项以独立 `Qxxx` 展示。任务 ID、想法 ID、工作记录 ID 只是关联标签，不复用为问题 ID。
-- 研究记录保存思路演进和简短回答。
+- 研究记录保存概要和详细文档引用。默认研究标准是 Tree-of-Thought：至少三条路径，并写明各自优点、缺点、适用条件和建议结论。详细研究结果写入 `Wxxx` 文档，研究动作也写入工作记录。
+- 文档保存项目本地 Markdown 资料，使用独立 `Wxxx` 编号。
 - 知识条目保存稳定、可复用的长期结论。
-- 数据结构变化时，应直接迁移已有 Markdown，而不是长期保留兼容分支。
+- 文档页只展示项目本地 `documents/` 文件夹里的 Markdown，不再汇总任务、想法、研究、协作或工作记录文件。文档不会自动进入知识库。
 
 Agent 工作记录建议保留这些段落：
 

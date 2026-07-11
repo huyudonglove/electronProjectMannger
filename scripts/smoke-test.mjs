@@ -1,18 +1,22 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
   appendTask,
   appendDialogue,
+  appendConstraint,
   appendThought,
+  deleteConstraint,
   deleteTask,
   deleteThought,
   initProject,
+  isInitialized,
   getDashboard,
   listManagedProjects,
   removeManagedProject,
   replyOpenQuestion,
   refreshAgentBrief,
+  resolveDataRoot,
   updateProjectGuidance,
   updateTaskStatus,
 } from '../packages/project-core/dist/index.js'
@@ -20,8 +24,22 @@ import {
 const managerRoot = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-data-'))
 const root = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-project-'))
 const secondRoot = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-project-'))
+const legacyRoot = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-legacy-project-'))
 
 try {
+  const legacyDataRoot = resolveDataRoot(managerRoot, legacyRoot)
+  await mkdir(path.join(legacyDataRoot, '00_项目管理'), { recursive: true })
+  await writeFile(path.join(legacyDataRoot, 'project.json'), JSON.stringify({
+    projectId: 'legacy-project',
+    name: 'Legacy Project',
+    projectRoot: legacyRoot,
+    dataRoot: legacyDataRoot,
+    createdAt: new Date().toISOString(),
+    version: 1,
+  }, null, 2), 'utf8')
+  await writeFile(path.join(legacyDataRoot, '00_项目管理/工程任务.md'), '# 旧任务\n', 'utf8')
+  assert(!(await isInitialized(managerRoot, legacyRoot)), 'legacy data layout should not be treated as initialized current data')
+
   const dashboard = await initProject(managerRoot, root, 'Smoke Project')
   assert(dashboard.config.name === 'Smoke Project', 'project name should be set')
   assert(dashboard.config.projectId.startsWith('smoke-project-'), 'project id should include name slug')
@@ -30,34 +48,86 @@ try {
   const dataRoot = dashboard.config.dataRoot
   const briefPath = path.join(dataRoot, 'agent-brief.json')
   const skillPath = path.join(dataRoot, 'skills/project-collaboration/SKILL.md')
-  const knowledgePath = path.join(dataRoot, '01_知识结构/知识结构.md')
-  const codeIndexPath = path.join(dataRoot, '01_知识结构/代码索引.md')
-  const dialoguePath = path.join(dataRoot, '04_记录库/研究.md')
+  const taskPath = path.join(dataRoot, 'tasks/工程任务.md')
+  const thoughtPath = path.join(dataRoot, 'thoughts/想法与问题.md')
+  const logPath = path.join(dataRoot, 'work-logs/Agent 工作记录.md')
+  const knowledgeRoot = path.join(managerRoot, 'knowledge')
+  const knowledgePath = path.join(knowledgeRoot, '知识结构.md')
+  const manualPath = path.join(dataRoot, 'documents/项目手册.md')
+  const dialoguePath = path.join(dataRoot, 'research/研究.md')
+  const constraintsPath = path.join(dataRoot, 'constraints/项目约束.md')
   const projectsIndexPath = path.join(managerRoot, 'projects.json')
 
   const brief = JSON.parse(await readFile(briefPath, 'utf8'))
   assert(brief.projectRoot === root, 'brief should point to project root')
   assert(Array.isArray(brief.instructions), 'brief instructions should exist')
+  assert(brief.instructions.some((instruction) => instruction.includes('Txxx/Ixxx/Dxxx/Wxxx/Kxxx/Lxxx/Cxxx')), 'brief should describe descending record write order')
+
+  const taskFile = await readFile(taskPath, 'utf8')
+  const thoughtFile = await readFile(thoughtPath, 'utf8')
+  const dialogueFile = await readFile(dialoguePath, 'utf8')
+  const constraintsFile = await readFile(constraintsPath, 'utf8')
+  const initialLogFile = await readFile(logPath, 'utf8')
+  assert(taskFile.includes('T036') && taskFile.includes('T001'), 'task file should describe descending task write order')
+  assert(thoughtFile.includes('I036') && thoughtFile.includes('I001'), 'thought file should describe descending thought write order')
+  assert(dialogueFile.includes('D036') && dialogueFile.includes('D001'), 'research file should describe descending research write order')
+  assert(constraintsFile.includes('C036') && constraintsFile.includes('C001'), 'constraints file should describe descending constraint write order')
+  assert(initialLogFile.includes('L036') && initialLogFile.includes('L001'), 'work log file should describe descending log write order')
 
   const skill = await readFile(skillPath, 'utf8')
   assert(skill.includes('Project Collaboration Skill'), 'local skill should exist')
   assert(skill.includes('Do not omit required agent-log sections'), 'local skill should require explicit agent log sections')
-  assert(skill.includes('04_记录库/研究.md'), 'local skill should describe research notes')
+  assert(skill.includes('descending record ID'), 'local skill should require descending record write order')
+  assert(skill.includes('log_short_id:: Lxxx'), 'local skill should require explicit log short ids')
+  assert(skill.includes('research/研究.md'), 'local skill should describe research notes')
+  assert(skill.includes(knowledgeRoot), 'local skill should describe global knowledge root')
   assert(await exists(dialoguePath), 'research notes should be initialized')
+  assert(await exists(constraintsPath), 'project constraints should be initialized')
+  assert(await exists(knowledgeRoot), 'global knowledge directory should be initialized')
+  assert(!(await exists(knowledgePath)), 'global knowledge should not create a default knowledge file')
+  assert(!(await exists(manualPath)), 'documents should not create a default project manual')
   const initialDialogues = dashboard.dialogues
   assert(initialDialogues.some((dialogue) => dialogue.shortId === 'D001'), 'initial research record should expose D001')
-  assert(dashboard.knowledge.some((note) => note.shortId === 'K001'), 'initial knowledge note should expose K001')
-  assert(dashboard.documents.some((note) => note.path === '01_知识结构/知识结构.md'), 'dashboard should expose document index')
+  assert(dashboard.knowledge.length === 0, 'initial dashboard should not expose default knowledge')
+  assert(dashboard.documents.length === 0, 'initial dashboard should not expose default documents')
+  assert(dashboard.constraints.some((constraint) => constraint.source === 'system' && constraint.path === 'skills/project-collaboration/SKILL.md'), 'initial dashboard should expose local skill as system constraint')
+  assert(!dashboard.constraints.some((constraint) => constraint.shortId === 'C001'), 'initial dashboard should not create a default user constraint')
+  assert(dashboard.documents.every((note) => note.path.startsWith('documents/')), 'dashboard documents should only include documents folder files')
+  assert(!dashboard.documents.some((note) => note.path.startsWith('knowledge/')), 'project documents should not include global knowledge')
 
-  await writeFile(codeIndexPath, `# 代码索引
+  await assertRejects(() => appendTask(managerRoot, root, { title: '   ' }), '任务标题不能为空')
+  await assertRejects(() => appendThought(managerRoot, root, '   '), '输入内容不能为空')
+  await assertRejects(() => appendDialogue(managerRoot, root, { content: '   ' }), '研究内容不能为空')
+  await assertRejects(() => appendConstraint(managerRoot, root, { title: '', content: 'Smoke' }), '约束标题不能为空')
+  await assertRejects(() => appendConstraint(managerRoot, root, { title: 'Smoke', content: '' }), '约束内容不能为空')
+  await assertRejects(() => updateTaskStatus(managerRoot, root, '', 'done'), '任务 ID 不能为空')
+  await assertRejects(() => updateTaskStatus(managerRoot, root, 'missing-task', ''), '任务状态不能为空')
+  await assertRejects(() => deleteTask(managerRoot, root, ''), '任务 ID 不能为空')
+  await assertRejects(() => deleteThought(managerRoot, root, ''), '输入 ID 不能为空')
+  await assertRejects(() => deleteConstraint(managerRoot, root, ''), '约束 ID 不能为空')
+  await assertRejects(() => replyOpenQuestion(managerRoot, root, { openQuestions: '', answer: 'Smoke answer' }), '未确认事项不能为空')
+  await assertRejects(() => replyOpenQuestion(managerRoot, root, { openQuestions: 'Smoke question', answer: '' }), '回复内容不能为空')
+  await assertRejects(() => removeManagedProject(managerRoot, ''), '项目 ID 不能为空')
 
-> 旧知识文档缺字段时应被补齐。
+  await writeFile(manualPath, `# 项目手册
+
+summary:: 独立文档目录中的文档样例。
 `, 'utf8')
   const normalizedKnowledgeDashboard = await getDashboard(managerRoot, root)
-  const normalizedCodeIndex = await readFile(codeIndexPath, 'utf8')
-  assert(normalizedKnowledgeDashboard.knowledge.some((note) => note.path === '01_知识结构/代码索引.md' && /^K\d{3}$/.test(note.shortId)), 'missing knowledge fields should be written and exposed')
-  assert(normalizedCodeIndex.includes('type:: knowledge'), 'missing knowledge type field should be backfilled')
-  assert(normalizedCodeIndex.includes('summary::'), 'missing knowledge summary field should be backfilled')
+  const normalizedManual = normalizedKnowledgeDashboard.documents.find((note) => note.path === 'documents/项目手册.md')
+  assert(normalizedManual?.shortId === 'W001', 'project documents should expose W short ids')
+  assert((await readFile(manualPath, 'utf8')).includes('short_id:: W001'), 'project document file should be normalized with W short id')
+  assert(!normalizedKnowledgeDashboard.knowledge.some((note) => note.path === 'documents/项目手册.md'), 'project document files should not be exposed as global knowledge')
+  assert(!normalizedKnowledgeDashboard.documents.some((note) => note.path.startsWith('tasks/') || note.path.startsWith('thoughts/') || note.path.startsWith('research/') || note.path.startsWith('collaboration/') || note.path.startsWith('work-logs/')), 'project documents should not aggregate module data files')
+
+  await mkdir(path.join(dataRoot, 'documents/手册'), { recursive: true })
+  await writeFile(path.join(dataRoot, 'documents/手册/使用说明.md'), `# 使用说明
+
+summary:: 独立文档目录中的文档。
+`, 'utf8')
+  const nestedDocumentDashboard = await getDashboard(managerRoot, root)
+  assert(nestedDocumentDashboard.documents.some((note) => note.path === 'documents/手册/使用说明.md'), 'documents view should include nested documents folder files')
+  assert(nestedDocumentDashboard.documents.some((note) => note.path === 'documents/手册/使用说明.md' && note.shortId === 'W002'), 'nested documents should get independent W short ids')
 
   const collaborationEntry = await readFile(path.join(root, '.agent-collaboration.md'), 'utf8')
   assert(collaborationEntry.includes(dataRoot), 'project should contain lightweight collaboration entry')
@@ -85,13 +155,39 @@ try {
   const guidanceDashboard = await updateProjectGuidance(managerRoot, root)
   assert(guidanceDashboard.config.dataRoot === dataRoot, 'guidance update should keep data root')
   const updatedSkill = await readFile(skillPath, 'utf8')
-  const updatedDataSpec = await readFile(path.join(dataRoot, '00_项目管理/数据层规范.md'), 'utf8')
+  const updatedDataSpec = await readFile(path.join(dataRoot, 'collaboration/数据层规范.md'), 'utf8')
   assert(updatedSkill.includes('Do not omit required agent-log sections'), 'guidance update should refresh skill rules')
   assert(updatedSkill.includes('Dxxx'), 'guidance update should refresh research rules')
+  assert(updatedSkill.includes('Wxxx'), 'guidance update should refresh document rules')
   assert(updatedSkill.includes('Kxxx'), 'guidance update should refresh knowledge rules')
+  assert(updatedSkill.includes('Cxxx'), 'guidance update should refresh constraint rules')
+  assert(updatedSkill.includes('descending record ID'), 'guidance update should refresh record ordering writing rule')
   assert(updatedDataSpec.includes('## Agent 工作记录格式'), 'guidance update should refresh data spec log format')
   assert(updatedDataSpec.includes('## 知识条目格式'), 'guidance update should refresh knowledge format')
   assert(updatedDataSpec.includes('## 研究格式'), 'guidance update should refresh research format')
+  assert(updatedDataSpec.includes('Txxx') && updatedDataSpec.includes('Ixxx') && updatedDataSpec.includes('Dxxx') && updatedDataSpec.includes('Wxxx') && updatedDataSpec.includes('Kxxx') && updatedDataSpec.includes('Lxxx') && updatedDataSpec.includes('Cxxx'), 'data spec should describe descending record write order')
+  assert(updatedDataSpec.includes('short_id:: W001'), 'data spec should describe document short ids')
+  assert(updatedDataSpec.includes('short_id:: C001'), 'data spec should describe constraint short ids')
+  assert(updatedDataSpec.includes('log_short_id:: L001'), 'data spec should describe explicit log short ids')
+
+  const constraintDashboard = await appendConstraint(managerRoot, root, {
+    title: 'Smoke Constraint',
+    content: 'All agents should preserve smoke constraints.',
+  })
+  const smokeConstraint = constraintDashboard.constraints.find((constraint) => constraint.title === 'Smoke Constraint')
+  assert(smokeConstraint?.shortId === 'C001', 'manual constraint should use C short ids')
+  assert(smokeConstraint.source === 'user', 'manual constraint should be user sourced')
+  assert(constraintDashboard.constraints.some((constraint) => constraint.source === 'system'), 'constraints dashboard should keep system constraints')
+  const persistedConstraintContent = await readFile(constraintsPath, 'utf8')
+  assert(persistedConstraintContent.includes('short_id:: C001'), 'manual constraint should be written to constraints file')
+  assert(persistedConstraintContent.includes('All agents should preserve smoke constraints.'), 'manual constraint content should be persisted')
+
+  const guidanceAfterConstraint = await updateProjectGuidance(managerRoot, root)
+  assert(guidanceAfterConstraint.constraints.some((constraint) => constraint.id === smokeConstraint.id), 'guidance update should preserve user constraints')
+
+  const deletedConstraintDashboard = await deleteConstraint(managerRoot, root, smokeConstraint.id)
+  assert(!deletedConstraintDashboard.constraints.some((constraint) => constraint.id === smokeConstraint.id), 'manual constraint should be deleted')
+  assert(deletedConstraintDashboard.constraints.some((constraint) => constraint.source === 'system'), 'deleting user constraint should not delete system constraints')
 
   await rm(dialoguePath, { force: true })
   const missingDialogueDashboard = await getDashboard(managerRoot, root)
@@ -106,75 +202,31 @@ try {
   assert(nextDashboard.activeTasks.length === 0, 'initial done task should not be active')
   assert(nextDashboard.logs.some((log) => log.content.includes('初始化项目协作数据')), 'dashboard should expose log detail content')
 
-  const logPath = path.join(dataRoot, '04_记录库/Agent 工作记录.md')
   const currentLog = await readFile(logPath, 'utf8')
   await writeFile(logPath, `${currentLog.trimEnd()}
 
 ## 2026-06-30 23:35 General log without task
 
 type:: agent-log
+log_short_id:: L900
 created:: 2026-06-30 23:35
 
 ### 用户目标
 
 This general log should stay out of the worklog panel.
 `, 'utf8')
-  const fallbackLogDashboard = await getDashboard(managerRoot, root)
-  const fallbackLog = fallbackLogDashboard.logs.find((log) => log.title.includes('General log without task'))
-  assert(fallbackLog, 'logs without task relation should remain visible')
-  assert(fallbackLog.relatedTasks.some((task) => task.shortId === 'T000'), 'logs without task relation should expose T000 fallback')
+  const generalLogDashboard = await getDashboard(managerRoot, root)
+  const generalLog = generalLogDashboard.logs.find((log) => log.title.includes('General log without task'))
+  assert(generalLog, 'logs without task relation should remain visible')
+  assert(generalLog.relatedTasks.some((task) => task.shortId === 'T000'), 'logs without task relation should expose T000')
 
-  const currentFilteredLog = await readFile(logPath, 'utf8')
-  await writeFile(logPath, `${currentFilteredLog.trimEnd()}
-
-## 2026-06-30 23:38 Legacy work log with text task ref
-
-type:: agent-log
-created:: 2026-06-30 23:38
-
-### 用户目标
-
-Legacy T001 log should stay visible.
-
-### 需求理解
-
-Legacy logs may only mention the task short id in content.
-`, 'utf8')
-  const legacyLogDashboard = await getDashboard(managerRoot, root)
-  const legacyLog = legacyLogDashboard.logs.find((log) => log.title.includes('Legacy work log with text task ref'))
-  assert(legacyLog, 'legacy logs with text task refs should be visible')
-  assert(legacyLog.relatedTasks.some((task) => task.shortId === 'T001'), 'legacy log should expose text task ref')
-
-  const currentLegacyReplyLog = await readFile(logPath, 'utf8')
-  await writeFile(logPath, `${currentLegacyReplyLog.trimEnd()}
-
-## 2026-07-01 11:19 Legacy reply format
-
-type:: agent-log
-created:: 2026-07-01 11:19
-task_short_id:: T001
-
-### 用户目标
-
-Legacy reply format should parse.
-
-### 回答记录
-
-- 2026-07-01 11:19 回复：无
-`, 'utf8')
-  const legacyReplyDashboard = await getDashboard(managerRoot, root)
-  const legacyReply = legacyReplyDashboard.replyRecords.find((item) => item.title.includes('Legacy reply format'))
-  assert(legacyReply?.openQuestions === '暂无内容', 'legacy reply without question should expose fallback detail')
-  assert(legacyReply?.displayId === 'Q000', 'legacy reply without question id should expose Q000 fallback')
-  assert(legacyReply?.replyCreated === '2026-07-01 11:19', 'legacy reply should expose reply time')
-  assert(legacyReply?.replyAnswer === '无', 'legacy reply should expose reply answer')
-
-  const currentLegacyLog = await readFile(logPath, 'utf8')
-  await writeFile(logPath, `${currentLegacyLog.trimEnd()}
+  const currentSmokeLog = await readFile(logPath, 'utf8')
+  await writeFile(logPath, `${currentSmokeLog.trimEnd()}
 
 ## 2026-06-30 23:40 Smoke work log
 
 type:: agent-log
+log_short_id:: L901
 created:: 2026-06-30 23:40
 task_short_id:: T001
 
@@ -205,6 +257,7 @@ Smoke understanding.
 ## 2026-06-30 23:41 Smoke newer work log
 
 type:: agent-log
+log_short_id:: L902
 created:: 2026-06-30 23:41
 task_short_id:: T001
 status:: done
@@ -247,7 +300,7 @@ Smoke newer understanding.
   const smokeLog = logQuestionDashboard.logs.find((log) => log.title.includes('Smoke work log'))
   assert(smokeLog?.outputs.includes('Smoke output.'), 'log outputs should be parsed')
   assert(smokeLog?.keySteps.includes('Smoke key step.'), 'log key steps should be parsed')
-  assert(smokeLog?.relatedTasks.length === 1 && smokeLog.relatedTasks[0].shortId === 'T001', 'explicit task_short_id should take precedence over text refs')
+  assert(smokeLog?.relatedTasks.length === 1 && smokeLog.relatedTasks[0].shortId === 'T001', 'log should expose explicit task_short_id relation')
 
   const repliedLogDashboard = await replyOpenQuestion(managerRoot, root, {
     questionId: logOpenQuestion.id,
@@ -289,7 +342,6 @@ Smoke newer understanding.
   assert(repliedTaskDashboard.replyRecords.some((item) => item.source === 'task' && item.openQuestions === 'Smoke task question.'), 'task reply should expose original question detail')
   assert(repliedTaskDashboard.replyRecords.some((item) => item.displayId === taskOpenQuestion.displayId && item.relations.includes(smokeTask.shortId)), 'task reply should expose display id and relations')
 
-  const thoughtPath = path.join(dataRoot, '04_记录库/想法与问题.md')
   const currentThoughts = await readFile(thoughtPath, 'utf8')
   await writeFile(thoughtPath, `${currentThoughts.trimEnd()}
 
@@ -343,7 +395,7 @@ Smoke thought with open question.
   const thoughtDashboard = await appendThought(managerRoot, root, 'Smoke thought')
   const smokeThought = thoughtDashboard.thoughts.find((thought) => thought.content === 'Smoke thought')
   assert(smokeThought, 'thought should be appended')
-  const thoughtsContent = await readFile(path.join(dataRoot, '04_记录库/想法与问题.md'), 'utf8')
+  const thoughtsContent = await readFile(path.join(dataRoot, 'thoughts/想法与问题.md'), 'utf8')
   assert(thoughtsContent.includes('### 回答'), 'new thoughts should include answer section')
   assert(thoughtsContent.includes('### 未确认事项'), 'new thoughts should include open question section')
   assert(thoughtsContent.includes('暂无。'), 'new thoughts should use explicit empty answer placeholder')
@@ -359,9 +411,16 @@ Smoke thought with open question.
   const smokeDialogue = dialogueDashboard.dialogues.find((dialogue) => dialogue.recordContent === 'Smoke research record')
   assert(smokeDialogue?.shortId.startsWith('D'), 'research record should be appended with D short id')
   assert(dialogueDashboard.dialogues[0]?.shortId === smokeDialogue.shortId, 'newest research record should appear first')
+  assert(smokeDialogue.relatedDocuments.some((shortId) => shortId.startsWith('W')), 'research record should link detailed document')
+  assert(smokeDialogue.answer.includes(smokeDialogue.relatedDocuments[0]), 'research summary should point to detailed document')
   assert(!dialogueDashboard.thoughts.some((thought) => thought.content === 'Smoke research record'), 'research record should not be appended as thought')
+  const researchDocument = dialogueDashboard.documents.find((note) => note.shortId === smokeDialogue.relatedDocuments[0])
+  assert(researchDocument?.content.includes('Smoke short reply'), 'research detail should be written to document')
+  assert(researchDocument?.content.includes('Smoke Acceptance') || researchDocument?.content.includes('Smoke acceptance'), 'research document should include acceptance')
+  assert(dialogueDashboard.logs.some((log) => log.source === 'research' && log.content.includes(smokeDialogue.shortId) && log.content.includes(researchDocument.shortId)), 'research action should be written to work logs')
   const dialogueContent = await readFile(dialoguePath, 'utf8')
   assert(dialogueContent.includes('type:: dialogue'), 'new research record should include dialogue type')
+  assert(dialogueContent.includes('related_documents::'), 'new research record should link document')
   assert(dialogueContent.includes('### 内容'), 'new research record should include content section')
   assert(dialogueContent.includes('### 回答'), 'new research record should include answer section')
   assert(dialogueContent.includes('### 验收标准'), 'new research record should include acceptance section')
@@ -370,6 +429,7 @@ Smoke thought with open question.
 } finally {
   await rm(root, { recursive: true, force: true })
   await rm(secondRoot, { recursive: true, force: true })
+  await rm(legacyRoot, { recursive: true, force: true })
   await rm(managerRoot, { recursive: true, force: true })
 }
 
@@ -386,6 +446,16 @@ async function exists(filePath) {
   } catch {
     return false
   }
+}
+
+async function assertRejects(action, expectedMessage) {
+  try {
+    await action()
+  } catch (error) {
+    assert(String(error?.message || '').includes(expectedMessage), `expected rejection message "${expectedMessage}", got "${error?.message || error}"`)
+    return
+  }
+  throw new Error(`expected rejection: ${expectedMessage}`)
 }
 
 async function ignoredCollaborationEntries(projectRoot) {

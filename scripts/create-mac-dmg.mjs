@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, symlink } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, symlink } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 
@@ -10,26 +10,62 @@ const tempDmgPath = path.join(root, 'build', 'Electron Manager-temp.dmg')
 const mountPoint = path.join(root, 'build', 'dmg-mount')
 const dmgPath = path.join(releaseDir, `Electron Manager-${packageJson.version}-arm64.dmg`)
 
-function run(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit' })
+async function ensureExists(filePath, label) {
+  try {
+    await stat(filePath)
+  } catch {
+    throw new Error(`${label} not found: ${filePath}`)
+  }
+}
+
+function formatCommand(command, args) {
+  return [command, ...args.map((arg) => /\s/.test(arg) ? JSON.stringify(arg) : arg)].join(' ')
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, { encoding: 'utf8' })
+
+  if (options.printOutput !== false) {
+    if (result.stdout) process.stdout.write(result.stdout)
+    if (result.stderr) process.stderr.write(result.stderr)
+  }
 
   if (result.status !== 0) {
-    throw new Error(`${command} failed with exit code ${result.status}`)
+    const details = [
+      `${formatCommand(command, args)} failed with exit code ${result.status}`,
+      result.stdout ? `stdout:\n${result.stdout.trimEnd()}` : '',
+      result.stderr ? `stderr:\n${result.stderr.trimEnd()}` : '',
+    ].filter(Boolean).join('\n')
+    throw new Error(details)
   }
+
+  return result
 }
 
 function output(command, args) {
-  const result = spawnSync(command, args, { encoding: 'utf8' })
-
-  if (result.status !== 0) {
-    throw new Error(`${command} failed with exit code ${result.status}`)
-  }
-
-  return result.stdout.trim()
+  return run(command, args, { printOutput: false }).stdout.trim()
 }
 
+function parseAttachDevice(plist) {
+  const entities = plist.split(/<dict>/g).slice(1)
+  for (const entity of entities) {
+    if (!entity.includes('<key>dev-entry</key>')) continue
+    if (!entity.includes(`<string>${mountPoint}</string>`)) continue
+    return entity.match(/<key>dev-entry<\/key>\s*<string>([^<]+)<\/string>/)?.[1] || ''
+  }
+  return plist.match(/<key>dev-entry<\/key>\s*<string>([^<]+)<\/string>/)?.[1] || ''
+}
+
+function detach(target, force = false) {
+  const args = ['detach', target, '-quiet']
+  if (force) args.push('-force')
+  return run('hdiutil', args)
+}
+
+await ensureExists(appPath, 'macOS app bundle')
+
 const appSizeKb = Number(output('du', ['-sk', appPath]).split(/\s+/)[0])
-const imageSizeMb = Math.ceil(appSizeKb / 1024 * 1.35 + 128)
+const imageSizeMb = Math.ceil(appSizeKb / 1024 * 1.75 + 192)
 
 await rm(dmgPath, { force: true })
 await rm(tempDmgPath, { force: true })
@@ -37,6 +73,7 @@ await rm(mountPoint, { recursive: true, force: true })
 await mkdir(mountPoint, { recursive: true })
 
 let attached = false
+let attachedDevice = ''
 
 try {
   run('hdiutil', [
@@ -46,26 +83,38 @@ try {
     '-size',
     `${imageSizeMb}m`,
     '-fs',
-    'HFS+',
+    'APFS',
     '-layout',
-    'SPUD',
+    'GPTSPUD',
     tempDmgPath,
   ])
 
-  run('hdiutil', [
+  const attachResult = run('hdiutil', [
     'attach',
     tempDmgPath,
     '-mountpoint',
     mountPoint,
     '-nobrowse',
-    '-quiet',
+    '-plist',
   ])
+  attachedDevice = parseAttachDevice(attachResult.stdout)
   attached = true
 
-  run('ditto', [appPath, path.join(mountPoint, 'Electron Manager.app')])
+  run('ditto', [
+    '--noextattr',
+    '--noqtn',
+    '--noacl',
+    '--nopreserveHFSCompression',
+    appPath,
+    path.join(mountPoint, 'Electron Manager.app'),
+  ])
   await symlink('/Applications', path.join(mountPoint, 'Applications'))
 
-  run('hdiutil', ['detach', mountPoint, '-quiet'])
+  try {
+    detach(attachedDevice || mountPoint)
+  } catch {
+    detach(attachedDevice || mountPoint, true)
+  }
   attached = false
 
   run('hdiutil', [
@@ -78,9 +127,10 @@ try {
     '-o',
     dmgPath,
   ])
+  run('xattr', ['-cr', dmgPath])
 } finally {
   if (attached) {
-    spawnSync('hdiutil', ['detach', mountPoint, '-force', '-quiet'], { stdio: 'ignore' })
+    spawnSync('hdiutil', ['detach', attachedDevice || mountPoint, '-force', '-quiet'], { stdio: 'ignore' })
   }
 
   await rm(tempDmgPath, { force: true })

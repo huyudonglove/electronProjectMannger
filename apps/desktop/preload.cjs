@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('electronManager', {
   deleteTask: (projectRoot, taskId) => ipcRenderer.invoke('project:delete-task', projectRoot, taskId),
   addThought: (projectRoot, content) => ipcRenderer.invoke('project:add-thought', projectRoot, content),
   addDialogue: (projectRoot, payload) => ipcRenderer.invoke('project:add-dialogue', projectRoot, payload),
+  addConstraint: (projectRoot, payload) => ipcRenderer.invoke('project:add-constraint', projectRoot, payload),
+  deleteConstraint: (projectRoot, constraintId) => ipcRenderer.invoke('project:delete-constraint', projectRoot, constraintId),
   deleteThought: (projectRoot, thoughtId) => ipcRenderer.invoke('project:delete-thought', projectRoot, thoughtId),
   replyOpenQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:reply-open-question', projectRoot, payload),
   onProjectDataChanged: (callback) => {
