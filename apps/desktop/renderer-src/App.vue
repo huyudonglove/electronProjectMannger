@@ -19,9 +19,13 @@ declare global {
       addThought: (projectRoot: string, content: string) => Promise<any>
       deleteThought: (projectRoot: string, thoughtId: string) => Promise<any>
       addDialogue: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      deleteDialogue: (projectRoot: string, dialogueId: string) => Promise<any>
       addConstraint: (projectRoot: string, payload: AnyRecord) => Promise<any>
       deleteConstraint: (projectRoot: string, constraintId: string) => Promise<any>
+      deleteDocument: (projectRoot: string, documentTarget: string) => Promise<any>
+      deleteKnowledge: (projectRoot: string, knowledgeTarget: string) => Promise<any>
       replyOpenQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      updateReplyRecord: (projectRoot: string, payload: AnyRecord) => Promise<any>
       onProjectDataChanged?: (callback: (payload: AnyRecord) => void) => () => void
     }
   }
@@ -49,6 +53,7 @@ const icons: Record<string, string> = {
   check: '<path d="m5 12 4 4L19 6" />',
   copy: '<path d="M8 8h11v11H8z" /><path d="M5 15H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1" />',
   cornerUpLeft: '<path d="m9 14-4-4 4-4" /><path d="M5 10h11a4 4 0 0 1 0 8h-1" />',
+  edit: '<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />',
   eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" /><circle cx="12" cy="12" r="3" />',
   fileText: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M16 13H8" /><path d="M16 17H8" /><path d="M10 9H8" />',
   folderOpen: '<path d="M6 17a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1" /><path d="M4 15l2-5h14l-2 7a2 2 0 0 1-2 1H6a2 2 0 0 1-2-3Z" />',
@@ -103,7 +108,9 @@ const state = reactive({
   quickOpen: false,
   quickCreateMode: '',
   replyItem: null as AnyRecord | null,
+  replyMode: 'create' as 'create' | 'edit',
   markdownDocument: null as AnyRecord | null,
+  selectedTask: null as AnyRecord | null,
   status: '等待选择项目',
   theme: 'dark',
   toasts: [] as Array<{ id: number; message: string; leaving: boolean }>,
@@ -487,6 +494,61 @@ async function deleteTask(taskId: string) {
     const api = ensureReady()
     if (!api) return
     updateDashboard(await api.deleteTask(state.projectRoot, taskId))
+    if (state.selectedTask?.id === taskId) closeTaskDetail()
+    state.status = ''
+  })
+}
+
+async function deleteDialogueRecord(dialogue: AnyRecord) {
+  const dialogueId = String(dialogue.id || dialogue.shortId || '').trim()
+  if (!dialogueId) {
+    state.status = '研究 ID 不能为空。'
+    return
+  }
+  if (!confirm(`删除这条研究？删除操作不级联，关联文档会保留。\n\n${dialogue.shortId || ''} ${dialogueDisplayTitle(dialogue)}`.trim())) return
+  await runAction('正在删除研究...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    updateDashboard(await api.deleteDialogue(state.projectRoot, dialogueId))
+    showToast('已删除')
+    state.status = ''
+  })
+}
+
+async function deleteDocumentNote(note: AnyRecord) {
+  const target = String(note.path || note.shortId || '').trim()
+  if (!target) {
+    state.status = '文档 ID 不能为空。'
+    return
+  }
+  if (!confirm(`删除这份文档？删除操作不级联，研究引用会保留。\n\n${note.shortId || ''} ${documentDisplayTitle(note)}`.trim())) return
+  await runAction('正在删除文档...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    updateDashboard(await api.deleteDocument(state.projectRoot, target))
+    if (state.markdownDocument?.kind === 'document' && state.markdownDocument.path === note.path) {
+      closeMarkdownDocument()
+    }
+    showToast('已删除')
+    state.status = ''
+  })
+}
+
+async function deleteKnowledgeNote(note: AnyRecord) {
+  const target = String(note.path || note.id || note.shortId || '').trim()
+  if (!target) {
+    state.status = '知识 ID 不能为空。'
+    return
+  }
+  if (!confirm(`删除这条知识？\n\n${note.shortId || ''} ${knowledgeDisplayTitle(note)}`.trim())) return
+  await runAction('正在删除知识...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    updateDashboard(await api.deleteKnowledge(state.projectRoot, target))
+    if (state.markdownDocument?.kind === 'knowledge' && state.markdownDocument.path === note.path) {
+      closeMarkdownDocument()
+    }
+    showToast('已删除')
     state.status = ''
   })
 }
@@ -510,12 +572,21 @@ async function updateTaskStatus(taskId: string, status: string) {
 
 function openReplyDialog(item: AnyRecord) {
   state.replyItem = item
+  state.replyMode = 'create'
   replyForm.answer = ''
+  replyForm.status = ''
+}
+
+function openEditReplyDialog(item: AnyRecord) {
+  state.replyItem = item
+  state.replyMode = 'edit'
+  replyForm.answer = String(item.replyAnswer || '').trim()
   replyForm.status = ''
 }
 
 function closeReplyDialog() {
   state.replyItem = null
+  state.replyMode = 'create'
   replyForm.answer = ''
   replyForm.status = ''
 }
@@ -536,15 +607,18 @@ async function submitReply() {
       return
     }
     replyForm.status = '保存中...'
-    updateDashboard(await api.replyOpenQuestion(state.projectRoot, {
-      questionId: item.id,
+    const payload = {
+      questionId: state.replyMode === 'edit' ? item.questionId : item.id,
       source: item.source,
       shortId: item.shortId,
       thoughtId: item.thoughtId,
       title: item.title,
       openQuestions: item.openQuestions,
       answer,
-    }))
+    }
+    updateDashboard(await (state.replyMode === 'edit'
+      ? api.updateReplyRecord(state.projectRoot, payload)
+      : api.replyOpenQuestion(state.projectRoot, payload)))
     closeReplyDialog()
     state.status = ''
   })
@@ -561,6 +635,9 @@ function updateDashboard(nextDashboard: AnyRecord) {
   state.initialized = true
   state.dashboard = nextDashboard
   state.selectedLogIndex = clampLogIndex(state.selectedLogIndex, nextDashboard.logs || [])
+  if (state.selectedTask) {
+    state.selectedTask = (nextDashboard.tasks || []).find((task: AnyRecord) => task.id === state.selectedTask?.id) || null
+  }
 }
 
 function toggleTheme() {
@@ -628,6 +705,14 @@ async function scrollToRef(refs: Map<any, Element>, key: any, highlight: () => v
 function openBoardTask(taskId: string) {
   setActiveSection('board')
   scrollToRef(taskRefs, taskId, () => { state.highlightedTask = taskId }, () => { state.highlightedTask = '' })
+}
+
+function openTaskDetail(task: AnyRecord) {
+  state.selectedTask = task
+}
+
+function closeTaskDetail() {
+  state.selectedTask = null
 }
 
 function openThought(thoughtId: string) {
@@ -998,7 +1083,8 @@ function renderReadableMarkdown(markdown: string) {
     codeLanguage = ''
     codeLines = []
   }
-  for (const rawLine of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index]
     const fence = rawLine.trim().match(/^```([A-Za-z0-9_-]+)?\s*$/)
     if (fence) {
       if (codeOpen) closeCode()
@@ -1017,6 +1103,18 @@ function renderReadableMarkdown(markdown: string) {
     const line = rawLine.trim()
     if (!line) {
       closeList()
+      continue
+    }
+    if (isMarkdownTableHeader(line, lines[index + 1] || '')) {
+      closeList()
+      const tableLines = [line, lines[index + 1].trim()]
+      index += 2
+      while (index < lines.length && isMarkdownTableRow(lines[index])) {
+        tableLines.push(lines[index].trim())
+        index += 1
+      }
+      index -= 1
+      html.push(renderMarkdownTable(tableLines))
       continue
     }
     const heading = line.match(/^(#{1,4})\s+(.+)$/)
@@ -1047,6 +1145,58 @@ function renderReadableMarkdown(markdown: string) {
   closeList()
   closeCode()
   return html.join('') || '<p class="empty">暂无内容</p>'
+}
+
+function isMarkdownTableHeader(line: string, nextLine: string) {
+  return isMarkdownTableRow(line) && isMarkdownTableSeparator(nextLine)
+}
+
+function isMarkdownTableRow(line: string) {
+  const text = String(line || '').trim()
+  return text.includes('|') && splitMarkdownTableRow(text).length > 1
+}
+
+function isMarkdownTableSeparator(line: string) {
+  const cells = splitMarkdownTableRow(String(line || '').trim())
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))
+}
+
+function splitMarkdownTableRow(line: string) {
+  const normalized = String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '')
+  const cells: string[] = []
+  let cell = ''
+  let escaped = false
+  for (const char of normalized) {
+    if (escaped) {
+      cell += char
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+    if (char === '|') {
+      cells.push(cell.trim())
+      cell = ''
+      continue
+    }
+    cell += char
+  }
+  cells.push(cell.trim())
+  return cells
+}
+
+function renderMarkdownTable(lines: string[]) {
+  const header = splitMarkdownTableRow(lines[0])
+  const rows = lines.slice(2).map(splitMarkdownTableRow)
+  const cellCount = Math.max(header.length, ...rows.map((row) => row.length))
+  const normalizeCells = (cells: string[]) => Array.from({ length: cellCount }, (_, index) => cells[index] || '')
+  const head = normalizeCells(header).map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join('')
+  const body = rows
+    .map((row) => `<tr>${normalizeCells(row).map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join('')}</tr>`)
+    .join('')
+  return `<div class="markdown-table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
 }
 
 function renderInlineMarkdown(value: string) {
@@ -1303,17 +1453,22 @@ function escapeHtml(value: any) {
                 :ref="(el) => setTaskRef(task.id, el as Element | null)"
                 class="task"
                 :class="{ done: task.status === 'done', 'task-highlight': state.highlightedTask === task.id }"
+                role="button"
+                tabindex="0"
+                @click="openTaskDetail(task)"
+                @keydown.enter.prevent="openTaskDetail(task)"
+                @keydown.space.prevent="openTaskDetail(task)"
               >
                 <div class="task-head">
                   <div class="task-title"><span v-if="task.shortId" class="task-short-id">{{ task.shortId }}</span><span>{{ task.title }}</span></div>
-                  <button class="btn icon-button btn-outline-secondary btn-sm task-delete-button" type="button" title="删除任务" aria-label="删除任务" @click="deleteTask(task.id)" v-html="icon('trash')" />
+                  <button class="btn icon-button btn-outline-secondary btn-sm task-delete-button" type="button" title="删除任务" aria-label="删除任务" @click.stop="deleteTask(task.id)" v-html="icon('trash')" />
                 </div>
                 <div class="task-meta">
                   <span class="badge" :class="priorityClass(task.priority)">{{ task.priority || 'medium' }}</span>
                   <span class="badge muted-badge">{{ task.area || 'tool' }}</span>
                   <span class="badge" :class="statusBadgeClass(task.status)">{{ statusText(task.status) }}</span>
                 </div>
-                <p v-if="task.detail">{{ String(task.detail).slice(0, 180) }}</p>
+                <p v-if="task.detail">{{ String(task.detail).slice(0, 180) }}{{ String(task.detail).length > 180 ? '...' : '' }}</p>
               </article>
               <button v-if="status === 'done' && tasks.filter((task: AnyRecord) => task.status === 'done').length > 6" class="done-toggle" type="button" @click="state.doneExpanded = !state.doneExpanded">
                 {{ state.doneExpanded ? '收起已完成任务' : `展开 ${hiddenDoneCount(status)} 个已完成任务` }}
@@ -1340,7 +1495,10 @@ function escapeHtml(value: any) {
                 >
                   <div class="dialogue-head">
                     <div><span class="task-short-id">{{ dialogue.shortId || 'D000' }}</span><strong>{{ dialogueDisplayTitle(dialogue) }}</strong></div>
-                    <div class="dialogue-actions"><small>{{ formatTime(dialogue.created) }}</small></div>
+                    <div class="dialogue-actions">
+                      <small>{{ formatTime(dialogue.created) }}</small>
+                      <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="删除研究" aria-label="删除研究" @click="deleteDialogueRecord(dialogue)" v-html="icon('trash')" />
+                    </div>
                   </div>
                   <section class="dialogue-block dialogue-prompt"><strong>概要</strong><p>{{ dialogueSummary(dialogue) }}</p></section>
                   <section class="dialogue-block dialogue-answer">
@@ -1401,6 +1559,7 @@ function escapeHtml(value: any) {
                   <div class="collab-card-top-right">
                     <span class="badge" :class="replyFollowUpState(item).badgeClass" :title="replyFollowUpState(item).title">{{ replyFollowUpState(item).label }}</span>
                     <span v-for="relation in item.relations || []" :key="relation" class="badge muted-badge">{{ relation }}</span>
+                    <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="编辑回复" aria-label="编辑回复" @click="openEditReplyDialog(item)" v-html="icon('edit')" />
                     <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看" aria-label="查看" @click="openQuestionTarget(item)" v-html="icon('eye')" />
                   </div>
                   <div class="collab-reply-main">
@@ -1473,13 +1632,14 @@ function escapeHtml(value: any) {
             <strong>暂无知识条目</strong>
           </div>
           <div v-else class="library-grid knowledge-card-grid">
-            <button v-for="(note, index) in knowledge" :key="note.path || note.shortId || index" class="library-card" type="button" @click="openMarkdownDocument(note, 'knowledge')">
+            <article v-for="(note, index) in knowledge" :key="note.path || note.shortId || index" class="library-card library-card-frame" role="button" tabindex="0" @click="openMarkdownDocument(note, 'knowledge')" @keydown.enter.prevent="openMarkdownDocument(note, 'knowledge')" @keydown.space.prevent="openMarkdownDocument(note, 'knowledge')">
               <span class="library-card-icon" v-html="icon('bookOpen')" />
               <span class="library-card-kicker"><span>{{ note.shortId || 'K000' }}</span><span>{{ knowledgeStatusText(note.status) }}</span></span>
               <strong>{{ knowledgeDisplayTitle(note) }}</strong>
               <small>{{ noteCardSummary(note, 'knowledge') }}</small>
               <span class="library-card-origin">出处：{{ noteOriginProject(note, 'knowledge') }}</span>
-            </button>
+              <button class="btn icon-button btn-outline-secondary btn-sm library-card-delete" type="button" title="删除知识" aria-label="删除知识" @click.stop="deleteKnowledgeNote(note)" v-html="icon('trash')" />
+            </article>
           </div>
         </div>
       </section>
@@ -1494,13 +1654,14 @@ function escapeHtml(value: any) {
           <section v-for="(notes, folder) in groupedDocuments" :key="folder" class="document-group">
             <div class="knowledge-group-head"><strong>{{ folder || '根目录' }}</strong><span>{{ notes.length }} 条</span></div>
             <div class="library-grid document-card-grid">
-              <button v-for="note in notes" :key="note.path" class="library-card document-card" type="button" @click="openMarkdownDocument(note, 'document')">
+              <article v-for="note in notes" :key="note.path" class="library-card library-card-frame document-card" role="button" tabindex="0" @click="openMarkdownDocument(note, 'document')" @keydown.enter.prevent="openMarkdownDocument(note, 'document')" @keydown.space.prevent="openMarkdownDocument(note, 'document')">
                 <span class="library-card-icon" v-html="icon('fileText')" />
                 <span class="library-card-kicker"><span>{{ note.shortId || 'W000' }}</span><span>{{ noteCategory(note.path) }}</span></span>
                 <strong>{{ documentDisplayTitle(note) }}</strong>
                 <small>{{ noteCardSummary(note, 'document') }}</small>
                 <span class="library-card-origin">出处：{{ noteOriginProject(note, 'document') }}</span>
-              </button>
+                <button class="btn icon-button btn-outline-secondary btn-sm library-card-delete" type="button" title="删除文档" aria-label="删除文档" @click.stop="deleteDocumentNote(note)" v-html="icon('trash')" />
+              </article>
             </div>
           </section>
         </div>
@@ -1586,6 +1747,40 @@ function escapeHtml(value: any) {
     <div v-for="toast in state.toasts" :key="toast.id" class="toast-message" :class="{ 'is-leaving': toast.leaving }">{{ toast.message }}</div>
   </div>
 
+  <div v-if="state.selectedTask" class="modal-overlay" @click.self="closeTaskDetail">
+    <section class="card task-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="taskDetailTitle">
+      <div class="project-dialog-head">
+        <div>
+          <div class="task-detail-badges">
+            <span v-if="state.selectedTask.shortId" class="task-short-id">{{ state.selectedTask.shortId }}</span>
+            <span class="badge" :class="priorityClass(state.selectedTask.priority)">{{ state.selectedTask.priority || 'medium' }}</span>
+            <span class="badge muted-badge">{{ state.selectedTask.area || 'tool' }}</span>
+            <span class="badge" :class="statusBadgeClass(state.selectedTask.status)">{{ statusText(state.selectedTask.status) }}</span>
+          </div>
+          <h2 id="taskDetailTitle">{{ state.selectedTask.title || '未命名任务' }}</h2>
+          <p>{{ state.selectedTask.updated ? `更新于 ${formatTime(state.selectedTask.updated)}` : '未标注更新时间' }}</p>
+        </div>
+        <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeTaskDetail" v-html="icon('x')" />
+      </div>
+      <div class="task-detail-body">
+        <section>
+          <strong>任务描述</strong>
+          <div v-if="state.selectedTask.detail" v-html="renderTextBlock(state.selectedTask.detail)" />
+          <p v-else>暂无描述</p>
+        </section>
+        <section>
+          <strong>验收标准</strong>
+          <div v-if="state.selectedTask.acceptance" v-html="renderListTextBlock(state.selectedTask.acceptance)" />
+          <p v-else>暂无验收标准</p>
+        </section>
+        <section v-if="state.selectedTask.openQuestions">
+          <strong>未确认事项</strong>
+          <div v-html="renderListTextBlock(state.selectedTask.openQuestions)" />
+        </section>
+      </div>
+    </section>
+  </div>
+
   <div v-if="state.projectRoot && !state.initialized" class="modal-overlay">
     <section class="card init-dialog" role="dialog" aria-modal="true" aria-labelledby="initDialogTitle">
       <h2 id="initDialogTitle">初始化项目管理数据</h2>
@@ -1620,15 +1815,15 @@ function escapeHtml(value: any) {
   <div v-if="state.replyItem" class="modal-overlay" @click.self="closeReplyDialog">
     <form class="card reply-dialog" role="dialog" aria-modal="true" aria-labelledby="replyDialogTitle" @submit.prevent="submitReply">
       <div class="project-dialog-head">
-        <div><h2 id="replyDialogTitle">回复待确认</h2><p>{{ state.replyItem.openQuestions || '待确认内容' }}</p></div>
+        <div><h2 id="replyDialogTitle">{{ state.replyMode === 'edit' ? '编辑回复' : '回复待确认' }}</h2><p>{{ state.replyItem.openQuestions || '待确认内容' }}</p></div>
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeReplyDialog" v-html="icon('x')" />
       </div>
       <textarea v-model="replyForm.answer" rows="5" placeholder="写下回复或处理结论。"></textarea>
-      <div class="quick-task-actions"><span>{{ replyForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="保存回复" aria-label="保存回复" v-html="icon('check')" /></div>
+      <div class="quick-task-actions"><span>{{ replyForm.status }}</span><button class="btn icon-button btn-primary" type="submit" :title="state.replyMode === 'edit' ? '更新回复' : '保存回复'" :aria-label="state.replyMode === 'edit' ? '更新回复' : '保存回复'" v-html="icon('check')" /></div>
     </form>
   </div>
 
-  <div v-if="state.markdownDocument" class="modal-overlay" @click.self="closeMarkdownDocument">
+  <div v-if="state.markdownDocument" class="modal-overlay markdown-modal-overlay" @click.self="closeMarkdownDocument">
     <section class="card markdown-dialog" role="dialog" aria-modal="true" aria-labelledby="markdownDialogTitle">
       <div class="project-dialog-head markdown-dialog-head">
         <div>

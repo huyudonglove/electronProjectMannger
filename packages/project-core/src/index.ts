@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 
@@ -408,6 +408,7 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
       `需要完整任务时读取 ${path.join(dataRoot, TASKS_PATH)}。`,
       '所有记录型 Markdown 都必须按 ID 倒序维护：较大的 Txxx/Ixxx/Dxxx/Wxxx/Kxxx/Lxxx/Cxxx 写在较小 ID 上方，例如 T036 在 T001 上面。',
       `处理 Dxxx 研究时读取 ${path.join(dataRoot, DIALOGUES_PATH)}，同时读取关联 Wxxx 文档；默认按 Tree-of-Thought 至少 3 条路径、优缺点、适用条件和建议结论组织研究。`,
+      `Dxxx 研究、Wxxx 文档和 Kxxx 知识可独立删除；删除操作不级联，引用关系只由 related_documents 等字段表达。`,
       `长期知识库是全局共享的，读取 ${resolveGlobalKnowledgeRoot(managerDataRoot)} 中的 Kxxx 条目。`,
       `工作记录必须包含 ### 用户目标、### 需求理解、### 产出、### 关键步骤、### 验证、### 验收标准、### 未确认事项。`,
       '工作流顺序：想法/输入 -> 整理回答 -> 必要时产生任务 -> 任务进入 todo/doing/done -> 任务执行并验收后写 Agent 工作记录。',
@@ -738,6 +739,67 @@ export async function deleteThought(managerDataRoot: string, projectRoot: string
   return getDashboard(managerDataRoot, projectRoot)
 }
 
+export async function deleteDialogue(managerDataRoot: string, projectRoot: string, dialogueId: string) {
+  const id = String(dialogueId || '').trim()
+  if (!id) throw new Error('研究 ID 不能为空')
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const current = await readResearchRecordsFile(dataRoot)
+  let deleted = false
+  const blocks = current.split(/\n(?=##\s+)/)
+  const next = blocks
+    .filter((block, index) => {
+      if (index === 0 && !block.trim().startsWith('## ')) return true
+      const fields = parseFields(block)
+      const shouldDelete = fields.id === id || normalizeDialogueShortId(id) === normalizeDialogueShortId(fields.short_id)
+      if (shouldDelete) deleted = true
+      return !shouldDelete
+    })
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  if (!deleted) throw new Error('未找到研究记录')
+
+  await writeProjectFile(dataRoot, DIALOGUES_PATH, `${next}\n`)
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function deleteDocument(managerDataRoot: string, projectRoot: string, documentTarget: string) {
+  const target = String(documentTarget || '').trim()
+  if (!target) throw new Error('文档 ID 不能为空')
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  await normalizeProjectDocumentFiles(dataRoot)
+  const documents = await listProjectDocuments(dataRoot)
+  const note = documents.find((item) =>
+    item.path === target || item.shortId === normalizeDocumentShortId(target),
+  )
+  if (!note) throw new Error('未找到文档')
+
+  await removeProjectMarkdownFile(dataRoot, note.path, DOCUMENTS_DIR)
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function deleteKnowledge(managerDataRoot: string, projectRoot: string, knowledgeTarget: string) {
+  const target = String(knowledgeTarget || '').trim()
+  if (!target) throw new Error('知识 ID 不能为空')
+
+  await ensureGlobalKnowledgeRoot(managerDataRoot)
+  await normalizeGlobalKnowledgeFiles(managerDataRoot)
+  const notes = parseKnowledgeNotes(await listGlobalKnowledgeDocuments(managerDataRoot))
+  const note = notes.find((item) =>
+    item.path === target || item.id === target || item.shortId === normalizeKnowledgeShortId(target),
+  )
+  if (!note) throw new Error('未找到知识条目')
+
+  await removeProjectMarkdownFile(managerDataRoot, note.path, GLOBAL_KNOWLEDGE_DIR)
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
 export async function replyOpenQuestion(managerDataRoot: string, projectRoot: string, input: OpenQuestionReplyInput) {
   if (!input) throw new Error('回复内容不能为空')
   const answer = String(input.answer || '').trim()
@@ -752,6 +814,26 @@ export async function replyOpenQuestion(managerDataRoot: string, projectRoot: st
     await replyThoughtOpenQuestion(dataRoot, input, answer)
   } else {
     await replyTaskOpenQuestion(dataRoot, input, answer)
+  }
+
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function updateReplyRecord(managerDataRoot: string, projectRoot: string, input: OpenQuestionReplyInput) {
+  if (!input) throw new Error('回复内容不能为空')
+  const answer = String(input.answer || '').trim()
+  const questionId = String(input.questionId || '').trim()
+  if (!questionId) throw new Error('回复 ID 不能为空')
+  if (!answer) throw new Error('回复内容不能为空')
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  if (input.source === 'log') {
+    await updateReplyRecordInFile(dataRoot, AGENT_LOG_PATH, input, answer)
+  } else if (input.source === 'thought') {
+    await updateReplyRecordInFile(dataRoot, THOUGHTS_PATH, input, answer)
+  } else {
+    await updateReplyRecordInFile(dataRoot, TASKS_PATH, input, answer)
   }
 
   await refreshAgentBrief(managerDataRoot, projectRoot)
@@ -840,6 +922,25 @@ async function writeRootFile(root: string, relativePath: string, content: string
   await writeFile(absolutePath, content, 'utf8')
 }
 
+async function removeProjectMarkdownFile(root: string, relativePath: string, baseDir: string) {
+  const safePath = safeMarkdownPath(relativePath, baseDir)
+  await rm(path.join(root, safePath), { force: true })
+}
+
+function safeMarkdownPath(relativePath: string, baseDir: string) {
+  const normalized = path.normalize(String(relativePath || '').trim()).replace(/\\/g, '/')
+  if (
+    !normalized ||
+    path.isAbsolute(normalized) ||
+    normalized.split('/').includes('..') ||
+    !normalized.startsWith(`${baseDir}/`) ||
+    !normalized.endsWith('.md')
+  ) {
+    throw new Error('文件路径不合法')
+  }
+  return normalized
+}
+
 async function ensureProjectFile(dataRoot: string, relativePath: string, content: string) {
   try {
     await readFile(path.join(dataRoot, relativePath), 'utf8')
@@ -851,13 +952,13 @@ async function ensureProjectFile(dataRoot: string, relativePath: string, content
 async function listProjectDocuments(dataRoot: string): Promise<ProjectDocumentNote[]> {
   const files = await listMarkdownFiles(dataRoot, DOCUMENTS_DIR)
   const notes = await Promise.all(files.map(async (relativePath) => parseDocumentNote(relativePath, await readProjectFile(dataRoot, relativePath))))
-  return notes.sort((a, b) => a.path.localeCompare(b.path, 'zh-Hans-CN'))
+  return notes.sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'W') || a.path.localeCompare(b.path, 'zh-Hans-CN'))
 }
 
 async function listGlobalKnowledgeDocuments(managerDataRoot: string): Promise<ProjectDocumentNote[]> {
   const files = await listMarkdownFiles(managerDataRoot, GLOBAL_KNOWLEDGE_DIR)
   const notes = await Promise.all(files.map(async (relativePath) => parseDocumentNote(relativePath, await readExistingRootFile(managerDataRoot, relativePath))))
-  return notes.sort((a, b) => a.path.localeCompare(b.path, 'zh-Hans-CN'))
+  return notes.sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'K') || a.path.localeCompare(b.path, 'zh-Hans-CN'))
 }
 
 async function listProjectConstraints(dataRoot: string): Promise<ProjectConstraint[]> {
@@ -1005,6 +1106,18 @@ function normalizeDocumentShortId(value: string | undefined) {
   return match ? `W${match[1].padStart(3, '0')}` : ''
 }
 
+function compareShortIdDesc(a: string | undefined, b: string | undefined, prefix: string) {
+  const left = shortIdNumber(a, prefix)
+  const right = shortIdNumber(b, prefix)
+  if (left !== right) return right - left
+  return String(b || '').localeCompare(String(a || ''))
+}
+
+function shortIdNumber(value: string | undefined, prefix: string) {
+  const match = String(value || '').trim().match(new RegExp(`^${prefix}(\\d+)$`, 'i'))
+  return match ? Number(match[1]) : 0
+}
+
 function addMissingMetadataFields(content: string, fields: Record<string, string>, values: Record<string, string>) {
   const missing = Object.entries(values)
     .filter(([key]) => !fields[key])
@@ -1057,7 +1170,7 @@ function parseKnowledgeNotes(notes: ProjectDocumentNote[]): ProjectKnowledgeNote
         relatedNotes: splitRefs(fields.related_notes),
       }
     })
-    .sort((a, b) => knowledgeSortKey(b).localeCompare(knowledgeSortKey(a)) || b.shortId.localeCompare(a.shortId) || a.title.localeCompare(b.title, 'zh-Hans-CN'))
+    .sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'K') || a.title.localeCompare(b.title, 'zh-Hans-CN') || knowledgeSortKey(b).localeCompare(knowledgeSortKey(a)))
 }
 
 function knowledgeSortKey(note: Pick<ProjectKnowledgeNote, 'updated' | 'shortId' | 'title'>) {
@@ -1172,6 +1285,33 @@ async function replyLogOpenQuestion(dataRoot: string, input: OpenQuestionReplyIn
 
   if (!handled) throw new Error('未找到未确认事项来源')
   await writeProjectFile(dataRoot, AGENT_LOG_PATH, next)
+}
+
+async function updateReplyRecordInFile(dataRoot: string, relativePath: string, input: OpenQuestionReplyInput, answer: string) {
+  const questionId = String(input.questionId || '').trim()
+  const current = await readProjectFile(dataRoot, relativePath)
+  let handled = false
+  const next = updateMarkdownBlocks(current, (block) => {
+    if (!block.includes(questionId)) return block
+    const records = readListSection(block, ['回答记录'])
+    let changed = false
+    const updatedRecords = records.map((reply) => {
+      const parsed = parseReplyRecordParts(reply)
+      if (parsed?.questionId !== questionId) return reply
+      changed = true
+      return formatQuestionReplyWithCreated({
+        ...input,
+        openQuestions: parsed.openQuestions || input.openQuestions,
+      }, answer, parsed.replyCreated)
+    })
+    if (!changed) return block
+
+    handled = true
+    return replaceSection(block, ['回答记录'], '回答记录', updatedRecords.map((reply) => `- ${reply}`).join('\n'))
+  })
+
+  if (!handled) throw new Error('未找到回复记录')
+  await writeProjectFile(dataRoot, relativePath, next)
 }
 
 function updateMarkdownBlocks(content: string, update: (block: string) => string) {
@@ -1380,7 +1520,7 @@ function parseDialogues(content: string): ProjectDialogue[] {
         content: block.trim(),
       }
     })
-    .sort((a, b) => dialogueSortKey(b).localeCompare(dialogueSortKey(a)) || b.shortId.localeCompare(a.shortId))
+    .sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'D') || dialogueSortKey(b).localeCompare(dialogueSortKey(a)))
 }
 
 function dialogueSortKey(dialogue: Pick<ProjectDialogue, 'created' | 'title' | 'shortId'>) {
@@ -1604,9 +1744,17 @@ function parseReplyRecordParts(reply: string) {
 }
 
 function formatQuestionReply(input: OpenQuestionReplyInput, answer: string) {
+  return formatQuestionReplyWithCreated(input, answer, localTime())
+}
+
+function formatQuestionReplyWithCreated(input: OpenQuestionReplyInput, answer: string, created: string) {
   const id = input.questionId || ''
   const prefix = id ? `${id} ` : ''
-  return `${prefix}${localTime()} 问题：${input.openQuestions} 回复：${answer}`
+  return `${prefix}${created} 问题：${singleLineText(input.openQuestions)} 回复：${singleLineText(answer)}`
+}
+
+function singleLineText(value: string) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
 }
 
 function readSection(content: string, titles: string[]) {
@@ -1888,7 +2036,7 @@ function dataSpecTemplate() {
 - Markdown 是主数据源。
 - JSON 只作为配置、同步包和可再生成缓存。
 - 任务卡必须保留用户原话、Agent 理解、执行范围、验收和未确认事项。
-- 所有记录型 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面、\`D012\` 在 \`D001\` 上面。这是写入准则，不依赖界面排序或解析层重排。
+- 所有记录型 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面、\`D036\` 在 \`D012\` 上面。这是写入准则，不依赖界面排序或解析层重排。
 - 工作记录必须保留用户目标、需求理解、产出、关键步骤、验证、验收标准和未确认事项。
 - 研究保存概要、研究标准和详细文档引用，使用 \`Dxxx\` 作为引用 ID；详细研究过程、路径分析和结论写入关联 \`Wxxx\` 文档。
 - 处理 \`Dxxx\` 研究时，必须同时读取 \`### 内容\` 和 \`### 验收标准\`；\`### 验收标准\` 是 Agent 回答或执行的约束，不是仅供 UI 展示的备注。
@@ -1896,6 +2044,7 @@ function dataSpecTemplate() {
 - 研究页只保留概要和详细文档引用；详细研究结果写入 \`${DOCUMENTS_DIR}/\` 的 \`Wxxx\` 文档，同时写入 Agent 工作记录。
 - 文档保存项目本地资料、手册、说明和附件型 Markdown，使用 \`Wxxx\` 作为引用 ID；文档不自动进入知识库。
 - 知识条目保存沉淀后的稳定知识、可复用结论、方案和运行经验，使用 \`Kxxx\` 作为引用 ID。
+- 研究、文档和知识条目允许独立删除；删除操作不级联，引用关系只由 \`related_documents\` 等字段表达。删除 \`Dxxx\` 研究不删除关联 \`Wxxx\` 文档，删除 \`Wxxx\` 文档不改写研究引用；删除 \`Kxxx\` 知识条目会删除全局共享知识库中的 Markdown，对所有项目生效。
 - 项目约束保存当前项目全局规则、长期约定和 Agent 必须遵守的协作准则，使用 \`Cxxx\` 作为引用 ID；系统生成的数据规范、交接说明和本地 SKILL 作为只读系统约束展示，不从用户约束文件删除。
 - 数据结构、字段或文件名调整后，应一次性整理当前 Markdown 数据并补齐缺失字段；没有内容写 \`无\` 或 \`暂无\`，不要新增长期运行时兼容判断或只在界面兜底。
 - 未确认事项由 Electron Manager 展示为独立 QID；任务 \`Txxx\`、想法 \`Ixxx\` 和工作记录引用 \`Lxxx\` 只作为 relation，不复用为未确认事项 ID。工作记录仍是任务副产品，不是独立执行模块。
@@ -1958,8 +2107,8 @@ updated:: YYYY-MM-DD HH:mm
 tags:: electron, local-first
 aliases:: 无
 source_project:: 项目名称
-source:: D001
-related_records:: D001
+source:: D123
+related_records:: D123
 related_tasks:: T001
 related_notes:: K002
 summary:: 这条知识保存的稳定结论。
@@ -2002,6 +2151,8 @@ summary:: 这份文档的简短摘要。
 
 文档位于项目本地 \`${DOCUMENTS_DIR}/\` 目录，使用 \`Wxxx\` 独立编号。文档和知识库都是 Markdown，但语义不同：文档是项目资料，知识库是沉淀后的稳定结论。不要自动把文档转成知识；只有用户明确要求，或用户要求 Agent 判断是否值得沉淀时，Agent 才评估并建议生成或更新 \`Kxxx\`。
 
+删除文档时，只删除该 \`Wxxx\` 文档本身，不自动改写引用它的 \`Dxxx\` 研究记录。\`related_documents\` 只表达关系，不代表删除级联。
+
 ## 项目约束格式
 
 \`\`\`markdown
@@ -2028,7 +2179,7 @@ updated:: YYYY-MM-DD HH:mm
 ## YYYY-MM-DD HH:mm 研究
 
 id:: dialogue-...
-short_id:: D001
+short_id:: D123
 type:: dialogue
 created:: YYYY-MM-DD HH:mm
 mode:: learning | research | decision
@@ -2051,6 +2202,8 @@ related_documents:: W001
 \`\`\`
 
 当用户要求处理某条 \`Dxxx\` 研究，或新 Agent 根据研究继续回答/执行时，必须把 \`### 验收标准\` 作为完成口径；如果用户没有自定义标准，使用默认 Tree-of-Thought 标准。研究记录本身只展示概要，详细内容必须写入关联 \`Wxxx\` 文档；研究动作也必须写入工作记录，避免结论流失。
+
+删除 \`Dxxx\` 研究时，只删除研究记录本身，不自动删除关联 \`Wxxx\` 文档。\`related_documents\` 只表达关系，不代表删除级联。
 
 研究不替代想法或任务：可执行事项仍应进入任务，待确认事项仍使用独立 QID，任务执行和验收仍写入工作记录。
 
@@ -2144,6 +2297,7 @@ function handoffTemplate(projectRoot: string) {
 - 想法是入口，任务是执行单位，工作记录是任务执行后的记录。
 - 研究保存概要、标准和详细文档引用，使用 \`Dxxx\` 引用；详细研究结果写入 \`Wxxx\` 文档，研究动作写入工作记录。
 - 文档保存项目本地资料和说明，使用 \`Wxxx\` 引用；文档不会自动进入知识库。
+- 研究、文档和知识可独立删除；删除操作不级联，引用关系只由字段表达。
 - 项目约束保存当前项目长期规则，使用 \`Cxxx\` 引用；新增约束要写入 \`${CONSTRAINTS_PATH}\`。
 - 处理研究时不要只看标题或内容；必须检查同一条记录的 \`### 验收标准\`，并用它校准回答深度、列举范围、验证方式或交付边界。没有自定义标准时，按默认 Tree-of-Thought 标准执行。
 - 想法被采纳时，在 \`### 回答\` 中写清关联任务短 ID。
@@ -2182,30 +2336,7 @@ function dialoguesTemplate() {
   return `# 研究
 
 > 这里记录研究概要、研究标准和详细文档引用；详细研究结果写入 documents/ 下的 Wxxx 文档。
-> 写入时必须按 short_id 倒序维护：较大的 Dxxx 写在较小的 Dxxx 上方，例如 D036 在 D001 上面。
-
-## ${localTime()} 初始化研究
-
-id:: dialogue-${Date.now()}-init
-short_id:: D001
-type:: dialogue
-created:: ${localTime()}
-mode:: decision
-tags:: init
-related_tasks:: T001
-related_thoughts:: 无
-
-### 内容
-
-Electron Manager 初始化项目管理数据。
-
-### 回答
-
-初始化研究入口。研究用于保存思路演进、关键问答、方案比较、技术背景和重要上下文；详细答案和可长期复用结论应沉淀到知识库。
-
-### 验收标准
-
-无。
+> 写入时必须按 short_id 倒序维护：较大的 Dxxx 写在较小的 Dxxx 上方，例如 D036 在 D012 上面。
 `
 }
 
@@ -2295,7 +2426,7 @@ Use this skill when working on this project with Electron Manager initialized da
 
 - Before executing a task, set its status to \`doing\`.
 - After verification, set its status to \`done\`.
-- Keep all record Markdown physically ordered by descending record ID: larger \`Txxx\`, \`Ixxx\`, \`Dxxx\`, \`Wxxx\`, \`Kxxx\`, \`Lxxx\`, and \`Cxxx\` entries must appear above smaller IDs, for example \`T036\` above \`T001\` and \`D012\` above \`D001\`. This is a writing rule; do not rely on UI sorting or parser reordering to fix record order.
+- Keep all record Markdown physically ordered by descending record ID: larger \`Txxx\`, \`Ixxx\`, \`Dxxx\`, \`Wxxx\`, \`Kxxx\`, \`Lxxx\`, and \`Cxxx\` entries must appear above smaller IDs, for example \`T036\` above \`T001\` and \`D036\` above \`D012\`. This is a writing rule; do not rely on UI sorting or parser reordering to fix record order.
 - Preserve user wording in \`### 用户原话\`.
 - Keep \`### Agent 理解\`, \`### 执行范围\`, \`### 验收\`, and \`### 未确认事项\` explicit.
 - Keep agent logs explicit with \`### 需求理解\`, \`### 产出\`, \`### 关键步骤\`, \`### 验证\`, \`### 验收标准\`, and \`### 未确认事项\`.
@@ -2310,6 +2441,7 @@ Use this skill when working on this project with Electron Manager initialized da
 - Use project constraints in \`${CONSTRAINTS_PATH}\` for project-wide rules, collaboration boundaries, long-lived preferences, and requirements that every Agent should obey. Reference them as \`Cxxx\`. New constraints are user-authored records; generated data specs, handoff notes, and this skill are read-only system constraints in the app view.
 - Use research notes in \`${DIALOGUES_PATH}\` for research summaries, standards, and links to detailed \`Wxxx\` documents. Reference them as \`Dxxx\`. Default research uses Tree-of-Thought: provide at least 3 paths with pros, cons, fit conditions, and a recommendation, unless the user provides a custom standard. Keep research entries brief; write detailed research results into project-local \`Wxxx\` documents and write the research action into \`${AGENT_LOG_PATH}\`. If the user explicitly asks to save something, write a record; if you judge something is worth preserving, ask before saving it. Executable work still belongs in tasks, task execution still belongs in agent logs, and open questions still use QIDs.
 - When a user asks an agent to answer, continue, verify, or execute a \`Dxxx\` research record, read that specific record from \`${DIALOGUES_PATH}\`, then read its related \`Wxxx\` document for the detailed research result. Treat \`### 验收标准\` as the completion criteria, and do not answer from the \`Dxxx\` summary alone.
+- Research, documents, and knowledge notes are independently deletable records. Deletion does not cascade. \`related_documents\` and similar fields express references only; they do not imply automatic deletion or reference rewriting. Deleting a \`Kxxx\` knowledge note removes the global shared Markdown note and affects every project.
 - If an input/thought itself raises an open question, add \`### 未确认事项\`; Electron Manager displays it as a QID with the thought's \`Ixxx\` relation.
 - When handling an input/thought in \`${THOUGHTS_PATH}\`, do not only change \`status\`; add \`### 回答\` with the conclusion, related task short ID, or reason for not acting.
 - Follow the workflow: thought/input -> answered triage -> optional task -> task status -> agent log after task execution and verification.

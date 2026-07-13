@@ -8,6 +8,9 @@ import {
   appendConstraint,
   appendThought,
   deleteConstraint,
+  deleteDialogue,
+  deleteDocument,
+  deleteKnowledge,
   deleteTask,
   deleteThought,
   getDashboard,
@@ -18,6 +21,7 @@ import {
   removeManagedProject,
   replyOpenQuestion,
   refreshAgentBrief,
+  updateReplyRecord,
   updateProjectGuidance,
   updateTaskStatus,
 } from '@electron-manager/project-core'
@@ -141,6 +145,10 @@ function registerIpc() {
     return appendDialogue(managerDataRoot, projectRoot, payload)
   })
 
+  ipcMain.handle('project:delete-dialogue', async (_event, projectRoot: string, dialogueId: string) => {
+    return deleteDialogue(managerDataRoot, projectRoot, dialogueId)
+  })
+
   ipcMain.handle('project:add-constraint', async (_event, projectRoot: string, payload) => {
     return appendConstraint(managerDataRoot, projectRoot, payload)
   })
@@ -149,12 +157,24 @@ function registerIpc() {
     return deleteConstraint(managerDataRoot, projectRoot, constraintId)
   })
 
+  ipcMain.handle('project:delete-document', async (_event, projectRoot: string, documentTarget: string) => {
+    return deleteDocument(managerDataRoot, projectRoot, documentTarget)
+  })
+
+  ipcMain.handle('project:delete-knowledge', async (_event, projectRoot: string, knowledgeTarget: string) => {
+    return deleteKnowledge(managerDataRoot, projectRoot, knowledgeTarget)
+  })
+
   ipcMain.handle('project:delete-thought', async (_event, projectRoot: string, thoughtId: string) => {
     return deleteThought(managerDataRoot, projectRoot, thoughtId)
   })
 
   ipcMain.handle('project:reply-open-question', async (_event, projectRoot: string, payload) => {
     return replyOpenQuestion(managerDataRoot, projectRoot, payload)
+  })
+
+  ipcMain.handle('project:update-reply-record', async (_event, projectRoot: string, payload) => {
+    return updateReplyRecord(managerDataRoot, projectRoot, payload)
   })
 }
 

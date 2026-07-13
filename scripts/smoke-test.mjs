@@ -7,6 +7,9 @@ import {
   appendConstraint,
   appendThought,
   deleteConstraint,
+  deleteDialogue,
+  deleteDocument,
+  deleteKnowledge,
   deleteTask,
   deleteThought,
   initProject,
@@ -17,6 +20,7 @@ import {
   replyOpenQuestion,
   refreshAgentBrief,
   resolveDataRoot,
+  updateReplyRecord,
   updateProjectGuidance,
   updateTaskStatus,
 } from '../packages/project-core/dist/index.js'
@@ -70,7 +74,7 @@ try {
   const initialLogFile = await readFile(logPath, 'utf8')
   assert(taskFile.includes('T036') && taskFile.includes('T001'), 'task file should describe descending task write order')
   assert(thoughtFile.includes('I036') && thoughtFile.includes('I001'), 'thought file should describe descending thought write order')
-  assert(dialogueFile.includes('D036') && dialogueFile.includes('D001'), 'research file should describe descending research write order')
+  assert(dialogueFile.includes('D036') && dialogueFile.includes('D012'), 'research file should describe descending research write order')
   assert(constraintsFile.includes('C036') && constraintsFile.includes('C001'), 'constraints file should describe descending constraint write order')
   assert(initialLogFile.includes('L036') && initialLogFile.includes('L001'), 'work log file should describe descending log write order')
 
@@ -80,14 +84,14 @@ try {
   assert(skill.includes('descending record ID'), 'local skill should require descending record write order')
   assert(skill.includes('log_short_id:: Lxxx'), 'local skill should require explicit log short ids')
   assert(skill.includes('research/研究.md'), 'local skill should describe research notes')
+  assert(skill.includes('independently deletable records'), 'local skill should describe independent research-document deletion')
   assert(skill.includes(knowledgeRoot), 'local skill should describe global knowledge root')
   assert(await exists(dialoguePath), 'research notes should be initialized')
   assert(await exists(constraintsPath), 'project constraints should be initialized')
   assert(await exists(knowledgeRoot), 'global knowledge directory should be initialized')
   assert(!(await exists(knowledgePath)), 'global knowledge should not create a default knowledge file')
   assert(!(await exists(manualPath)), 'documents should not create a default project manual')
-  const initialDialogues = dashboard.dialogues
-  assert(initialDialogues.some((dialogue) => dialogue.shortId === 'D001'), 'initial research record should expose D001')
+  assert(dashboard.dialogues.length === 0, 'initial dashboard should not create a default research record')
   assert(dashboard.knowledge.length === 0, 'initial dashboard should not expose default knowledge')
   assert(dashboard.documents.length === 0, 'initial dashboard should not expose default documents')
   assert(dashboard.constraints.some((constraint) => constraint.source === 'system' && constraint.path === 'skills/project-collaboration/SKILL.md'), 'initial dashboard should expose local skill as system constraint')
@@ -105,8 +109,13 @@ try {
   await assertRejects(() => deleteTask(managerRoot, root, ''), '任务 ID 不能为空')
   await assertRejects(() => deleteThought(managerRoot, root, ''), '输入 ID 不能为空')
   await assertRejects(() => deleteConstraint(managerRoot, root, ''), '约束 ID 不能为空')
+  await assertRejects(() => deleteDialogue(managerRoot, root, ''), '研究 ID 不能为空')
+  await assertRejects(() => deleteDocument(managerRoot, root, ''), '文档 ID 不能为空')
+  await assertRejects(() => deleteKnowledge(managerRoot, root, ''), '知识 ID 不能为空')
   await assertRejects(() => replyOpenQuestion(managerRoot, root, { openQuestions: '', answer: 'Smoke answer' }), '未确认事项不能为空')
   await assertRejects(() => replyOpenQuestion(managerRoot, root, { openQuestions: 'Smoke question', answer: '' }), '回复内容不能为空')
+  await assertRejects(() => updateReplyRecord(managerRoot, root, { questionId: '', openQuestions: 'Smoke question', answer: 'Smoke answer' }), '回复 ID 不能为空')
+  await assertRejects(() => updateReplyRecord(managerRoot, root, { questionId: 'missing-reply', openQuestions: 'Smoke question', answer: '' }), '回复内容不能为空')
   await assertRejects(() => removeManagedProject(managerRoot, ''), '项目 ID 不能为空')
 
   await writeFile(manualPath, `# 项目手册
@@ -128,6 +137,25 @@ summary:: 独立文档目录中的文档。
   const nestedDocumentDashboard = await getDashboard(managerRoot, root)
   assert(nestedDocumentDashboard.documents.some((note) => note.path === 'documents/手册/使用说明.md'), 'documents view should include nested documents folder files')
   assert(nestedDocumentDashboard.documents.some((note) => note.path === 'documents/手册/使用说明.md' && note.shortId === 'W002'), 'nested documents should get independent W short ids')
+  assert(nestedDocumentDashboard.documents[0]?.shortId === 'W002', 'documents should appear in descending W id order')
+
+  await writeFile(path.join(knowledgeRoot, 'A 知识.md'), `# A 知识
+
+summary:: 第一条知识。
+`, 'utf8')
+  await writeFile(path.join(knowledgeRoot, 'B 知识.md'), `# B 知识
+
+summary:: 第二条知识。
+`, 'utf8')
+  const knowledgeOrderDashboard = await getDashboard(managerRoot, root)
+  assert(knowledgeOrderDashboard.knowledge[0]?.shortId === 'K002', 'knowledge should appear in descending K id order')
+  assert(knowledgeOrderDashboard.knowledge[1]?.shortId === 'K001', 'knowledge should keep larger ids above smaller ids')
+
+  const deletedKnowledgeDashboard = await deleteKnowledge(managerRoot, root, 'K002')
+  assert(!deletedKnowledgeDashboard.knowledge.some((note) => note.shortId === 'K002'), 'knowledge note should be deleted')
+
+  const deletedManualDocumentDashboard = await deleteDocument(managerRoot, root, 'documents/项目手册.md')
+  assert(!deletedManualDocumentDashboard.documents.some((note) => note.path === 'documents/项目手册.md'), 'project document should be deleted')
 
   const collaborationEntry = await readFile(path.join(root, '.agent-collaboration.md'), 'utf8')
   assert(collaborationEntry.includes(dataRoot), 'project should contain lightweight collaboration entry')
@@ -169,6 +197,7 @@ summary:: 独立文档目录中的文档。
   assert(updatedDataSpec.includes('short_id:: W001'), 'data spec should describe document short ids')
   assert(updatedDataSpec.includes('short_id:: C001'), 'data spec should describe constraint short ids')
   assert(updatedDataSpec.includes('log_short_id:: L001'), 'data spec should describe explicit log short ids')
+  assert(updatedDataSpec.includes('允许独立删除'), 'data spec should describe independent research-document deletion')
 
   const constraintDashboard = await appendConstraint(managerRoot, root, {
     title: 'Smoke Constraint',
@@ -191,7 +220,7 @@ summary:: 独立文档目录中的文档。
 
   await rm(dialoguePath, { force: true })
   const missingDialogueDashboard = await getDashboard(managerRoot, root)
-  assert(missingDialogueDashboard.dialogues.some((dialogue) => dialogue.shortId === 'D001'), 'dashboard should expose default research record when missing')
+  assert(missingDialogueDashboard.dialogues.length === 0, 'dashboard refresh should not create a default research record')
   assert(await exists(dialoguePath), 'dashboard refresh should backfill missing research notes')
 
   await rm(dialoguePath, { force: true })
@@ -341,6 +370,17 @@ Smoke newer understanding.
   assert(repliedTaskDashboard.replyRecords.some((item) => item.source === 'task' && item.questionId === taskOpenQuestion.id && item.reply.includes('Smoke task answer.')), 'task reply should appear in reply records')
   assert(repliedTaskDashboard.replyRecords.some((item) => item.source === 'task' && item.openQuestions === 'Smoke task question.'), 'task reply should expose original question detail')
   assert(repliedTaskDashboard.replyRecords.some((item) => item.displayId === taskOpenQuestion.displayId && item.relations.includes(smokeTask.shortId)), 'task reply should expose display id and relations')
+  const editedTaskReplyDashboard = await updateReplyRecord(managerRoot, root, {
+    questionId: taskOpenQuestion.id,
+    source: 'task',
+    shortId: smokeTask.shortId,
+    openQuestions: 'Smoke task question.',
+    answer: 'Smoke task answer edited.',
+  })
+  const editedTaskReplies = editedTaskReplyDashboard.replyRecords.filter((item) => item.questionId === taskOpenQuestion.id)
+  assert(editedTaskReplies.length === 1, 'editing a reply should replace the existing record')
+  assert(editedTaskReplies[0].replyAnswer === 'Smoke task answer edited.', 'edited reply should expose updated answer')
+  assert(!editedTaskReplies[0].reply.includes('Smoke task answer. 回复'), 'edited reply should not append a second answer')
 
   const currentThoughts = await readFile(thoughtPath, 'utf8')
   await writeFile(thoughtPath, `${currentThoughts.trimEnd()}
@@ -424,6 +464,24 @@ Smoke thought with open question.
   assert(dialogueContent.includes('### 内容'), 'new research record should include content section')
   assert(dialogueContent.includes('### 回答'), 'new research record should include answer section')
   assert(dialogueContent.includes('### 验收标准'), 'new research record should include acceptance section')
+
+  const deletedResearchDocumentDashboard = await deleteDocument(managerRoot, root, researchDocument.path)
+  assert(!deletedResearchDocumentDashboard.documents.some((note) => note.path === researchDocument.path), 'research detail document should be deletable')
+  const dialogueAfterDocumentDelete = deletedResearchDocumentDashboard.dialogues.find((dialogue) => dialogue.id === smokeDialogue.id)
+  assert(dialogueAfterDocumentDelete?.relatedDocuments.includes(researchDocument.shortId), 'deleting a document should not rewrite research references')
+  assert(dialogueAfterDocumentDelete.answer.includes(researchDocument.shortId), 'research summary should keep the original document reference')
+
+  const cascadeDialogueDashboard = await appendDialogue(managerRoot, root, {
+    content: 'Smoke cascade research record',
+    answer: 'Smoke cascade reply',
+    acceptance: 'Smoke cascade acceptance',
+  })
+  const cascadeDialogue = cascadeDialogueDashboard.dialogues.find((dialogue) => dialogue.recordContent === 'Smoke cascade research record')
+  const cascadeDocument = cascadeDialogueDashboard.documents.find((note) => note.shortId === cascadeDialogue.relatedDocuments[0])
+  assert(cascadeDocument, 'cascade research should create linked document')
+  const deletedDialogueDashboard = await deleteDialogue(managerRoot, root, cascadeDialogue.id)
+  assert(!deletedDialogueDashboard.dialogues.some((dialogue) => dialogue.id === cascadeDialogue.id), 'research record should be deleted')
+  assert(deletedDialogueDashboard.documents.some((note) => note.path === cascadeDocument.path), 'deleting research should not delete linked research document')
 
   console.log('smoke test passed')
 } finally {
