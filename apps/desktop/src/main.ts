@@ -25,8 +25,8 @@ import {
   refreshAgentBrief,
   updateQuestionStatus,
   updateRiskStatus,
-  updateReplyRecord,
   updateProjectGuidance,
+  updateAllProjectGuidance,
   updateTaskStatus,
 } from '@electron-manager/project-core'
 
@@ -64,6 +64,12 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   managerDataRoot = app.getPath('userData')
+  const guidanceResults = await updateAllProjectGuidance(managerDataRoot)
+  for (const result of guidanceResults) {
+    if (result.status === 'failed') {
+      console.warn(`failed to update guidance for ${result.projectName}`, result.error)
+    }
+  }
   registerIpc()
   await createWindow()
 })
@@ -205,9 +211,6 @@ function registerIpc() {
     return replyOpenQuestion(managerDataRoot, projectRoot, payload)
   })
 
-  ipcMain.handle('project:update-reply-record', async (_event, projectRoot: string, payload) => {
-    return updateReplyRecord(managerDataRoot, projectRoot, payload)
-  })
 }
 
 async function openProject(projectRoot: string) {

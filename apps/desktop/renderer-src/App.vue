@@ -29,7 +29,6 @@ declare global {
       deleteDocument: (projectRoot: string, documentTarget: string) => Promise<any>
       deleteKnowledge: (projectRoot: string, knowledgeTarget: string) => Promise<any>
       replyOpenQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
-      updateReplyRecord: (projectRoot: string, payload: AnyRecord) => Promise<any>
       onProjectDataChanged?: (callback: (payload: AnyRecord) => void) => () => void
     }
   }
@@ -43,6 +42,8 @@ const statusLabels: Record<string, string> = {
   abandoned: 'Abandoned',
   inbox: 'Inbox',
   handled: 'Done',
+  pending: '待研究',
+  archived: '已归档',
 }
 
 const boardColumns = [
@@ -55,6 +56,7 @@ const icons: Record<string, string> = {
   archive: '<path d="M4 7h16" /><path d="M6 7v11h12V7" /><path d="M9 11h6" /><path d="M5 4h14v3H5z" />',
   bookOpen: '<path d="M12 7v14" /><path d="M3 18a1 1 0 0 1-1-1V5a2 2 0 0 1 2-2h5a3 3 0 0 1 3 3v15a3 3 0 0 0-3-3H3Z" /><path d="M21 18a1 1 0 0 0 1-1V5a2 2 0 0 0-2-2h-5a3 3 0 0 0-3 3" />',
   check: '<path d="m5 12 4 4L19 6" />',
+  chevronDown: '<path d="m6 9 6 6 6-6" />',
   copy: '<path d="M8 8h11v11H8z" /><path d="M5 15H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1" />',
   cornerUpLeft: '<path d="m9 14-4-4 4-4" /><path d="M5 10h11a4 4 0 0 1 0 8h-1" />',
   edit: '<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />',
@@ -113,15 +115,16 @@ const state = reactive({
   selectedLogIndex: 0,
   logQuery: '',
   selectedVersionId: '',
+  versionMenuOpen: false,
   collabTab: 'open' as 'open' | 'decided' | 'risks' | 'history',
   collabHistoryExpanded: false,
   versionDialogOpen: false,
   questionDialogOpen: false,
   dialogueTocCollapsed: false,
+  researchTab: 'active' as 'active' | 'done',
   quickOpen: false,
   quickCreateMode: '',
   replyItem: null as AnyRecord | null,
-  replyMode: 'create' as 'create' | 'edit',
   markdownDocument: null as AnyRecord | null,
   selectedTask: null as AnyRecord | null,
   status: '等待选择项目',
@@ -137,7 +140,12 @@ const taskForm = reactive({ title: '', priority: 'medium', detail: '', acceptanc
 const thoughtForm = reactive({ content: '', status: '' })
 const quickTaskForm = reactive({ title: '', priority: 'medium', detail: '', acceptance: '', status: '' })
 const quickThoughtForm = reactive({ content: '', status: '' })
-const quickDialogueForm = reactive({ content: '', acceptance: '', status: '' })
+const quickDialogueForm = reactive({
+  content: '',
+  acceptance: '',
+  mode: 'breadth' as 'breadth' | 'depth',
+  status: '',
+})
 const quickConstraintForm = reactive({ title: '', content: '', status: '' })
 const replyForm = reactive({ answer: '', status: '' })
 const versionForm = reactive({ label: '', title: '', goal: '', summary: '', status: '' })
@@ -179,6 +187,9 @@ const allLogs = computed(() => dashboard.value?.logs || [])
 const tasks = computed(() => allTasks.value.filter(recordMatchesSelectedVersion))
 const thoughts = computed(() => allThoughts.value.filter(recordMatchesSelectedVersion))
 const dialogues = computed(() => allDialogues.value.filter(recordMatchesSelectedVersion))
+const activeDialogues = computed(() => dialogues.value.filter((dialogue: AnyRecord) => ['pending', 'doing'].includes(dialogue.status)))
+const completedDialogues = computed(() => dialogues.value.filter((dialogue: AnyRecord) => ['done', 'archived'].includes(dialogue.status)))
+const visibleDialogues = computed(() => state.researchTab === 'active' ? activeDialogues.value : completedDialogues.value)
 const knowledge = computed(() => dashboard.value?.knowledge || [])
 const documents = computed(() => allDocuments.value)
 const constraints = computed(() => dashboard.value?.constraints || [])
@@ -202,7 +213,6 @@ const visibleQuestions = computed(() => questions.value.filter(questionMatchesSe
 const openQuestions = computed(() => visibleQuestions.value.filter((item: AnyRecord) => item.status === 'open'))
 const pendingDecisions = computed(() => visibleQuestions.value.filter((item: AnyRecord) => item.status === 'decided'))
 const activeRisks = computed(() => risks.value.filter((item: AnyRecord) => item.status === 'open' && recordMatchesSelectedVersion(item)))
-const replyRecords = computed(() => visibleQuestions.value.filter((item: AnyRecord) => ['resolved', 'expired'].includes(item.status)))
 const collabAttentionCount = computed(() => openQuestions.value.length + pendingDecisions.value.length)
 const activeThemeIcon = computed(() => state.theme === 'dark' ? 'moon' : 'sun')
 const visibleLog = computed(() => logs.value[clampLogIndex(state.selectedLogIndex, logs.value)])
@@ -256,6 +266,17 @@ function setActiveSection(section: string) {
   const validSections = [...sections, ...utilitySections]
   state.section = validSections.some(([key]) => key === section) ? section : 'overview'
   history.replaceState(null, '', `#${state.section}`)
+}
+
+function selectVersion(versionId: string) {
+  state.selectedVersionId = versionId
+  state.versionMenuOpen = false
+}
+
+function closeVersionMenu(event: FocusEvent) {
+  const container = event.currentTarget as HTMLElement
+  const nextTarget = event.relatedTarget as Node | null
+  if (!nextTarget || !container.contains(nextTarget)) state.versionMenuOpen = false
 }
 
 function setupAutoRefresh() {
@@ -447,7 +468,6 @@ async function createTask(source: 'main' | 'quick') {
       agentUnderstanding: '由 Electron Manager 新增。',
       executionScope: form.detail.trim() || '待补充。',
       acceptance: form.acceptance.trim() || '待补充。',
-      openQuestions: '无。',
     }))
     form.title = ''
     form.detail = ''
@@ -493,9 +513,11 @@ async function saveDialogue() {
     updateDashboard(await api.addDialogue(state.projectRoot, {
       content,
       acceptance: quickDialogueForm.acceptance,
+      mode: quickDialogueForm.mode,
     }))
     quickDialogueForm.content = ''
     quickDialogueForm.acceptance = ''
+    quickDialogueForm.mode = 'breadth'
     quickDialogueForm.status = ''
     closeQuickTask()
     showToast('已保存')
@@ -650,21 +672,12 @@ async function updateTaskStatus(taskId: string, status: string) {
 
 function openReplyDialog(item: AnyRecord) {
   state.replyItem = item
-  state.replyMode = 'create'
   replyForm.answer = ''
-  replyForm.status = ''
-}
-
-function openEditReplyDialog(item: AnyRecord) {
-  state.replyItem = item
-  state.replyMode = 'edit'
-  replyForm.answer = String(item.conclusion || '').trim()
   replyForm.status = ''
 }
 
 function closeReplyDialog() {
   state.replyItem = null
-  state.replyMode = 'create'
   replyForm.answer = ''
   replyForm.status = ''
 }
@@ -689,10 +702,10 @@ async function submitReply() {
       questionId: item.id || item.shortId,
       answer,
     }
-    updateDashboard(await (state.replyMode === 'edit'
-      ? api.updateReplyRecord(state.projectRoot, payload)
-      : api.replyOpenQuestion(state.projectRoot, payload)))
+    updateDashboard(await api.replyOpenQuestion(state.projectRoot, payload))
+    state.collabTab = 'decided'
     closeReplyDialog()
+    showToast('已发送，等待 Agent 跟进')
     state.status = ''
   })
 }
@@ -788,27 +801,32 @@ async function saveQuestion() {
       kind: questionForm.kind,
       scope: questionForm.scope,
       blocking: questionForm.blocking,
+      origin: 'user',
     }))
+    state.collabTab = 'decided'
     closeQuestionDialog()
-    showToast('问题已保存')
+    showToast('已提交，等待 Agent 跟进')
+    state.status = ''
   })
 }
 
-async function setQuestionStatus(item: AnyRecord, status: string) {
+async function completeQuestion(item: AnyRecord) {
   await runAction('正在更新问题...', async () => {
     const api = ensureReady()
     if (!api) return
-    updateDashboard(await api.updateQuestionStatus(state.projectRoot, item.id || item.shortId, status))
-    showToast(status === 'resolved' ? '已标记落实' : '已标记过期')
+    updateDashboard(await api.updateQuestionStatus(state.projectRoot, item.id || item.shortId, 'resolved'))
+    showToast('线程已完成')
+    state.status = ''
   })
 }
 
-async function setRiskStatus(item: AnyRecord, status: string) {
+async function resolveRisk(item: AnyRecord) {
   await runAction('正在更新风险...', async () => {
     const api = ensureReady()
     if (!api) return
-    updateDashboard(await api.updateRiskStatus(state.projectRoot, item.id || item.shortId, status))
-    showToast(status === 'resolved' ? '已标记处理完成' : '已标记过期')
+    updateDashboard(await api.updateRiskStatus(state.projectRoot, item.id || item.shortId, 'resolved'))
+    showToast('已标记处理完成')
+    state.status = ''
   })
 }
 
@@ -828,6 +846,25 @@ function versionHistoryRisks(versionId: string) {
 
 function versionHistoryCount(versionId: string) {
   return versionHistoryQuestions(versionId).length + versionHistoryRisks(versionId).length
+}
+
+function questionThreadMessages(item: AnyRecord) {
+  const source = Array.isArray(item.messages) ? item.messages : []
+  const question = String(item.question || '').trim()
+  return source.filter((message: AnyRecord, index: number) =>
+    !(index === 0 && String(message.content || '').trim() === question))
+}
+
+function questionMessageRole(role: string) {
+  if (role === 'user') return '你'
+  if (role === 'agent') return 'Agent'
+  return '历史记录'
+}
+
+function replyDialogTitle(item: AnyRecord) {
+  if (item.status === 'resolved' || item.status === 'expired') return '继续讨论'
+  if (item.status === 'decided') return '补充说明'
+  return '回复协作问题'
 }
 
 function questionKindText(kind: string) {
@@ -983,6 +1020,52 @@ function dialogueTitle(dialogue: AnyRecord) {
   return String(dialogue.title || '').replace(/^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*/, '').trim() || '研究'
 }
 
+function researchModeLabel(mode: string) {
+  if (mode === 'depth') return '深度'
+  if (mode === 'breadth') return '广度'
+  return '未分类'
+}
+
+function researchStatusText(status: string) {
+  return {
+    pending: '待研究',
+    doing: '进行中',
+    done: '已完成',
+    archived: '已归档',
+  }[status] || '待研究'
+}
+
+function dialogueDocument(dialogue: AnyRecord) {
+  const related = new Set(dialogue.relatedDocuments || [])
+  return documents.value.find((note: AnyRecord) => related.has(note.shortId)) || null
+}
+
+function dialogueHasResult(dialogue: AnyRecord) {
+  const answer = String(dialogue.answer || '').trim()
+  return Boolean(answer && !['待研究。', '待研究', '暂无。', '暂无'].includes(answer))
+}
+
+async function copyResearchPrompt(dialogue: AnyRecord) {
+  const isActive = ['pending', 'doing'].includes(dialogue.status)
+  const prompt = [
+    `请${isActive ? '处理' : '继续'}当前项目研究 ${dialogue.shortId}。`,
+    isActive
+      ? `先从 agent-brief.json.activeResearch 和当前版本研究.md 读取该记录，按 mode:: ${dialogue.mode || 'legacy'} 与验收标准执行。`
+      : `该记录已完成或归档，不在 activeResearch；请从对应版本研究.md 读取记录、已有回答和关联文档，再按 mode:: ${dialogue.mode || 'legacy'} 与验收标准继续。`,
+    `${isActive ? '开始' : '继续'}前将 status 改为 doing；短结果直接写回 D 记录，长结果完成后再创建并关联 W 文档；完成后改为 done，并只为本次实际研究写一条 L 工作记录。`,
+  ].join('\n')
+  try {
+    await navigator.clipboard.writeText(prompt)
+    showToast('研究指令已复制')
+  } catch {
+    showToast('复制失败')
+  }
+}
+
+function researchPromptLabel(dialogue: AnyRecord) {
+  return ['pending', 'doing'].includes(dialogue.status) ? '复制研究指令' : '复制续研指令'
+}
+
 function dialogueTocSummary(dialogue: AnyRecord) {
   const answer = String(dialogue.answer || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim()
   const summary = answer || String(dialogue.recordContent || '').replace(/\s+/g, ' ').trim()
@@ -1008,75 +1091,6 @@ function resolveLogTasks(log: AnyRecord) {
       status: task.status || matched?.status || '',
     }
   })
-}
-
-function replyFollowUpState(item: AnyRecord) {
-  const laterLog = findLaterHandlingLog(item)
-  if (laterLog) {
-    return {
-      label: '已处理',
-      badgeClass: '',
-      title: `回复后已有相关工作记录：${formatTime(laterLog.created)}`,
-    }
-  }
-
-  if (item.source === 'task') {
-    const task = tasks.value.find((record: AnyRecord) => record.shortId === item.shortId)
-    if (['done', 'abandoned'].includes(task?.status) && displayTimeKey(task.updated) > displayTimeKey(item.replyCreated)) {
-      return { label: '已处理', badgeClass: '', title: `关联任务状态：${statusText(task.status)}` }
-    }
-    if (task?.status === 'doing') {
-      return { label: '处理中', badgeClass: 'warning-badge', title: '关联任务正在处理' }
-    }
-    return { label: '待跟进', badgeClass: 'warning-badge', title: '已回复，关联任务尚未完成' }
-  }
-
-  if (item.source === 'thought') {
-    const thought = thoughts.value.find((record: AnyRecord) => record.shortId === item.shortId)
-    if (['done', 'handled'].includes(thought?.status)) {
-      return { label: '已处理', badgeClass: '', title: `关联想法状态：${statusText(thought.status)}` }
-    }
-    return { label: '待跟进', badgeClass: 'warning-badge', title: '已回复，关联想法尚未标记处理完成' }
-  }
-
-  if (item.source === 'log') {
-    return { label: '待跟进', badgeClass: 'warning-badge', title: '已回复，尚未看到回复后的相关工作记录' }
-  }
-
-  return { label: '已记录', badgeClass: 'muted-badge', title: '回复已记录' }
-}
-
-function findLaterHandlingLog(item: AnyRecord) {
-  const replyKey = displayTimeKey(item.replyCreated)
-  if (!replyKey) return null
-  return logs.value.find((log: AnyRecord) => displayTimeKey(log.created) > replyKey && logMatchesReply(log, item)) || null
-}
-
-function logMatchesReply(log: AnyRecord, item: AnyRecord) {
-  const text = [
-    log.shortId,
-    log.title,
-    log.userGoal,
-    log.userOriginal,
-    log.understanding,
-    log.answer,
-    log.executionScope,
-    log.acceptance,
-    ...(log.outputs || []),
-    ...(log.keySteps || []),
-    ...(log.decisions || []),
-    ...(log.actions || []),
-    ...(log.changedFiles || []),
-    ...(log.verification || []),
-    ...(log.followUps || []),
-    log.content,
-  ].map((value) => String(value || '')).join('\n')
-  if (item.questionId && text.includes(item.questionId)) return true
-  if (item.displayId && text.includes(item.displayId)) return true
-  if (item.openQuestions && text.includes(item.openQuestions)) return true
-  if (item.shortId && text.includes(item.shortId)) return true
-  if (item.shortId && resolveLogTasks(log).some((task: AnyRecord) => task.shortId === item.shortId)) return true
-  return false
 }
 
 function primaryLogPrompt(log: AnyRecord) {
@@ -1236,6 +1250,14 @@ function statusBadgeClass(status: string) {
   if (status === 'doing') return 'warning-badge'
   if (status === 'abandoned') return 'danger-badge'
   return 'muted-badge'
+}
+
+function logLevelText(level: string) {
+  return {
+    light: '轻量',
+    standard: '标准',
+    deep: '深度',
+  }[level] || '标准'
 }
 
 function priorityClass(priority: string) {
@@ -1461,12 +1483,6 @@ function formatTime(value: string) {
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function displayTimeKey(value: string) {
-  if (!value) return 0
-  const date = parseDisplayDate(value)
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime()
-}
-
 function parseDisplayDate(value: any) {
   if (value instanceof Date) return value
   const text = String(value || '').trim()
@@ -1537,15 +1553,48 @@ function escapeHtml(value: any) {
           <small>{{ state.status }}</small>
         </div>
         <div class="topbar-actions">
-          <label v-if="state.initialized && versions.length" class="version-filter">
-            <span>视野</span>
-            <select v-model="state.selectedVersionId" aria-label="版本视野">
-              <option v-for="version in versions" :key="version.shortId" :value="version.shortId">
-                {{ version.shortId }} · {{ version.label }}{{ version.status === 'active' ? '（当前）' : '' }}
-              </option>
-              <option value="all">全部版本</option>
-            </select>
-          </label>
+          <div v-if="state.initialized && versions.length" class="version-switcher" @focusout="closeVersionMenu">
+            <button
+              class="version-switcher-trigger"
+              :class="{ 'is-open': state.versionMenuOpen }"
+              type="button"
+              aria-haspopup="listbox"
+              :aria-expanded="state.versionMenuOpen"
+              aria-label="选择版本"
+              @click="state.versionMenuOpen = !state.versionMenuOpen"
+            >
+              <span class="version-switcher-icon" v-html="icon('layers')" />
+              <span class="version-switcher-label">{{ state.selectedVersionId === 'all' ? '全部版本' : `${selectedVersion?.shortId || ''} · ${selectedVersion?.label || ''}` }}</span>
+              <span class="version-switcher-chevron" v-html="icon('chevronDown')" />
+            </button>
+            <div v-if="state.versionMenuOpen" class="version-menu" role="listbox" aria-label="版本">
+              <button
+                v-for="version in versions"
+                :key="version.shortId"
+                class="version-menu-item"
+                :class="{ active: state.selectedVersionId === version.shortId }"
+                type="button"
+                role="option"
+                :aria-selected="state.selectedVersionId === version.shortId"
+                @click="selectVersion(version.shortId)"
+              >
+                <span class="version-menu-copy"><strong>{{ version.shortId }} · {{ version.label }}</strong><small>{{ version.title }}</small></span>
+                <span v-if="version.status === 'active'" class="version-menu-current">当前</span>
+                <span v-if="state.selectedVersionId === version.shortId" class="version-menu-check" v-html="icon('check')" />
+              </button>
+              <button
+                class="version-menu-item"
+                :class="{ active: state.selectedVersionId === 'all' }"
+                type="button"
+                role="option"
+                :aria-selected="state.selectedVersionId === 'all'"
+                @click="selectVersion('all')"
+              >
+                <span class="version-menu-copy"><strong>全部版本</strong><small>查看当前与历史记录</small></span>
+                <span v-if="state.selectedVersionId === 'all'" class="version-menu-check" v-html="icon('check')" />
+              </button>
+            </div>
+          </div>
           <button class="btn icon-button btn-outline-primary" type="button" title="打开项目" aria-label="打开项目" :disabled="state.busy" @click="openRecentProjects" v-html="icon('history')" />
           <button class="btn icon-button btn-ghost" type="button" title="手动刷新" aria-label="手动刷新" :disabled="state.busy || !state.initialized" @click="refreshDashboard({ quiet: false })" v-html="icon('refresh')" />
         </div>
@@ -1691,31 +1740,44 @@ function escapeHtml(value: any) {
       </section>
 
       <section v-if="state.section === 'dialogues'" id="dialogues" class="section view active-view">
-        <div class="section-head"><h2>研究</h2><span></span></div>
+        <div class="section-head"><h2>研究</h2><span>{{ activeDialogues.length }} 条待处理</span></div>
+        <div v-if="dialogues.length" class="segmented-control research-tabs" role="tablist" aria-label="研究状态">
+          <button type="button" role="tab" :aria-selected="state.researchTab === 'active'" :class="{ active: state.researchTab === 'active' }" @click="state.researchTab = 'active'">待研究 <span>{{ activeDialogues.length }}</span></button>
+          <button type="button" role="tab" :aria-selected="state.researchTab === 'done'" :class="{ active: state.researchTab === 'done' }" @click="state.researchTab = 'done'">已完成 <span>{{ completedDialogues.length }}</span></button>
+        </div>
         <div class="dialogue-layout" :class="{ 'toc-collapsed': state.dialogueTocCollapsed }">
           <p v-if="!dialogues.length" class="empty-panel">暂无研究。</p>
+          <p v-else-if="!visibleDialogues.length" class="empty-panel">{{ state.researchTab === 'active' ? '暂无待研究事项。' : '暂无已完成研究。' }}</p>
           <template v-else>
             <div class="dialogue-list-wrap">
               <div class="dialogue-list-spacer" aria-hidden="true"></div>
               <div class="dialogue-list">
                 <article
-                  v-for="(dialogue, index) in dialogues"
+                  v-for="(dialogue, index) in visibleDialogues"
                   :key="dialogue.id || dialogue.shortId || index"
                   :ref="(el) => setDialogueRef(index, el as Element | null)"
                   class="card dialogue"
                   :class="{ 'dialogue-highlight': state.highlightedDialogue === index }"
                 >
                   <div class="dialogue-head">
-                    <div><span class="task-short-id">{{ dialogue.shortId || 'D000' }}</span><strong>{{ dialogueDisplayTitle(dialogue) }}</strong></div>
+                    <div>
+                      <span class="task-short-id">{{ dialogue.shortId || 'D000' }}</span>
+                      <span class="badge research-mode-badge" :class="`research-mode-${dialogue.mode || 'legacy'}`">{{ researchModeLabel(dialogue.mode) }}</span>
+                      <span class="badge" :class="statusBadgeClass(dialogue.status)">{{ researchStatusText(dialogue.status) }}</span>
+                      <strong>{{ dialogueDisplayTitle(dialogue) }}</strong>
+                    </div>
                     <div class="dialogue-actions">
                       <small>{{ formatTime(dialogue.created) }}</small>
+                      <button class="btn icon-button btn-outline-secondary btn-sm" type="button" :title="researchPromptLabel(dialogue)" :aria-label="researchPromptLabel(dialogue)" @click="copyResearchPrompt(dialogue)" v-html="icon('copy')" />
+                      <button v-if="dialogueDocument(dialogue)" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开详细文档" aria-label="打开详细文档" @click="openMarkdownDocument(dialogueDocument(dialogue), 'document')" v-html="icon('fileText')" />
                       <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="删除研究" aria-label="删除研究" @click="deleteDialogueRecord(dialogue)" v-html="icon('trash')" />
                     </div>
                   </div>
                   <section class="dialogue-block dialogue-prompt"><strong>概要</strong><p>{{ dialogueSummary(dialogue) }}</p></section>
                   <section class="dialogue-block dialogue-answer">
-                    <div class="dialogue-block-head"><strong>详细文档</strong><span>Wxxx</span></div>
-                    <p>{{ dialogue.answer || '暂无关联文档。' }}</p>
+                    <div class="dialogue-block-head"><strong>{{ dialogueHasResult(dialogue) ? '研究结果' : '研究状态' }}</strong><span v-if="dialogueDocument(dialogue)">{{ dialogueDocument(dialogue).shortId }}</span></div>
+                    <div v-if="dialogueHasResult(dialogue)" class="rendered-markdown" v-html="renderReadableMarkdown(dialogue.answer)" />
+                    <p v-else>{{ dialogue.status === 'doing' ? 'Agent 正在研究。' : '等待 Agent 处理。' }}</p>
                   </section>
                   <section class="dialogue-block dialogue-meta-block"><strong>验收标准</strong><p>{{ dialogue.acceptance || '无。' }}</p></section>
                   <div v-if="dialogueRefsList(dialogue).length" class="dialogue-relations"><span v-for="ref in dialogueRefsList(dialogue)" :key="ref" class="badge muted-badge">{{ ref }}</span></div>
@@ -1728,8 +1790,12 @@ function escapeHtml(value: any) {
                 <button class="btn icon-button btn-outline-secondary btn-sm" type="button" :title="state.dialogueTocCollapsed ? '展开目录' : '收起目录'" :aria-label="state.dialogueTocCollapsed ? '展开目录' : '收起目录'" @click="state.dialogueTocCollapsed = !state.dialogueTocCollapsed" v-html="icon(state.dialogueTocCollapsed ? 'panelRightOpen' : 'panelRightClose')" />
               </div>
               <div v-if="!state.dialogueTocCollapsed" class="dialogue-toc">
-                <button v-for="(dialogue, index) in dialogues" :key="dialogue.id || index" class="dialogue-toc-item" type="button" @click="openDialogue(index)">
-                  <span>{{ dialogue.shortId || 'D000' }}</span>
+                <button v-for="(dialogue, index) in visibleDialogues" :key="dialogue.id || index" class="dialogue-toc-item" type="button" @click="openDialogue(index)">
+                  <div class="dialogue-toc-meta">
+                    <span>{{ dialogue.shortId || 'D000' }}</span>
+                    <span>{{ researchModeLabel(dialogue.mode) }}</span>
+                    <span>{{ researchStatusText(dialogue.status) }}</span>
+                  </div>
                   <strong>{{ dialogueDisplayTitle(dialogue) }}</strong>
                   <small>{{ dialogueTocSummary(dialogue) }}</small>
                 </button>
@@ -1746,24 +1812,14 @@ function escapeHtml(value: any) {
             <span class="button-icon" v-html="icon('plus')" />新版本
           </button>
         </div>
-        <div v-if="currentVersion" class="version-baseline">
-          <div class="version-baseline-title">
-            <span class="task-short-id">{{ currentVersion.shortId }}</span>
-            <span class="badge">{{ currentVersion.label }}</span>
-            <span class="badge warning-badge">当前基线</span>
-          </div>
-          <h3>{{ currentVersion.title }}</h3>
-          <p>{{ currentVersion.goal }}</p>
-          <small>{{ currentVersion.summary }}</small>
-        </div>
         <div class="version-list">
-          <article v-for="version in versions" :key="version.shortId" class="card version-card">
+          <article v-for="version in versions" :key="version.shortId" class="card version-card" :class="{ 'is-current': version.status === 'active' }">
             <div class="version-card-head">
               <div>
                 <span class="task-short-id">{{ version.shortId }}</span>
-                <span class="badge" :class="{ 'warning-badge': version.status === 'active' }">{{ version.label }}</span>
+                <span class="badge">{{ version.label }}</span>
               </div>
-              <span>{{ version.status === 'active' ? '进行中' : formatTime(version.completed) }}</span>
+              <span class="version-state" :class="{ 'is-current': version.status === 'active' }">{{ version.status === 'active' ? '当前版本' : `完成于 ${formatTime(version.completed)}` }}</span>
             </div>
             <h3>{{ version.title }}</h3>
             <p>{{ version.goal }}</p>
@@ -1780,62 +1836,63 @@ function escapeHtml(value: any) {
 
       <section v-if="state.section === 'collaboration'" id="collaboration" class="section view active-view">
         <div class="section-head">
-          <div><h2>协作</h2><span>{{ selectedVersion?.shortId || '当前版本' }} · 只呈现需要处理的内容</span></div>
+          <div><h2>协作</h2><span>{{ selectedVersion?.shortId || '当前版本' }} · 需要你或 Agent 接续的线程</span></div>
           <button class="btn btn-primary btn-sm" type="button" @click="openQuestionDialog">
             <span class="button-icon" v-html="icon('plus')" />新问题
           </button>
         </div>
-        <div v-if="selectedVersion" class="collab-baseline">
-          <div>
-            <span class="badge warning-badge">{{ state.selectedVersionId === 'all' ? '全部版本' : selectedVersion.shortId === currentVersion?.shortId ? '当前项目基线' : '历史版本' }}</span>
-            <strong>{{ selectedVersion.label }} · {{ selectedVersion.title }}</strong>
-            <p>{{ selectedVersion.goal }}</p>
-          </div>
-          <div class="collab-baseline-metrics">
-            <span><strong>{{ openQuestions.length }}</strong> 待决定</span>
-            <span><strong>{{ pendingDecisions.length }}</strong> 待落实</span>
-            <span><strong>{{ activeRisks.length }}</strong> 风险/后续</span>
-          </div>
-        </div>
         <div class="segmented-control collab-tabs" role="tablist" aria-label="协作记录类型">
-          <button type="button" :class="{ active: state.collabTab === 'open' }" @click="state.collabTab = 'open'">待决定 <span>{{ openQuestions.length }}</span></button>
-          <button type="button" :class="{ active: state.collabTab === 'decided' }" @click="state.collabTab = 'decided'">待落实 <span>{{ pendingDecisions.length }}</span></button>
+          <button type="button" :class="{ active: state.collabTab === 'open' }" @click="state.collabTab = 'open'">待我回复 <span>{{ openQuestions.length }}</span></button>
+          <button type="button" :class="{ active: state.collabTab === 'decided' }" @click="state.collabTab = 'decided'">待 Agent 跟进 <span>{{ pendingDecisions.length }}</span></button>
           <button type="button" :class="{ active: state.collabTab === 'risks' }" @click="state.collabTab = 'risks'">风险与后续 <span>{{ activeRisks.length }}</span></button>
           <button type="button" :class="{ active: state.collabTab === 'history' }" @click="state.collabTab = 'history'">版本历史</button>
         </div>
 
         <div v-if="state.collabTab === 'open'" class="collab-record-list">
-          <p v-if="!openQuestions.length" class="empty-panel">当前版本没有需要你决定的问题。</p>
+          <p v-if="!openQuestions.length" class="empty-panel">当前没有等待你回复的协作问题。</p>
           <article v-for="item in openQuestions" :key="item.id" class="card collab-record">
             <div class="collab-record-head">
               <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge muted-badge">{{ questionKindText(item.kind) }}</span><span v-if="item.blocking" class="badge warning-badge">阻塞</span></div>
               <div class="collab-record-actions">
                 <button v-if="item.relations?.length" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看关联记录" aria-label="查看关联记录" @click="openQuestionTarget(item)" v-html="icon('eye')" />
-                <button class="btn btn-outline-secondary btn-sm" type="button" @click="setQuestionStatus(item, 'expired')">过期</button>
-                <button class="btn btn-primary btn-sm" type="button" @click="openReplyDialog(item)">决定</button>
+                <button class="btn btn-primary btn-sm" type="button" @click="openReplyDialog(item)">回复</button>
               </div>
             </div>
             <h3>{{ item.title }}</h3>
             <p>{{ item.question }}</p>
             <div v-if="item.background && item.background !== '无。'" class="collab-context"><strong>背景</strong><span>{{ item.background }}</span></div>
             <div v-if="item.recommendation && item.recommendation !== '无。'" class="collab-recommendation"><strong>建议</strong><span>{{ item.recommendation }}</span></div>
+            <div v-if="questionThreadMessages(item).length" class="collab-thread">
+              <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="`is-${message.role}`">
+                <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
+                <p>{{ message.content }}</p>
+              </div>
+            </div>
             <div class="collab-record-meta"><span>{{ item.scope === 'project' ? '项目级' : item.version }}</span><span v-for="relation in item.relations || []" :key="relation">{{ relation }}</span><time>{{ formatTime(item.updated) }}</time></div>
           </article>
         </div>
 
         <div v-else-if="state.collabTab === 'decided'" class="collab-record-list">
-          <p v-if="!pendingDecisions.length" class="empty-panel">没有已确认但尚未落实的决定。</p>
+          <p v-if="!pendingDecisions.length" class="empty-panel">当前没有等待 Agent 跟进的协作线程。</p>
           <article v-for="item in pendingDecisions" :key="item.id" class="card collab-record decided-record">
             <div class="collab-record-head">
-              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge">已决定</span></div>
+              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge">待 Agent 跟进</span></div>
               <div class="collab-record-actions">
-                <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="编辑决定" aria-label="编辑决定" @click="openEditReplyDialog(item)" v-html="icon('edit')" />
-                <button class="btn btn-primary btn-sm" type="button" @click="setQuestionStatus(item, 'resolved')">标记已落实</button>
+                <button class="btn btn-outline-secondary btn-sm" type="button" @click="openReplyDialog(item)">补充说明</button>
+                <button class="btn btn-primary btn-sm" type="button" @click="completeQuestion(item)">标记已完成</button>
               </div>
             </div>
             <h3>{{ item.title }}</h3>
             <p>{{ item.question }}</p>
-            <div class="collab-decision"><strong>决定</strong><span>{{ item.conclusion }}</span></div>
+            <div v-if="item.background && item.background !== '无。'" class="collab-context"><strong>背景</strong><span>{{ item.background }}</span></div>
+            <div v-if="item.recommendation && item.recommendation !== '无。'" class="collab-recommendation"><strong>建议</strong><span>{{ item.recommendation }}</span></div>
+            <div v-if="questionThreadMessages(item).length" class="collab-thread">
+              <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="`is-${message.role}`">
+                <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
+                <p>{{ message.content }}</p>
+              </div>
+            </div>
+            <div v-else class="collab-decision"><strong>最新说明</strong><span>{{ item.conclusion }}</span></div>
             <div class="collab-record-meta"><span>{{ item.version }}</span><span v-for="relation in item.relations || []" :key="relation">{{ relation }}</span><time>{{ formatTime(item.updated) }}</time></div>
           </article>
         </div>
@@ -1846,8 +1903,7 @@ function escapeHtml(value: any) {
             <div class="collab-record-head">
               <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge muted-badge">{{ riskKindText(item.kind) }}</span></div>
               <div class="collab-record-actions">
-                <button class="btn btn-outline-secondary btn-sm" type="button" @click="setRiskStatus(item, 'expired')">过期</button>
-                <button class="btn btn-primary btn-sm" type="button" @click="setRiskStatus(item, 'resolved')">已处理</button>
+                <button class="btn btn-primary btn-sm" type="button" @click="resolveRisk(item)">标记已处理</button>
               </div>
             </div>
             <h3>{{ item.title }}</h3>
@@ -1867,13 +1923,25 @@ function escapeHtml(value: any) {
               <p v-if="!versionHistoryCount(version.shortId)" class="empty-panel">这个版本暂无已归档协作记录。</p>
               <article v-for="item in versionHistoryQuestions(version.shortId)" :key="item.id" class="collab-history-row">
                 <span class="task-short-id">{{ item.shortId }}</span>
-                <div><strong>{{ item.title }}</strong><p>{{ item.conclusion || item.question }}</p></div>
-                <span class="badge muted-badge">{{ item.status === 'resolved' ? '已解决' : '已过期' }}</span>
+                <div class="collab-history-main">
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.question }}</p>
+                  <div v-if="questionThreadMessages(item).length" class="collab-thread compact-thread">
+                    <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="`is-${message.role}`">
+                      <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
+                      <p>{{ message.content }}</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="collab-history-actions">
+                  <span class="badge muted-badge">{{ item.status === 'resolved' ? '已完成' : '已归档' }}</span>
+                  <button class="btn btn-outline-secondary btn-sm" type="button" @click="openReplyDialog(item)">继续讨论</button>
+                </div>
               </article>
               <article v-for="item in versionHistoryRisks(version.shortId)" :key="item.id" class="collab-history-row">
                 <span class="task-short-id">{{ item.shortId }}</span>
                 <div><strong>{{ item.title }}</strong><p>{{ item.content }}</p></div>
-                <span class="badge muted-badge">{{ item.status === 'resolved' ? '已处理' : '已过期' }}</span>
+                <span class="badge muted-badge">{{ item.status === 'resolved' ? '已处理' : '已归档' }}</span>
               </article>
             </div>
           </details>
@@ -1893,7 +1961,7 @@ function escapeHtml(value: any) {
             <div class="agent-log-toc">
               <p v-if="!logs.length" class="empty-panel">{{ state.logQuery.trim() ? '没有匹配的工作记录。' : '暂无工作记录。' }}</p>
               <button v-for="(log, index) in logs" :key="log.id || index" class="agent-log-toc-item" :class="{ active: index === state.selectedLogIndex }" type="button" @click="openAgentLog(index)">
-                <span class="agent-log-toc-meta"><span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span><span class="badge" :class="statusBadgeClass(log.status)">{{ statusText(log.status || 'done') }}</span></span>
+                <span class="agent-log-toc-meta"><span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span><span class="badge" :class="statusBadgeClass(log.status)">{{ statusText(log.status || 'done') }}</span><span class="badge muted-badge">{{ logLevelText(log.recordLevel) }}</span></span>
                 <span class="agent-log-toc-relations"><span v-if="!resolveLogTasks(log).length" class="badge muted-badge">general</span><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
                 <strong>{{ primaryLogPrompt(log) }}</strong>
                 <small>{{ log.title }} · {{ formatTime(log.created) || '未标注日期' }}</small>
@@ -1912,7 +1980,7 @@ function escapeHtml(value: any) {
               >
                 <div class="collab-card-head collab-card-head--meta">
                   <div>
-                    <div class="log-badges"><span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span><span class="badge" :class="statusBadgeClass(log.status)">{{ statusText(log.status || 'done') }}</span><span v-if="log.source" class="badge muted-badge">{{ log.source }}</span></div>
+                    <div class="log-badges"><span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span><span class="badge" :class="statusBadgeClass(log.status)">{{ statusText(log.status || 'done') }}</span><span class="badge muted-badge">{{ logLevelText(log.recordLevel) }}</span><span v-if="log.source" class="badge muted-badge">{{ log.source }}</span></div>
                     <h3>{{ log.title }}</h3>
                     <small>{{ formatTime(log.created) || '未标注日期' }}</small>
                   </div>
@@ -1921,12 +1989,17 @@ function escapeHtml(value: any) {
                 <section v-if="log.userOriginal && log.userOriginal !== primaryLogPrompt(log)"><strong>用户原话</strong><div v-html="renderTextBlock(log.userOriginal)" /></section>
                 <section :class="{ 'missing-field': !log.understanding }"><strong>理解</strong><div v-if="log.understanding" v-html="renderTextBlock(log.understanding)" /><p v-else>未记录</p></section>
                 <section v-if="log.answer" class="answer"><span>回答</span><div v-html="renderTextBlock(log.answer)" /></section>
-                <section v-for="[title, items, required] in [['产出', log.outputs, true], ['关键步骤', log.keySteps, true], ['关键判断', log.decisions, false], ['执行动作', log.actions, false], ['修改文件', log.changedFiles, false], ['验证', log.verification, true], ['后续事项', log.followUps, false]]" :key="title" v-show="(items && items.length) || required" :class="{ 'missing-field': required && !(items && items.length) }">
+                <section :class="{ 'missing-field': !log.acceptance }"><strong>验收标准</strong><div v-if="log.acceptance" v-html="renderListTextBlock(log.acceptance)" /><p v-else>未记录</p></section>
+                <section v-for="[title, items, required] in [['产出', log.outputs, true], ['关键步骤', log.keySteps, true], ['关键判断', log.decisions, false], ['执行动作', log.actions, false], ['修改文件', log.changedFiles, false], ['验证', log.verification, true]]" :key="title" v-show="(items && items.length) || required" :class="{ 'missing-field': required && !(items && items.length) }">
                   <strong>{{ title }}</strong>
                   <ul v-if="items && items.length"><li v-for="item in items" :key="item" v-html="renderInlineMarkdown(item)" /></ul>
                   <p v-else>未记录</p>
                 </section>
-                <section :class="{ 'missing-field': !log.acceptance }"><strong>验收标准</strong><div v-if="log.acceptance" v-html="renderListTextBlock(log.acceptance)" /><p v-else>未记录</p></section>
+                <section v-if="log.acceptanceResult"><strong>验收结果</strong><div v-html="renderListTextBlock(log.acceptanceResult)" /></section>
+                <section v-for="[title, items] in [['已知风险', log.risks], ['后续事项', log.followUps]]" :key="title" v-show="items && items.length">
+                  <strong>{{ title }}</strong>
+                  <ul><li v-for="item in items" :key="item" v-html="renderInlineMarkdown(item)" /></ul>
+                </section>
               </article>
             </div>
           </div>
@@ -2039,9 +2112,13 @@ function escapeHtml(value: any) {
       <div class="quick-task-actions"><span>{{ quickThoughtForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="保存想法" aria-label="保存想法" v-html="icon('check')" /></div>
     </form>
     <form v-if="state.quickCreateMode === 'dialogue'" class="card quick-task-panel" aria-label="快速研究" @submit.prevent="saveDialogue">
-      <div class="quick-task-head"><strong>研究</strong><button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuickTask" v-html="icon('x')" /></div>
-      <textarea v-model="quickDialogueForm.content" rows="6" placeholder="保存思路演进、关键问答、方案比较、技术背景或重要上下文。"></textarea>
-      <textarea v-model="quickDialogueForm.acceptance" rows="2" placeholder="研究标准（可选，默认 Tree-of-Thought：至少 3 条路径和各自优缺点）。"></textarea>
+      <div class="quick-task-head"><strong>新建研究</strong><button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuickTask" v-html="icon('x')" /></div>
+      <div class="research-mode-control" role="group" aria-label="研究模式">
+        <button type="button" :class="{ active: quickDialogueForm.mode === 'breadth' }" :aria-pressed="quickDialogueForm.mode === 'breadth'" title="覆盖多个方向并比较筛选" @click="quickDialogueForm.mode = 'breadth'">广度</button>
+        <button type="button" :class="{ active: quickDialogueForm.mode === 'depth' }" :aria-pressed="quickDialogueForm.mode === 'depth'" title="聚焦一个方向并追踪证据与实现" @click="quickDialogueForm.mode = 'depth'">深度</button>
+      </div>
+      <textarea v-model="quickDialogueForm.content" rows="6" :placeholder="quickDialogueForm.mode === 'depth' ? '要深入验证的对象、路径或核心问题。' : '要探索的问题空间、方案或关键背景。'"></textarea>
+      <textarea v-model="quickDialogueForm.acceptance" rows="2" :placeholder="quickDialogueForm.mode === 'depth' ? '补充证据、验证或边界要求（可选）。' : '补充覆盖范围或比较维度（可选）。'"></textarea>
       <div class="quick-task-actions"><span>{{ quickDialogueForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="研究" aria-label="研究" v-html="icon('check')" /></div>
     </form>
     <form v-if="state.quickCreateMode === 'constraint'" class="card quick-task-panel" aria-label="快速保存约束" @submit.prevent="saveConstraint">
@@ -2120,11 +2197,11 @@ function escapeHtml(value: any) {
   <div v-if="state.replyItem" class="modal-overlay" @click.self="closeReplyDialog">
     <form class="card reply-dialog" role="dialog" aria-modal="true" aria-labelledby="replyDialogTitle" @submit.prevent="submitReply">
       <div class="project-dialog-head">
-        <div><h2 id="replyDialogTitle">{{ state.replyMode === 'edit' ? '编辑决定' : '确认决定' }}</h2><p>{{ state.replyItem.question || '待确认内容' }}</p></div>
+        <div><h2 id="replyDialogTitle">{{ replyDialogTitle(state.replyItem) }}</h2><p>{{ state.replyItem.question || '协作内容' }}</p></div>
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeReplyDialog" v-html="icon('x')" />
       </div>
-      <textarea v-model="replyForm.answer" rows="5" placeholder="写下回复或处理结论。"></textarea>
-      <div class="quick-task-actions"><span>{{ replyForm.status }}</span><button class="btn icon-button btn-primary" type="submit" :title="state.replyMode === 'edit' ? '更新回复' : '保存回复'" :aria-label="state.replyMode === 'edit' ? '更新回复' : '保存回复'" v-html="icon('check')" /></div>
+      <textarea v-model="replyForm.answer" rows="5" placeholder="写下回复、补充说明或新的问题。"></textarea>
+      <div class="quick-task-actions"><span>{{ replyForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="发送回复" aria-label="发送回复" v-html="icon('check')" /></div>
     </form>
   </div>
 
@@ -2147,19 +2224,19 @@ function escapeHtml(value: any) {
   <div v-if="state.questionDialogOpen" class="modal-overlay" @click.self="closeQuestionDialog">
     <form class="card record-dialog" role="dialog" aria-modal="true" aria-labelledby="questionDialogTitle" @submit.prevent="saveQuestion">
       <div class="project-dialog-head">
-        <div><h2 id="questionDialogTitle">新建协作问题</h2><p>只记录确实需要决定、澄清或解除阻塞的事项。</p></div>
+        <div><h2 id="questionDialogTitle">发起协作线程</h2><p>提交后会进入“待 Agent 跟进”。</p></div>
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuestionDialog" v-html="icon('x')" />
       </div>
-      <label><span>标题</span><input v-model="questionForm.title" type="text" placeholder="需要决定什么" /></label>
-      <label><span>问题</span><textarea v-model="questionForm.question" rows="3" placeholder="给出可以直接作答的问题。"></textarea></label>
-      <label><span>背景</span><textarea v-model="questionForm.background" rows="2" placeholder="为什么现在需要决定。"></textarea></label>
-      <label><span>建议</span><textarea v-model="questionForm.recommendation" rows="2" placeholder="Agent 的建议方案。"></textarea></label>
+      <label><span>标题</span><input v-model="questionForm.title" type="text" placeholder="需要 Agent 跟进什么" /></label>
+      <label><span>内容</span><textarea v-model="questionForm.question" rows="3" placeholder="写下问题、决定或需要落实的事项。"></textarea></label>
+      <label><span>背景</span><textarea v-model="questionForm.background" rows="2" placeholder="补充必要的上下文。"></textarea></label>
+      <label><span>建议</span><textarea v-model="questionForm.recommendation" rows="2" placeholder="可选：你倾向的处理方式。"></textarea></label>
       <div class="record-dialog-grid">
         <label><span>类型</span><select v-model="questionForm.kind"><option value="decision">决策</option><option value="clarification">澄清</option><option value="blocker">阻塞</option></select></label>
         <label><span>范围</span><select v-model="questionForm.scope"><option value="version">当前版本</option><option value="project">整个项目</option></select></label>
       </div>
       <label class="checkbox-row"><input v-model="questionForm.blocking" type="checkbox" /><span>阻塞当前工作</span></label>
-      <div class="quick-task-actions"><span>{{ questionForm.status }}</span><button class="btn btn-primary" type="submit">保存问题</button></div>
+      <div class="quick-task-actions"><span>{{ questionForm.status }}</span><button class="btn btn-primary" type="submit">提交给 Agent</button></div>
     </form>
   </div>
 

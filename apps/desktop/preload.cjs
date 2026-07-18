@@ -29,7 +29,6 @@ contextBridge.exposeInMainWorld('electronManager', {
   deleteKnowledge: (projectRoot, knowledgeTarget) => ipcRenderer.invoke('project:delete-knowledge', projectRoot, knowledgeTarget),
   deleteThought: (projectRoot, thoughtId) => ipcRenderer.invoke('project:delete-thought', projectRoot, thoughtId),
   replyOpenQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:reply-open-question', projectRoot, payload),
-  updateReplyRecord: (projectRoot, payload) => ipcRenderer.invoke('project:update-reply-record', projectRoot, payload),
   onProjectDataChanged: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('project:data-changed', listener)
