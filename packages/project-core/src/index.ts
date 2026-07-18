@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 
@@ -11,7 +11,8 @@ export type ProjectConfig = {
   projectRoot: string
   dataRoot: string
   createdAt: string
-  version: 1
+  schemaVersion: 3
+  currentVersionId: string
 }
 
 export type ProjectTask = {
@@ -22,6 +23,7 @@ export type ProjectTask = {
   priority: string
   area: string
   updated: string
+  version: string
   detail: string
   acceptance: string
   openQuestions: string
@@ -33,6 +35,7 @@ export type ProjectThought = {
   title: string
   status: string
   created: string
+  version: string
   content: string
   answer: string
   openQuestions: string
@@ -45,6 +48,7 @@ export type ProjectLog = {
   created: string
   status: string
   source: string
+  version: string
   userGoal: string
   userOriginal: string
   understanding: string
@@ -69,6 +73,7 @@ export type ProjectDialogue = {
   shortId: string
   title: string
   created: string
+  version: string
   tags: string[]
   relatedTasks: string[]
   relatedThoughts: string[]
@@ -87,6 +92,7 @@ export type ProjectDocumentNote = {
   status: string
   shortId: string
   updated: string
+  version: string
   tags: string[]
   summary: string
   content: string
@@ -108,6 +114,7 @@ export type ProjectConstraint = {
   title: string
   status: string
   scope: string
+  version: string
   source: 'user' | 'system'
   created: string
   updated: string
@@ -119,30 +126,48 @@ export type ProjectConstraint = {
 export type ProjectOpenQuestion = {
   id: string
   displayId: string
-  source: 'task' | 'thought' | 'log'
   shortId: string
   title: string
-  openQuestions: string
+  question: string
+  background: string
+  recommendation: string
+  conclusion: string
+  status: 'open' | 'decided' | 'resolved' | 'expired'
+  kind: 'decision' | 'clarification' | 'blocker'
+  scope: 'version' | 'project'
+  version: string
+  blocking: boolean
   created: string
+  updated: string
   relations: string[]
-  thoughtId?: string
-  logIndex?: number
 }
 
-export type ProjectReplyRecord = {
-  questionId: string
-  displayId: string
-  source: 'task' | 'thought' | 'log'
+export type ProjectRisk = {
+  id: string
   shortId: string
   title: string
-  openQuestions: string
-  reply: string
-  replyCreated: string
-  replyAnswer: string
+  kind: 'risk' | 'verification' | 'follow-up'
+  status: 'open' | 'resolved' | 'expired'
+  version: string
+  content: string
+  handling: string
   created: string
+  updated: string
   relations: string[]
-  thoughtId?: string
-  logIndex?: number
+}
+
+export type ProjectVersion = {
+  id: string
+  shortId: string
+  label: string
+  title: string
+  status: 'active' | 'completed'
+  created: string
+  completed: string
+  goal: string
+  summary: string
+  outcomes: string[]
+  followUps: string[]
 }
 
 export type AgentBrief = {
@@ -151,8 +176,21 @@ export type AgentBrief = {
   dataRoot: string
   knowledgeRoot: string
   skillPath: string
+  baselinePath: string
+  currentVersionRoot: string
+  currentDataPaths: {
+    tasks: string
+    thoughts: string
+    research: string
+    questions: string
+    risks: string
+    workLogs: string
+  }
+  currentVersion: ProjectVersion | null
   activeTasks: ProjectTask[]
   openQuestions: ProjectOpenQuestion[]
+  pendingDecisions: ProjectOpenQuestion[]
+  activeRisks: ProjectRisk[]
   latestLogs: string[]
   instructions: string[]
 }
@@ -166,9 +204,13 @@ export type Dashboard = {
   documents: ProjectDocumentNote[]
   constraints: ProjectConstraint[]
   logs: ProjectLog[]
+  versions: ProjectVersion[]
+  currentVersion: ProjectVersion | null
+  questions: ProjectOpenQuestion[]
+  risks: ProjectRisk[]
   activeTasks: ProjectTask[]
   openQuestions: AgentBrief['openQuestions']
-  replyRecords: ProjectReplyRecord[]
+  replyRecords: ProjectOpenQuestion[]
   latestLogs: string[]
   agentBrief: AgentBrief
 }
@@ -208,13 +250,26 @@ export type NewConstraintInput = {
 }
 
 export type OpenQuestionReplyInput = {
-  questionId?: string
-  source?: 'task' | 'thought' | 'log'
-  shortId?: string
-  thoughtId?: string
-  title?: string
-  openQuestions: string
+  questionId: string
   answer: string
+}
+
+export type NewVersionInput = {
+  label: string
+  title: string
+  goal: string
+  summary?: string
+}
+
+export type NewQuestionInput = {
+  title: string
+  question: string
+  background?: string
+  recommendation?: string
+  kind?: ProjectOpenQuestion['kind']
+  scope?: ProjectOpenQuestion['scope']
+  blocking?: boolean
+  relations?: string[]
 }
 
 const TASKS_PATH = 'tasks/工程任务.md'
@@ -225,21 +280,30 @@ const DIALOGUES_PATH = 'research/研究.md'
 const AGENT_LOG_PATH = 'work-logs/Agent 工作记录.md'
 const CHANGE_INDEX_PATH = 'collaboration/需求变更索引.md'
 const CONSTRAINTS_PATH = 'constraints/项目约束.md'
+const QUESTIONS_PATH = 'collaboration/待确认事项.md'
+const RISKS_PATH = 'collaboration/风险与后续.md'
+const BASELINE_PATH = 'collaboration/当前项目基线.md'
+const VERSIONS_PATH = 'versions/版本索引.md'
 const DOCUMENTS_DIR = 'documents'
 const GLOBAL_KNOWLEDGE_DIR = 'knowledge'
 const SKILL_PATH = 'skills/project-collaboration/SKILL.md'
+const RECORD_COUNTERS_PATH = 'record-counters.json'
+const fileMutationQueues = new Map<string, Promise<void>>()
+const VERSION_TASKS_FILE = '工程任务.md'
+const VERSION_THOUGHTS_FILE = '想法与问题.md'
+const VERSION_DIALOGUES_FILE = '研究.md'
+const VERSION_QUESTIONS_FILE = '待确认事项.md'
+const VERSION_RISKS_FILE = '风险与后续.md'
+const VERSION_LOGS_DIR = '工作记录'
 
 function requiredProjectFiles() {
   return [
     'project.json',
-    TASKS_PATH,
     DATA_SPEC_PATH,
     HANDOFF_PATH,
-    THOUGHTS_PATH,
-    DIALOGUES_PATH,
-    AGENT_LOG_PATH,
     CHANGE_INDEX_PATH,
     CONSTRAINTS_PATH,
+    VERSIONS_PATH,
     SKILL_PATH,
   ]
 }
@@ -271,25 +335,32 @@ export async function isInitialized(managerDataRoot: string, projectRoot: string
 export async function initProject(managerDataRoot: string, projectRoot: string, name = path.basename(projectRoot)) {
   const projectId = createProjectId(projectRoot, name)
   const dataRoot = resolveDataRoot(managerDataRoot, projectRoot, name)
+  if (await readExistingProjectFile(dataRoot, 'project.json')) {
+    return updateProjectGuidance(managerDataRoot, projectRoot)
+  }
   const config: ProjectConfig = {
     projectId,
     name,
     projectRoot,
     dataRoot,
     createdAt: new Date().toISOString(),
-    version: 1,
+    schemaVersion: 3,
+    currentVersionId: 'V001',
   }
 
   await writeProjectFile(dataRoot, 'project.json', `${JSON.stringify(config, null, 2)}\n`)
-  await writeProjectFile(dataRoot, TASKS_PATH, tasksTemplate(name))
   await writeProjectFile(dataRoot, DATA_SPEC_PATH, dataSpecTemplate())
   await writeProjectFile(dataRoot, HANDOFF_PATH, handoffTemplate(projectRoot))
   await ensureProjectDirectory(dataRoot, DOCUMENTS_DIR)
-  await writeProjectFile(dataRoot, THOUGHTS_PATH, thoughtsTemplate())
-  await writeProjectFile(dataRoot, DIALOGUES_PATH, dialoguesTemplate())
-  await writeProjectFile(dataRoot, AGENT_LOG_PATH, agentLogTemplate())
   await writeProjectFile(dataRoot, CHANGE_INDEX_PATH, changeIndexTemplate())
   await writeProjectFile(dataRoot, CONSTRAINTS_PATH, constraintsTemplate())
+  await writeProjectFile(dataRoot, VERSIONS_PATH, versionsTemplate(name))
+  await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_TASKS_FILE), tasksTemplate(name))
+  await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_THOUGHTS_FILE), thoughtsTemplate())
+  await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_DIALOGUES_FILE), dialoguesTemplate())
+  await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_QUESTIONS_FILE), questionsTemplate())
+  await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_RISKS_FILE), risksTemplate())
+  await writeProjectFile(dataRoot, versionLogPath('V001'), agentLogTemplate())
   await ensureGlobalKnowledgeRoot(managerDataRoot)
   await writeProjectFile(dataRoot, SKILL_PATH, skillTemplate(projectRoot, dataRoot))
   await writeCollaborationEntry(projectRoot, dataRoot)
@@ -298,6 +369,7 @@ export async function initProject(managerDataRoot: string, projectRoot: string, 
 
   const dashboard = await getDashboard(managerDataRoot, projectRoot)
   await writeAgentBrief(managerDataRoot, projectRoot, dashboard.agentBrief)
+  await writeProjectFile(dataRoot, BASELINE_PATH, baselineMarkdown(dashboard))
   await writeProjectFile(dataRoot, 'index.json', `${JSON.stringify(indexFromDashboard(dashboard), null, 2)}\n`)
 
   return dashboard
@@ -305,14 +377,19 @@ export async function initProject(managerDataRoot: string, projectRoot: string, 
 
 export async function updateProjectGuidance(managerDataRoot: string, projectRoot: string) {
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const config = await readProjectConfig(managerDataRoot, projectRoot)
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
   await writeProjectFile(dataRoot, DATA_SPEC_PATH, dataSpecTemplate())
   await writeProjectFile(dataRoot, HANDOFF_PATH, handoffTemplate(projectRoot))
-  await ensureProjectFile(dataRoot, DIALOGUES_PATH, dialoguesTemplate())
   await ensureProjectFile(dataRoot, CONSTRAINTS_PATH, constraintsTemplate())
+  await ensureProjectFile(dataRoot, VERSIONS_PATH, versionsTemplate(config.name))
+  await ensureVersionRecordFiles(dataRoot, config.currentVersionId)
   await ensureGlobalKnowledgeRoot(managerDataRoot)
   await normalizeGlobalKnowledgeFiles(managerDataRoot)
+  await normalizeProjectRecordVersions(dataRoot, config.currentVersionId)
+  await normalizeProjectDocumentFiles(dataRoot, config.currentVersionId)
   await writeProjectFile(dataRoot, SKILL_PATH, skillTemplate(projectRoot, dataRoot))
+  await writeCollaborationEntry(projectRoot, dataRoot)
+  await ensureCollaborationIgnored(projectRoot)
   await refreshAgentBrief(managerDataRoot, projectRoot)
   await upsertProjectIndex(managerDataRoot, config)
   return getDashboard(managerDataRoot, projectRoot)
@@ -320,77 +397,66 @@ export async function updateProjectGuidance(managerDataRoot: string, projectRoot
 
 export async function getDashboard(managerDataRoot: string, projectRoot: string): Promise<Dashboard> {
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const config = await readProjectConfig(managerDataRoot, projectRoot)
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  await ensureProjectFile(dataRoot, VERSIONS_PATH, versionsTemplate(config.name))
+  await ensureVersionRecordFiles(dataRoot, config.currentVersionId)
   await ensureGlobalKnowledgeRoot(managerDataRoot)
-  await normalizeProjectDocumentFiles(dataRoot)
+  await normalizeProjectRecordVersions(dataRoot, config.currentVersionId)
+  await normalizeProjectDocumentFiles(dataRoot, config.currentVersionId)
   await normalizeGlobalKnowledgeFiles(managerDataRoot)
-  const tasksContent = await readProjectFile(dataRoot, TASKS_PATH)
-  const logContent = await readProjectFile(dataRoot, AGENT_LOG_PATH)
+  const tasksContent = await readVersionRecordFamily(dataRoot, VERSION_TASKS_FILE)
+  const logContent = await readVersionLogs(dataRoot)
   const tasks = parseProjectTasks(tasksContent)
-  const thoughts = parseThoughts(await readProjectFile(dataRoot, THOUGHTS_PATH))
-  const dialogues = parseDialogues(await readResearchRecordsFile(dataRoot))
+  const thoughts = parseThoughts(await readVersionRecordFamily(dataRoot, VERSION_THOUGHTS_FILE))
+  const dialogues = parseDialogues(await readVersionRecordFamily(dataRoot, VERSION_DIALOGUES_FILE))
   const documents = await listProjectDocuments(dataRoot)
   const knowledge = parseKnowledgeNotes(await listGlobalKnowledgeDocuments(managerDataRoot))
-  const constraints = await listProjectConstraints(dataRoot)
+  const constraints = await listProjectConstraints(dataRoot, config.currentVersionId)
   const logs = parseProjectLogs(logContent, tasks)
-  const latestLogs = logs.slice(0, 5).map((log) => log.title)
-  const activeTasks = tasks.filter((task) => ['backlog', 'todo', 'doing'].includes(task.status))
-  const taskOpenQuestions = activeTasks
-    .filter((task) => hasOpenQuestionText(task.openQuestions))
-    .map((task) => ({
-      source: 'task' as const,
-      shortId: task.shortId,
-      title: task.title,
-      openQuestions: task.openQuestions,
-      created: task.updated,
-    }))
-  const thoughtOpenQuestions = thoughts
-    .filter((thought) => hasOpenQuestionText(thought.openQuestions))
-    .flatMap((thought) => listSectionItems(thought.openQuestions).map((question) => ({
-      source: 'thought' as const,
-      shortId: thought.shortId,
-      title: thought.title,
-      openQuestions: question,
-      created: thought.created,
-      thoughtId: thought.id,
-    })))
-  const logOpenQuestions = logs
-    .flatMap((log, logIndex) => log.openQuestions.map((question) => ({
-      source: 'log' as const,
-      shortId: log.shortId,
-      title: log.title,
-      openQuestions: question,
-      created: log.created,
-      logIndex,
-    })))
-  const openQuestions = assignOpenQuestionIds([...taskOpenQuestions, ...thoughtOpenQuestions, ...logOpenQuestions])
-  const replyRecords = [
-    ...parseTaskReplyRecords(tasksContent).map((reply) => enrichReplyRecord(reply)),
-    ...thoughts.flatMap((thought) => thought.replyRecords.map((reply) => ({
-      parsed: parseReplyRecordParts(reply),
-      source: 'thought' as const,
-      shortId: thought.shortId,
-      title: thought.title,
-      reply,
-      created: thought.created,
-      thoughtId: thought.id,
-    })).filter((reply) => reply.parsed).map(({ parsed, ...reply }) => ({
-      ...reply,
-      ...parsed!,
-    }))).map((reply) => enrichReplyRecord(reply)),
-    ...logs.flatMap((log, logIndex) => log.replyRecords.map((reply) => ({
-      parsed: parseReplyRecordParts(reply),
-      source: 'log' as const,
-      shortId: log.shortId,
-      title: log.title,
-      reply,
-      created: log.created,
-      logIndex,
-    })).filter((reply) => reply.parsed).map(({ parsed, ...reply }) => ({
-      ...reply,
-      ...parsed!,
-    }))).map((reply) => enrichReplyRecord(reply)),
-  ]
+  const versions = parseProjectVersions(await readProjectFile(dataRoot, VERSIONS_PATH))
+  const currentVersion = versions.find((version) => version.shortId === config.currentVersionId)
+    || versions.find((version) => version.status === 'active')
+    || versions[0]
+    || null
+  const questions = parseProjectQuestions(await readVersionRecordFamily(dataRoot, VERSION_QUESTIONS_FILE))
+  const risks = parseProjectRisks(await readVersionRecordFamily(dataRoot, VERSION_RISKS_FILE))
+  await ensureRecordCounters(dataRoot, {
+    T: tasks.map((item) => item.shortId),
+    I: thoughts.map((item) => item.shortId),
+    D: dialogues.map((item) => item.shortId),
+    W: documents.map((item) => item.shortId),
+    L: logs.map((item) => item.shortId),
+    C: constraints.filter((item) => item.source === 'user').map((item) => item.shortId),
+    Q: questions.map((item) => item.shortId),
+    R: risks.map((item) => item.shortId),
+    V: versions.map((item) => item.shortId),
+  })
+  const currentVersionId = currentVersion?.shortId || config.currentVersionId
+  const currentTasks = tasks.filter((task) => recordInVersion(task.version, currentVersionId))
+  const currentLogs = logs.filter((log) => recordInVersion(log.version, currentVersionId))
+  const latestLogs = currentLogs.slice(0, 5).map((log) => log.title)
+  const activeTasks = currentTasks.filter((task) => ['backlog', 'todo', 'doing'].includes(task.status))
+  const openQuestions = questions.filter((question) =>
+    question.status === 'open'
+    && (question.scope === 'project' || recordInVersion(question.version, currentVersionId)),
+  )
+  const pendingDecisions = questions.filter((question) =>
+    question.status === 'decided'
+    && (question.scope === 'project' || recordInVersion(question.version, currentVersionId)),
+  )
+  const activeRisks = risks.filter((risk) =>
+    risk.status === 'open' && recordInVersion(risk.version, currentVersionId),
+  )
+  const replyRecords = questions.filter((question) => question.status !== 'open')
+  const currentVersionRoot = path.join(dataRoot, 'versions', currentVersionId)
+  const currentDataPaths = {
+    tasks: path.join(currentVersionRoot, VERSION_TASKS_FILE),
+    thoughts: path.join(currentVersionRoot, VERSION_THOUGHTS_FILE),
+    research: path.join(currentVersionRoot, VERSION_DIALOGUES_FILE),
+    questions: path.join(currentVersionRoot, VERSION_QUESTIONS_FILE),
+    risks: path.join(currentVersionRoot, VERSION_RISKS_FILE),
+    workLogs: path.join(currentVersionRoot, VERSION_LOGS_DIR),
+  }
 
   const agentBrief: AgentBrief = {
     generatedAt: new Date().toISOString(),
@@ -398,23 +464,32 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     dataRoot,
     knowledgeRoot: resolveGlobalKnowledgeRoot(managerDataRoot),
     skillPath: path.join(dataRoot, SKILL_PATH),
+    baselinePath: path.join(dataRoot, BASELINE_PATH),
+    currentVersionRoot,
+    currentDataPaths,
+    currentVersion,
     activeTasks,
     openQuestions,
+    pendingDecisions,
+    activeRisks,
     latestLogs,
     instructions: [
       `先读取 ${path.join(dataRoot, 'agent-brief.json')} 建立最新上下文。`,
+      `然后读取 ${path.join(dataRoot, BASELINE_PATH)} 获取当前项目基线与版本范围。`,
       `然后读取 ${path.join(dataRoot, SKILL_PATH)}，按其中规则写任务和工作记录。`,
+      `真正需要用户决定的问题只写入 ${currentDataPaths.questions}；验证限制、风险和后续事项写入 ${currentDataPaths.risks}。`,
       `读取 ${path.join(dataRoot, CONSTRAINTS_PATH)} 获取当前项目全局约束；约束记录使用 Cxxx。`,
-      `需要完整任务时读取 ${path.join(dataRoot, TASKS_PATH)}。`,
+      `需要完整任务时读取 ${currentDataPaths.tasks}。`,
       '所有记录型 Markdown 都必须按 ID 倒序维护：较大的 Txxx/Ixxx/Dxxx/Wxxx/Kxxx/Lxxx/Cxxx 写在较小 ID 上方，例如 T036 在 T001 上面。',
-      `处理 Dxxx 研究时读取 ${path.join(dataRoot, DIALOGUES_PATH)}，同时读取关联 Wxxx 文档；默认按 Tree-of-Thought 至少 3 条路径、优缺点、适用条件和建议结论组织研究。`,
+      `处理 Dxxx 研究时读取 ${currentDataPaths.research}，同时读取关联 Wxxx 文档；默认按 Tree-of-Thought 至少 3 条路径、优缺点、适用条件和建议结论组织研究。`,
       `Dxxx 研究、Wxxx 文档和 Kxxx 知识可独立删除；删除操作不级联，引用关系只由 related_documents 等字段表达。`,
       `长期知识库是全局共享的，读取 ${resolveGlobalKnowledgeRoot(managerDataRoot)} 中的 Kxxx 条目。`,
-      `工作记录必须包含 ### 用户目标、### 需求理解、### 产出、### 关键步骤、### 验证、### 验收标准、### 未确认事项。`,
+      `工作记录必须包含 ### 用户目标、### 需求理解、### 产出、### 关键步骤、### 验证、### 验收标准、### 已知风险、### 后续事项。`,
+      `所有项目记录必须写入 version:: ${currentVersionId}；项目文档和项目约束仅用版本号追溯来源，不参与版本过滤。`,
       '工作流顺序：想法/输入 -> 整理回答 -> 必要时产生任务 -> 任务进入 todo/doing/done -> 任务执行并验收后写 Agent 工作记录。',
       '整理想法只更新想法回答和必要任务卡；未执行工程任务时不要写 Agent 工作记录。',
       '执行任务前将任务状态改为 doing，完成验收后改为 done。',
-      `完成后写入 ${path.join(dataRoot, AGENT_LOG_PATH)}。`,
+      `完成后按月份写入 ${currentDataPaths.workLogs}。`,
       '不要回滚或覆盖用户、其他 Agent 的无关改动。',
     ],
   }
@@ -428,6 +503,10 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     documents,
     constraints,
     logs,
+    versions,
+    currentVersion,
+    questions,
+    risks,
     activeTasks,
     openQuestions,
     replyRecords,
@@ -447,7 +526,7 @@ function projectOpenTime(project: ManagedProject) {
 }
 
 export async function recordProjectOpen(managerDataRoot: string, projectRoot: string) {
-  const config = await readProjectConfig(managerDataRoot, projectRoot)
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
   await upsertProjectIndex(managerDataRoot, config)
   return config
 }
@@ -456,10 +535,12 @@ export async function removeManagedProject(managerDataRoot: string, projectId: s
   const id = String(projectId || '').trim()
   if (!id) throw new Error('项目 ID 不能为空')
 
-  const projects = await readProjectIndex(managerDataRoot)
-  const next = projects.filter((project) => project.projectId !== id)
-  await mkdir(managerDataRoot, { recursive: true })
-  await writeFile(path.join(managerDataRoot, 'projects.json'), `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  const indexPath = path.join(managerDataRoot, 'projects.json')
+  await withFileMutation(indexPath, async () => {
+    const projects = await readProjectIndex(managerDataRoot)
+    const next = projects.filter((project) => project.projectId !== id)
+    await atomicWriteFile(indexPath, `${JSON.stringify(next, null, 2)}\n`)
+  })
   return listManagedProjects(managerDataRoot)
 }
 
@@ -469,27 +550,30 @@ export async function appendTask(managerDataRoot: string, projectRoot: string, i
   if (!title) throw new Error('任务标题不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readProjectFile(dataRoot, TASKS_PATH)
-  const tasks = parseProjectTasks(current)
-  const now = localTime()
-  const task = taskToMarkdown({
-    id: createId('task', title),
-    shortId: nextShortId(tasks.map((item) => item.shortId), 'T'),
-    title,
-    status: normalizeStatus(input.status || 'todo'),
-    priority: input.priority || 'medium',
-    area: input.area || 'tool',
-    updated: now,
-    detail: input.executionScope || '待补充。',
-    acceptance: input.acceptance || '待补充。',
-    openQuestions: input.openQuestions || '无。',
-  }, {
-    created: now,
-    userOriginal: input.userOriginal || title,
-    agentUnderstanding: input.agentUnderstanding || '待补充。',
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  const taskPath = versionRecordPath(config.currentVersionId, VERSION_TASKS_FILE)
+  await mutateProjectFile(dataRoot, taskPath, async (current) => {
+    const tasks = parseProjectTasks(current)
+    const now = localTime()
+    const task = taskToMarkdown({
+      id: createId('task', title),
+      shortId: await allocateShortId(dataRoot, 'T', tasks.map((item) => item.shortId)),
+      title,
+      status: normalizeStatus(input.status || 'todo'),
+      priority: input.priority || 'medium',
+      area: input.area || 'tool',
+      updated: now,
+      version: config.currentVersionId,
+      detail: input.executionScope || '待补充。',
+      acceptance: input.acceptance || '待补充。',
+      openQuestions: input.openQuestions || '无。',
+    }, {
+      created: now,
+      userOriginal: input.userOriginal || title,
+      agentUnderstanding: input.agentUnderstanding || '待补充。',
+    })
+    return { content: insertMarkdownEntry(current, task), value: undefined }
   })
-
-  await writeProjectFile(dataRoot, TASKS_PATH, insertMarkdownEntry(current, task))
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -501,24 +585,23 @@ export async function updateTaskStatus(managerDataRoot: string, projectRoot: str
   if (!nextStatus) throw new Error('任务状态不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readProjectFile(dataRoot, TASKS_PATH)
-  let updatedTask = false
-  const next = current
-    .split(/\n(?=##\s+)/)
-    .map((block, index) => {
-      if (index === 0 && !block.trim().startsWith('## ')) return block
-      if (!block.includes(`id:: ${id}`)) return block
-      updatedTask = true
-      const updated = block
-        .replace(/^status::\s*.+$/m, `status:: ${normalizeStatus(nextStatus)}`)
-        .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`)
-      return updated
-    })
-    .join('\n')
-
-  if (!updatedTask) throw new Error('未找到任务记录')
-
-  await writeProjectFile(dataRoot, TASKS_PATH, next.endsWith('\n') ? next : `${next}\n`)
+  const taskPath = await findVersionRecordPath(dataRoot, VERSION_TASKS_FILE, id)
+  if (!taskPath) throw new Error('未找到任务记录')
+  await mutateProjectFile(dataRoot, taskPath, (current) => {
+    let updatedTask = false
+    const next = splitMarkdownBlocks(current)
+      .map((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return block
+        if (parseFields(block).id !== id) return block
+        updatedTask = true
+        return block
+          .replace(/^status::\s*.+$/m, `status:: ${normalizeStatus(nextStatus)}`)
+          .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`)
+      })
+      .join('\n')
+    if (!updatedTask) throw new Error('未找到任务记录')
+    return { content: next.endsWith('\n') ? next : `${next}\n`, value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -528,23 +611,23 @@ export async function deleteTask(managerDataRoot: string, projectRoot: string, t
   if (!id) throw new Error('任务 ID 不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readProjectFile(dataRoot, TASKS_PATH)
-  let deleted = false
-  const blocks = current.split(/\n(?=##\s+)/)
-  const next = blocks
-    .filter((block, index) => {
-      if (index === 0 && !block.trim().startsWith('## ')) return true
-      const shouldDelete = block.includes(`id:: ${id}`)
-      if (shouldDelete) deleted = true
-      return !shouldDelete
-    })
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .join('\n\n')
-
-  if (!deleted) throw new Error('未找到任务记录')
-
-  await writeProjectFile(dataRoot, TASKS_PATH, `${next}\n`)
+  const taskPath = await findVersionRecordPath(dataRoot, VERSION_TASKS_FILE, id)
+  if (!taskPath) throw new Error('未找到任务记录')
+  await mutateProjectFile(dataRoot, taskPath, (current) => {
+    let deleted = false
+    const next = splitMarkdownBlocks(current)
+      .filter((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return true
+        const shouldDelete = parseFields(block).id === id
+        if (shouldDelete) deleted = true
+        return !shouldDelete
+      })
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .join('\n\n')
+    if (!deleted) throw new Error('未找到任务记录')
+    return { content: `${next}\n`, value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -554,16 +637,19 @@ export async function appendThought(managerDataRoot: string, projectRoot: string
   if (!normalized) throw new Error('输入内容不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readProjectFile(dataRoot, THOUGHTS_PATH)
-  const thoughts = parseThoughts(current)
-  const now = localTime()
-  const entry = `## ${now} 想法
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  const thoughtPath = versionRecordPath(config.currentVersionId, VERSION_THOUGHTS_FILE)
+  await mutateProjectFile(dataRoot, thoughtPath, async (current) => {
+    const thoughts = parseThoughts(current)
+    const now = localTime()
+    const entry = `## ${now} 想法
 
 id:: ${createId('thought', normalized.slice(0, 24))}
-short_id:: ${nextShortId(thoughts.map((item) => item.shortId), 'I')}
+short_id:: ${await allocateShortId(dataRoot, 'I', thoughts.map((item) => item.shortId))}
 status:: inbox
 type:: thought
 created:: ${now}
+version:: ${config.currentVersionId}
 
 ### 内容
 
@@ -572,13 +658,9 @@ ${normalized}
 ### 回答
 
 暂无。
-
-### 未确认事项
-
-无。
 `
-
-  await writeProjectFile(dataRoot, THOUGHTS_PATH, insertMarkdownEntry(current, entry))
+    return { content: insertMarkdownEntry(current, entry), value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -591,16 +673,18 @@ export async function appendDialogue(managerDataRoot: string, projectRoot: strin
   const acceptance = String(input.acceptance || '').trim() || defaultResearchStandard()
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  await normalizeProjectDocumentFiles(dataRoot)
-  const current = await readResearchRecordsFile(dataRoot)
-  const dialogues = parseDialogues(current)
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  await normalizeProjectDocumentFiles(dataRoot, config.currentVersionId)
+  const dialoguePath = versionRecordPath(config.currentVersionId, VERSION_DIALOGUES_FILE)
+  const dialogues = parseDialogues(await readVersionRecordFamily(dataRoot, VERSION_DIALOGUES_FILE))
   const documents = await listProjectDocuments(dataRoot)
-  const logContent = await readProjectFile(dataRoot, AGENT_LOG_PATH)
-  const logs = parseProjectLogs(logContent, parseProjectTasks(await readProjectFile(dataRoot, TASKS_PATH)))
+  const allTasks = parseProjectTasks(await readVersionRecordFamily(dataRoot, VERSION_TASKS_FILE))
+  const logs = parseProjectLogs(await readVersionLogs(dataRoot), allTasks)
   const now = localTime()
-  const shortId = nextShortId(dialogues.map((item) => item.shortId), 'D')
-  const documentShortId = nextDocumentShortId(documents.map((item) => item.shortId))()
-  const logShortId = nextShortId(logs.map((item) => item.shortId), 'L')
+  const shortId = await allocateShortId(dataRoot, 'D', dialogues.map((item) => item.shortId))
+  const documentShortId = await allocateShortId(dataRoot, 'W', documents.map((item) => item.shortId))
+  const logShortId = await allocateShortId(dataRoot, 'L', logs.map((item) => item.shortId))
+  const logPath = versionLogPath(config.currentVersionId, now)
   const title = firstMeaningfulLine(normalized).slice(0, 40) || '研究'
   const documentPath = `${DOCUMENTS_DIR}/研究/${shortId}-${slug(title) || 'research'}.md`
   const entry = `## ${now} 研究
@@ -610,6 +694,7 @@ short_id:: ${shortId}
 type:: dialogue
 created:: ${now}
 updated:: ${now}
+version:: ${config.currentVersionId}
 mode:: research
 tags:: research
 related_tasks:: 无
@@ -636,6 +721,7 @@ ${acceptance}
     content: normalized,
     answer,
     acceptance,
+    version: config.currentVersionId,
   })
   const logEntry = researchLogMarkdown({
     title,
@@ -646,11 +732,18 @@ ${acceptance}
     created: now,
     summary: firstMeaningfulLine(normalized),
     acceptance,
+    version: config.currentVersionId,
   })
 
-  await writeProjectFile(dataRoot, DIALOGUES_PATH, insertMarkdownEntry(current, entry))
   await writeProjectFile(dataRoot, documentPath, document)
-  await writeProjectFile(dataRoot, AGENT_LOG_PATH, insertMarkdownEntry(logContent, logEntry))
+  await mutateProjectFile(dataRoot, dialoguePath, (current) => ({
+    content: insertMarkdownEntry(current || dialoguesTemplate(), entry),
+    value: undefined,
+  }))
+  await mutateProjectFile(dataRoot, logPath, (current) => ({
+    content: insertMarkdownEntry(current || agentLogRecordsTemplate(), logEntry),
+    value: undefined,
+  }))
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -663,25 +756,28 @@ export async function appendConstraint(managerDataRoot: string, projectRoot: str
   if (!content) throw new Error('约束内容不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readConstraintsRecordsFile(dataRoot)
-  const constraints = parseUserConstraints(current)
-  const now = localTime()
-  const entry = `## ${title}
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  await mutateProjectFile(dataRoot, CONSTRAINTS_PATH, async (current) => {
+    const source = current || constraintsTemplate()
+    const constraints = parseUserConstraints(source)
+    const now = localTime()
+    const entry = `## ${title}
 
 id:: ${createId('constraint', title)}
-short_id:: ${nextShortId(constraints.map((item) => item.shortId), 'C')}
+short_id:: ${await allocateShortId(dataRoot, 'C', constraints.map((item) => item.shortId))}
 type:: constraint
 status:: ${normalizeConstraintStatus(input.status || 'active')}
 scope:: ${String(input.scope || '').trim() || 'project'}
 created:: ${now}
 updated:: ${now}
+version:: ${config.currentVersionId}
 
 ### 内容
 
 ${content}
 `
-
-  await writeProjectFile(dataRoot, CONSTRAINTS_PATH, insertMarkdownEntry(current, entry))
+    return { content: insertMarkdownEntry(source, entry), value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -691,24 +787,21 @@ export async function deleteConstraint(managerDataRoot: string, projectRoot: str
   if (!id) throw new Error('约束 ID 不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readConstraintsRecordsFile(dataRoot)
-  let deleted = false
-  const blocks = current.split(/\n(?=##\s+)/)
-  const next = blocks
-    .filter((block, index) => {
-      if (index === 0 && !block.trim().startsWith('## ')) return true
-      const fields = parseFields(block)
-      const shouldDelete = fields.id === id
-      if (shouldDelete) deleted = true
-      return !shouldDelete
-    })
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .join('\n\n')
-
-  if (!deleted) throw new Error('未找到约束记录')
-
-  await writeProjectFile(dataRoot, CONSTRAINTS_PATH, `${next}\n`)
+  await mutateProjectFile(dataRoot, CONSTRAINTS_PATH, (current) => {
+    let deleted = false
+    const next = splitMarkdownBlocks(current)
+      .filter((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return true
+        const shouldDelete = parseFields(block).id === id
+        if (shouldDelete) deleted = true
+        return !shouldDelete
+      })
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .join('\n\n')
+    if (!deleted) throw new Error('未找到约束记录')
+    return { content: `${next}\n`, value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -718,23 +811,23 @@ export async function deleteThought(managerDataRoot: string, projectRoot: string
   if (!id) throw new Error('输入 ID 不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readProjectFile(dataRoot, THOUGHTS_PATH)
-  let deleted = false
-  const blocks = current.split(/\n(?=##\s+)/)
-  const next = blocks
-    .filter((block, index) => {
-      if (index === 0 && !block.trim().startsWith('## ')) return true
-      const shouldDelete = block.includes(`id:: ${id}`)
-      if (shouldDelete) deleted = true
-      return !shouldDelete
-    })
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .join('\n\n')
-
-  if (!deleted) throw new Error('未找到输入记录')
-
-  await writeProjectFile(dataRoot, THOUGHTS_PATH, `${next}\n`)
+  const thoughtPath = await findVersionRecordPath(dataRoot, VERSION_THOUGHTS_FILE, id)
+  if (!thoughtPath) throw new Error('未找到输入记录')
+  await mutateProjectFile(dataRoot, thoughtPath, (current) => {
+    let deleted = false
+    const next = splitMarkdownBlocks(current)
+      .filter((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return true
+        const shouldDelete = parseFields(block).id === id
+        if (shouldDelete) deleted = true
+        return !shouldDelete
+      })
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .join('\n\n')
+    if (!deleted) throw new Error('未找到输入记录')
+    return { content: `${next}\n`, value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -744,24 +837,24 @@ export async function deleteDialogue(managerDataRoot: string, projectRoot: strin
   if (!id) throw new Error('研究 ID 不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const current = await readResearchRecordsFile(dataRoot)
-  let deleted = false
-  const blocks = current.split(/\n(?=##\s+)/)
-  const next = blocks
-    .filter((block, index) => {
-      if (index === 0 && !block.trim().startsWith('## ')) return true
-      const fields = parseFields(block)
-      const shouldDelete = fields.id === id || normalizeDialogueShortId(id) === normalizeDialogueShortId(fields.short_id)
-      if (shouldDelete) deleted = true
-      return !shouldDelete
-    })
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .join('\n\n')
-
-  if (!deleted) throw new Error('未找到研究记录')
-
-  await writeProjectFile(dataRoot, DIALOGUES_PATH, `${next}\n`)
+  const dialoguePath = await findVersionRecordPath(dataRoot, VERSION_DIALOGUES_FILE, id, normalizeDialogueShortId)
+  if (!dialoguePath) throw new Error('未找到研究记录')
+  await mutateProjectFile(dataRoot, dialoguePath, (current) => {
+    let deleted = false
+    const next = splitMarkdownBlocks(current)
+      .filter((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return true
+        const fields = parseFields(block)
+        const shouldDelete = fields.id === id || normalizeDialogueShortId(id) === normalizeDialogueShortId(fields.short_id)
+        if (shouldDelete) deleted = true
+        return !shouldDelete
+      })
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .join('\n\n')
+    if (!deleted) throw new Error('未找到研究记录')
+    return { content: `${next}\n`, value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -771,7 +864,8 @@ export async function deleteDocument(managerDataRoot: string, projectRoot: strin
   if (!target) throw new Error('文档 ID 不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  await normalizeProjectDocumentFiles(dataRoot)
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  await normalizeProjectDocumentFiles(dataRoot, config.currentVersionId)
   const documents = await listProjectDocuments(dataRoot)
   const note = documents.find((item) =>
     item.path === target || item.shortId === normalizeDocumentShortId(target),
@@ -800,22 +894,126 @@ export async function deleteKnowledge(managerDataRoot: string, projectRoot: stri
   return getDashboard(managerDataRoot, projectRoot)
 }
 
+export async function createProjectVersion(managerDataRoot: string, projectRoot: string, input: NewVersionInput) {
+  const label = normalizeTitle(input?.label || '')
+  const title = normalizeTitle(input?.title || '')
+  const goal = String(input?.goal || '').trim()
+  if (!label) throw new Error('版本名称不能为空')
+  if (!title) throw new Error('版本标题不能为空')
+  if (!goal) throw new Error('版本目标不能为空')
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  const shortId = await mutateProjectFile(dataRoot, VERSIONS_PATH, async (current) => {
+    const versions = parseProjectVersions(current)
+    const nextVersionId = await allocateShortId(dataRoot, 'V', versions.map((version) => version.shortId))
+    const now = localTime()
+    const closed = updateMarkdownBlocks(current, (block) => {
+      const fields = parseFields(block)
+      if (fields.status !== 'active') return block
+      return block
+        .replace(/^status::\s*.+$/m, 'status:: completed')
+        .replace(/^completed::\s*.+$/m, `completed:: ${now}`)
+    })
+    const entry = `## ${title}
+
+id:: ${createId('version', `${label}-${title}`)}
+short_id:: ${nextVersionId}
+label:: ${label}
+status:: active
+created:: ${now}
+completed:: 无
+
+### 版本目标
+
+${goal}
+
+### 内容描述
+
+${String(input.summary || '').trim() || '当前版本进行中。'}
+
+### 主要成果
+
+- 无。
+
+### 遗留事项
+
+- 无。
+`
+    return { content: insertMarkdownEntry(closed, entry), value: nextVersionId }
+  })
+  await ensureVersionRecordFiles(dataRoot, shortId)
+  await writeProjectFile(dataRoot, 'project.json', `${JSON.stringify({ ...config, currentVersionId: shortId }, null, 2)}\n`)
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function appendProjectQuestion(managerDataRoot: string, projectRoot: string, input: NewQuestionInput) {
+  const title = normalizeTitle(input?.title || '')
+  const question = String(input?.question || '').trim()
+  if (!title) throw new Error('问题标题不能为空')
+  if (!question) throw new Error('问题内容不能为空')
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const config = await normalizeProjectConfig(managerDataRoot, projectRoot)
+  const questionPath = versionRecordPath(config.currentVersionId, VERSION_QUESTIONS_FILE)
+  await mutateProjectFile(dataRoot, questionPath, async (current) => {
+    const questions = parseProjectQuestions(current)
+    const now = localTime()
+    const shortId = await allocateShortId(dataRoot, 'Q', questions.map((item) => item.shortId))
+    const entry = `## ${title}
+
+id:: ${createId('question', title)}
+short_id:: ${shortId}
+type:: question
+status:: open
+kind:: ${normalizeQuestionKind(input.kind)}
+scope:: ${input.scope === 'project' ? 'project' : 'version'}
+version:: ${config.currentVersionId}
+blocking:: ${input.blocking ? 'yes' : 'no'}
+created:: ${now}
+updated:: ${now}
+source_refs:: ${(input.relations || []).join(', ') || '无'}
+
+### 问题
+
+${question}
+
+### 背景
+
+${String(input.background || '').trim() || '无。'}
+
+### 建议
+
+${String(input.recommendation || '').trim() || '无。'}
+
+### 结论
+
+待确认。
+`
+    return { content: insertMarkdownEntry(current, entry), value: undefined }
+  })
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
 export async function replyOpenQuestion(managerDataRoot: string, projectRoot: string, input: OpenQuestionReplyInput) {
   if (!input) throw new Error('回复内容不能为空')
   const answer = String(input.answer || '').trim()
-  const question = String(input.openQuestions || '').trim()
+  const questionId = String(input.questionId || '').trim()
+  if (!questionId) throw new Error('未确认事项不能为空')
   if (!answer) throw new Error('回复内容不能为空')
-  if (!question) throw new Error('未确认事项不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  if (input.source === 'log') {
-    await replyLogOpenQuestion(dataRoot, input, answer)
-  } else if (input.source === 'thought') {
-    await replyThoughtOpenQuestion(dataRoot, input, answer)
-  } else {
-    await replyTaskOpenQuestion(dataRoot, input, answer)
-  }
-
+  await updateQuestionRecord(dataRoot, questionId, (block) =>
+    replaceSection(
+      block
+        .replace(/^status::\s*.+$/m, 'status:: decided')
+        .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`),
+      ['结论'],
+      '结论',
+      answer,
+    ))
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -828,14 +1026,61 @@ export async function updateReplyRecord(managerDataRoot: string, projectRoot: st
   if (!answer) throw new Error('回复内容不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  if (input.source === 'log') {
-    await updateReplyRecordInFile(dataRoot, AGENT_LOG_PATH, input, answer)
-  } else if (input.source === 'thought') {
-    await updateReplyRecordInFile(dataRoot, THOUGHTS_PATH, input, answer)
-  } else {
-    await updateReplyRecordInFile(dataRoot, TASKS_PATH, input, answer)
-  }
+  await updateQuestionRecord(dataRoot, questionId, (block) =>
+    replaceSection(
+      block.replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`),
+      ['结论'],
+      '结论',
+      answer,
+    ))
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
 
+export async function updateQuestionStatus(
+  managerDataRoot: string,
+  projectRoot: string,
+  questionId: string,
+  status: ProjectOpenQuestion['status'],
+) {
+  const id = String(questionId || '').trim()
+  const nextStatus = normalizeQuestionStatus(status)
+  if (!id) throw new Error('问题 ID 不能为空')
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  await updateQuestionRecord(dataRoot, id, (block) => block
+    .replace(/^status::\s*.+$/m, `status:: ${nextStatus}`)
+    .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`))
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function updateRiskStatus(
+  managerDataRoot: string,
+  projectRoot: string,
+  riskId: string,
+  status: ProjectRisk['status'],
+) {
+  const id = String(riskId || '').trim()
+  const nextStatus = ['open', 'resolved', 'expired'].includes(String(status))
+    ? status
+    : 'open'
+  if (!id) throw new Error('风险 ID 不能为空')
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const riskPath = await findVersionRecordPath(dataRoot, VERSION_RISKS_FILE, id, normalizeRiskShortId)
+  if (!riskPath) throw new Error('未找到风险或后续事项')
+  await mutateProjectFile(dataRoot, riskPath, (current) => {
+    let handled = false
+    const next = updateMarkdownBlocks(current, (block) => {
+      const fields = parseFields(block)
+      if (fields.id !== id && normalizeRiskShortId(fields.short_id) !== normalizeRiskShortId(id)) return block
+      handled = true
+      return block
+        .replace(/^status::\s*.+$/m, `status:: ${nextStatus}`)
+        .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`)
+    })
+    if (!handled) throw new Error('未找到风险或后续事项')
+    return { content: next, value: undefined }
+  })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -843,7 +1088,9 @@ export async function updateReplyRecord(managerDataRoot: string, projectRoot: st
 export async function refreshAgentBrief(managerDataRoot: string, projectRoot: string) {
   const dashboard = await getDashboard(managerDataRoot, projectRoot)
   await writeAgentBrief(managerDataRoot, projectRoot, dashboard.agentBrief)
-  await writeProjectFile(await resolveExistingDataRoot(managerDataRoot, projectRoot), 'index.json', `${JSON.stringify(indexFromDashboard(dashboard), null, 2)}\n`)
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  await writeProjectFile(dataRoot, BASELINE_PATH, baselineMarkdown(dashboard))
+  await writeProjectFile(dataRoot, 'index.json', `${JSON.stringify(indexFromDashboard(dashboard), null, 2)}\n`)
   await upsertProjectIndex(managerDataRoot, dashboard.config)
   return dashboard.agentBrief
 }
@@ -851,6 +1098,28 @@ export async function refreshAgentBrief(managerDataRoot: string, projectRoot: st
 async function readProjectConfig(managerDataRoot: string, projectRoot: string): Promise<ProjectConfig> {
   const raw = await readProjectFile(await resolveExistingDataRoot(managerDataRoot, projectRoot), 'project.json')
   return JSON.parse(raw) as ProjectConfig
+}
+
+async function normalizeProjectConfig(managerDataRoot: string, projectRoot: string): Promise<ProjectConfig> {
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const raw = JSON.parse(await readProjectFile(dataRoot, 'project.json')) as Partial<ProjectConfig> & { version?: number }
+  const currentVersionId = String(raw.currentVersionId || 'V001')
+  if (Number(raw.schemaVersion || raw.version || 1) < 3) {
+    await migrateVersionStorage(dataRoot, currentVersionId)
+  }
+  const config: ProjectConfig = {
+    projectId: String(raw.projectId || createProjectId(projectRoot, raw.name || path.basename(projectRoot))),
+    name: String(raw.name || path.basename(projectRoot)),
+    projectRoot: String(raw.projectRoot || projectRoot),
+    dataRoot: String(raw.dataRoot || dataRoot),
+    createdAt: String(raw.createdAt || new Date().toISOString()),
+    schemaVersion: 3,
+    currentVersionId,
+  }
+  if (raw.schemaVersion !== 3 || raw.currentVersionId !== config.currentVersionId || 'version' in raw) {
+    await writeProjectFile(dataRoot, 'project.json', `${JSON.stringify(config, null, 2)}\n`)
+  }
+  return config
 }
 
 async function writeAgentBrief(managerDataRoot: string, projectRoot: string, brief: AgentBrief) {
@@ -891,10 +1160,9 @@ async function readExistingRootFile(root: string, relativePath: string) {
 }
 
 async function readResearchRecordsFile(dataRoot: string) {
-  const current = await readExistingProjectFile(dataRoot, DIALOGUES_PATH)
+  const current = await readVersionRecordFamily(dataRoot, VERSION_DIALOGUES_FILE)
   if (current) return current
   const content = dialoguesTemplate()
-  await writeProjectFile(dataRoot, DIALOGUES_PATH, content)
   return content
 }
 
@@ -908,18 +1176,246 @@ async function readConstraintsRecordsFile(dataRoot: string) {
 
 async function writeProjectFile(dataRoot: string, relativePath: string, content: string) {
   const absolutePath = path.join(dataRoot, relativePath)
-  await mkdir(path.dirname(absolutePath), { recursive: true })
-  await writeFile(absolutePath, content, 'utf8')
+  await atomicWriteFile(absolutePath, content)
 }
 
 async function ensureProjectDirectory(dataRoot: string, relativePath: string) {
   await mkdir(path.join(dataRoot, relativePath), { recursive: true })
 }
 
+function versionRecordPath(versionId: string, fileName: string) {
+  const normalized = normalizeVersionId(versionId)
+  if (!normalized) throw new Error(`版本 ID 不合法：${versionId}`)
+  return path.join('versions', normalized, fileName)
+}
+
+function versionLogPath(versionId: string, created = localTime()) {
+  const month = created.match(/^(\d{4}-\d{2})/)?.[1] || localTime().slice(0, 7)
+  return path.join('versions', normalizeVersionId(versionId), VERSION_LOGS_DIR, `${month}.md`)
+}
+
+async function ensureVersionRecordFiles(dataRoot: string, versionId: string) {
+  await ensureProjectFile(dataRoot, versionRecordPath(versionId, VERSION_TASKS_FILE), taskRecordsTemplate())
+  await ensureProjectFile(dataRoot, versionRecordPath(versionId, VERSION_THOUGHTS_FILE), thoughtsTemplate())
+  await ensureProjectFile(dataRoot, versionRecordPath(versionId, VERSION_DIALOGUES_FILE), dialoguesTemplate())
+  await ensureProjectFile(dataRoot, versionRecordPath(versionId, VERSION_QUESTIONS_FILE), questionsTemplate())
+  await ensureProjectFile(dataRoot, versionRecordPath(versionId, VERSION_RISKS_FILE), risksTemplate())
+}
+
+async function readVersionRecordFamily(dataRoot: string, fileName: string) {
+  const files = await listVersionRecordFiles(dataRoot, fileName)
+  const contents = await Promise.all(files.map((relativePath) => readProjectFile(dataRoot, relativePath)))
+  return contents.join('\n\n')
+}
+
+async function listVersionRecordFiles(dataRoot: string, fileName: string) {
+  return (await listMarkdownFiles(dataRoot, 'versions'))
+    .filter((relativePath) => new RegExp(`^versions/V\\d+/${escapeRegExp(fileName)}$`).test(relativePath.replaceAll('\\', '/')))
+    .sort()
+}
+
+async function findVersionRecordPath(
+  dataRoot: string,
+  fileName: string,
+  target: string,
+  normalizeShortId: (value: string) => string = (value) => value,
+) {
+  for (const relativePath of await listVersionRecordFiles(dataRoot, fileName)) {
+    const records = splitMarkdownBlocks(await readProjectFile(dataRoot, relativePath))
+    if (records.some((block) => {
+      const fields = parseFields(block)
+      return fields.id === target
+        || (fields.short_id && normalizeShortId(fields.short_id) === normalizeShortId(target))
+    })) return relativePath
+  }
+  return ''
+}
+
+async function readVersionLogs(dataRoot: string) {
+  const files = (await listMarkdownFiles(dataRoot, 'versions'))
+    .filter((relativePath) => /^versions\/V\d+\/工作记录\/\d{4}-\d{2}\.md$/.test(relativePath.replaceAll('\\', '/')))
+    .sort()
+  const contents = await Promise.all(files.map((relativePath) => readProjectFile(dataRoot, relativePath)))
+  return contents.join('\n\n')
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function migrateVersionStorage(dataRoot: string, fallbackVersionId: string) {
+  const fallbackVersion = normalizeVersionId(fallbackVersionId) || 'V001'
+  const knownVersions = new Set<string>([fallbackVersion])
+  const versionIndex = await readExistingProjectFile(dataRoot, VERSIONS_PATH)
+  parseProjectVersions(versionIndex).forEach((version) => knownVersions.add(version.shortId))
+
+  const families = [
+    { legacyPath: TASKS_PATH, fileName: VERSION_TASKS_FILE, template: taskRecordsTemplate() },
+    { legacyPath: THOUGHTS_PATH, fileName: VERSION_THOUGHTS_FILE, template: thoughtsTemplate() },
+    { legacyPath: DIALOGUES_PATH, fileName: VERSION_DIALOGUES_FILE, template: dialoguesTemplate() },
+    { legacyPath: QUESTIONS_PATH, fileName: VERSION_QUESTIONS_FILE, template: questionsTemplate() },
+    { legacyPath: RISKS_PATH, fileName: VERSION_RISKS_FILE, template: risksTemplate() },
+  ]
+
+  for (const family of families) {
+    const legacyContent = await readExistingProjectFile(dataRoot, family.legacyPath)
+    if (!legacyContent) continue
+    const records = splitMarkdownBlocks(legacyContent).filter((block) => block.trim().startsWith('## '))
+    const grouped = groupRecordsByVersion(records, fallbackVersion)
+    for (const [versionId, versionRecords] of grouped) {
+      knownVersions.add(versionId)
+      const next = joinRecordDocument(family.template, versionRecords)
+      const destination = versionRecordPath(versionId, family.fileName)
+      await writeProjectFile(dataRoot, destination, next)
+      const written = splitMarkdownBlocks(await readProjectFile(dataRoot, destination))
+        .filter((block) => block.trim().startsWith('## ')).length
+      if (written !== versionRecords.length) {
+        throw new Error(`版本迁移校验失败：${family.legacyPath} 预期 ${versionRecords.length} 条，实际 ${written} 条`)
+      }
+    }
+  }
+
+  const legacyLogs = await readExistingProjectFile(dataRoot, AGENT_LOG_PATH)
+  if (legacyLogs) {
+    const records = splitMarkdownBlocks(legacyLogs).filter((block) => block.trim().startsWith('## '))
+    const grouped = new Map<string, string[]>()
+    for (const record of records) {
+      const fields = parseFields(record)
+      const versionId = normalizeVersionId(fields.version) || fallbackVersion
+      const month = fields.created?.match(/^(\d{4}-\d{2})/)?.[1] || '0000-00'
+      knownVersions.add(versionId)
+      const key = `${versionId}/${month}`
+      grouped.set(key, [...(grouped.get(key) || []), record])
+    }
+    for (const [key, versionRecords] of grouped) {
+      const [versionId, month] = key.split('/')
+      const destination = path.join('versions', versionId, VERSION_LOGS_DIR, `${month}.md`)
+      await writeProjectFile(dataRoot, destination, joinRecordDocument(agentLogRecordsTemplate(), versionRecords))
+      const written = splitMarkdownBlocks(await readProjectFile(dataRoot, destination))
+        .filter((block) => block.trim().startsWith('## ')).length
+      if (written !== versionRecords.length) {
+        throw new Error(`版本迁移校验失败：${AGENT_LOG_PATH} ${key} 预期 ${versionRecords.length} 条，实际 ${written} 条`)
+      }
+    }
+  }
+
+  for (const versionId of knownVersions) await ensureVersionRecordFiles(dataRoot, versionId)
+
+  for (const family of families) await rm(path.join(dataRoot, family.legacyPath), { force: true })
+  await rm(path.join(dataRoot, AGENT_LOG_PATH), { force: true })
+  for (const legacyDirectory of ['tasks', 'thoughts', 'research', 'work-logs']) {
+    await rm(path.join(dataRoot, legacyDirectory), { recursive: true, force: true })
+  }
+}
+
+function groupRecordsByVersion(records: string[], fallbackVersion: string) {
+  const grouped = new Map<string, string[]>()
+  for (const record of records) {
+    const versionId = normalizeVersionId(parseFields(record).version) || fallbackVersion
+    grouped.set(versionId, [...(grouped.get(versionId) || []), record])
+  }
+  return grouped
+}
+
+function joinRecordDocument(template: string, records: string[]) {
+  const body = records.map((record) => record.trim()).filter(Boolean).join('\n\n')
+  return `${template.trimEnd()}${body ? `\n\n${body}` : ''}\n`
+}
+
 async function writeRootFile(root: string, relativePath: string, content: string) {
   const absolutePath = path.join(root, relativePath)
+  await atomicWriteFile(absolutePath, content)
+}
+
+async function atomicWriteFile(absolutePath: string, content: string) {
   await mkdir(path.dirname(absolutePath), { recursive: true })
-  await writeFile(absolutePath, content, 'utf8')
+  const temporaryPath = path.join(
+    path.dirname(absolutePath),
+    `.${path.basename(absolutePath)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
+  )
+  try {
+    await writeFile(temporaryPath, content, 'utf8')
+    await rename(temporaryPath, absolutePath)
+  } catch (error) {
+    await rm(temporaryPath, { force: true })
+    throw error
+  }
+}
+
+async function mutateProjectFile<T>(
+  dataRoot: string,
+  relativePath: string,
+  update: (content: string) => Promise<{ content: string; value: T }> | { content: string; value: T },
+): Promise<T> {
+  const absolutePath = path.resolve(dataRoot, relativePath)
+  return withFileMutation(absolutePath, async () => {
+    const existing = await readExistingProjectFile(dataRoot, relativePath)
+    const result = await update(existing)
+    if (result.content !== existing) await writeProjectFile(dataRoot, relativePath, result.content)
+    return result.value
+  })
+}
+
+async function withFileMutation<T>(absolutePath: string, action: () => Promise<T>): Promise<T> {
+  const previous = fileMutationQueues.get(absolutePath) || Promise.resolve()
+  let resolveCurrent!: () => void
+  const current = new Promise<void>((resolve) => {
+    resolveCurrent = resolve
+  })
+  const queued = previous.catch(() => undefined).then(() => current)
+  fileMutationQueues.set(absolutePath, queued)
+
+  await previous.catch(() => undefined)
+  try {
+    return await action()
+  } finally {
+    resolveCurrent()
+    if (fileMutationQueues.get(absolutePath) === queued) fileMutationQueues.delete(absolutePath)
+  }
+}
+
+async function allocateShortId(dataRoot: string, prefix: string, observedValues: string[]) {
+  return mutateProjectFile(dataRoot, RECORD_COUNTERS_PATH, (content) => {
+    let counters: Record<string, number> = {}
+    if (content.trim()) {
+      try {
+        counters = (JSON.parse(content) as { counters?: Record<string, number> }).counters || {}
+      } catch {
+        throw new Error('记录 ID 计数器已损坏，请先恢复 record-counters.json')
+      }
+    }
+    const observedMaximum = Math.max(
+      0,
+      ...observedValues.map((value) => Number(String(value).match(/\d+$/)?.[0] || 0)),
+    )
+    const next = Math.max(Number(counters[prefix] || 0), observedMaximum) + 1
+    const nextCounters = { ...counters, [prefix]: next }
+    return {
+      content: `${JSON.stringify({ schemaVersion: 1, counters: nextCounters }, null, 2)}\n`,
+      value: `${prefix}${String(next).padStart(3, '0')}`,
+    }
+  })
+}
+
+async function ensureRecordCounters(dataRoot: string, observed: Record<string, string[]>) {
+  await mutateProjectFile(dataRoot, RECORD_COUNTERS_PATH, (content) => {
+    let counters: Record<string, number> = {}
+    if (content.trim()) {
+      try {
+        counters = (JSON.parse(content) as { counters?: Record<string, number> }).counters || {}
+      } catch {
+        throw new Error('记录 ID 计数器已损坏，请先恢复 record-counters.json')
+      }
+    }
+    for (const [prefix, values] of Object.entries(observed)) {
+      const maximum = Math.max(0, ...values.map((value) => Number(String(value).match(/\d+$/)?.[0] || 0)))
+      counters[prefix] = Math.max(Number(counters[prefix] || 0), maximum)
+    }
+    return {
+      content: `${JSON.stringify({ schemaVersion: 1, counters }, null, 2)}\n`,
+      value: undefined,
+    }
+  })
 }
 
 async function removeProjectMarkdownFile(root: string, relativePath: string, baseDir: string) {
@@ -961,13 +1457,13 @@ async function listGlobalKnowledgeDocuments(managerDataRoot: string): Promise<Pr
   return notes.sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'K') || a.path.localeCompare(b.path, 'zh-Hans-CN'))
 }
 
-async function listProjectConstraints(dataRoot: string): Promise<ProjectConstraint[]> {
+async function listProjectConstraints(dataRoot: string, currentVersionId: string): Promise<ProjectConstraint[]> {
   const userConstraints = parseUserConstraints(await readConstraintsRecordsFile(dataRoot))
-  const systemConstraints = await listSystemConstraints(dataRoot)
+  const systemConstraints = await listSystemConstraints(dataRoot, currentVersionId)
   return [...userConstraints, ...systemConstraints]
 }
 
-async function listSystemConstraints(dataRoot: string): Promise<ProjectConstraint[]> {
+async function listSystemConstraints(dataRoot: string, currentVersionId: string): Promise<ProjectConstraint[]> {
   const now = localTime()
   const sources = [
     { id: 'system-data-spec', shortId: 'SYS-数据规范', title: '数据层规范', path: DATA_SPEC_PATH },
@@ -983,6 +1479,7 @@ async function listSystemConstraints(dataRoot: string): Promise<ProjectConstrain
       title: source.title,
       status: 'readonly',
       scope: 'system',
+      version: currentVersionId,
       source: 'system' as const,
       created: now,
       updated: now,
@@ -1012,14 +1509,45 @@ async function listMarkdownFiles(dataRoot: string, base = ''): Promise<string[]>
   return files.flat()
 }
 
-async function normalizeProjectDocumentFiles(dataRoot: string) {
+async function normalizeProjectRecordVersions(dataRoot: string, currentVersionId: string) {
+  const versionRecordPaths = (await listMarkdownFiles(dataRoot, 'versions'))
+    .filter((relativePath) => relativePath !== VERSIONS_PATH)
+  const recordPaths = [...versionRecordPaths, CHANGE_INDEX_PATH, CONSTRAINTS_PATH]
+
+  for (const relativePath of recordPaths) {
+    const content = await readExistingProjectFile(dataRoot, relativePath)
+    if (!content) continue
+    const containingVersion = normalizeVersionId(relativePath.replaceAll('\\', '/').match(/^versions\/(V\d+)\//)?.[1])
+      || currentVersionId
+    const next = updateMarkdownBlocks(content, (block) => {
+      const fields = parseFields(block)
+      if (normalizeVersionId(fields.version)) return block
+      if (/^version::/m.test(block)) {
+        return block.replace(/^version::\s*.*$/m, `version:: ${containingVersion}`)
+      }
+      if (/^updated::/m.test(block)) {
+        return block.replace(/^(updated::\s*.+)$/m, `$1\nversion:: ${containingVersion}`)
+      }
+      if (/^created::/m.test(block)) {
+        return block.replace(/^(created::\s*.+)$/m, `$1\nversion:: ${containingVersion}`)
+      }
+      if (/^type::/m.test(block)) {
+        return block.replace(/^(type::\s*.+)$/m, `$1\nversion:: ${containingVersion}`)
+      }
+      return block
+    })
+    if (next !== content) await writeProjectFile(dataRoot, relativePath, next)
+  }
+}
+
+async function normalizeProjectDocumentFiles(dataRoot: string, currentVersionId: string) {
   const files = (await listMarkdownFiles(dataRoot, DOCUMENTS_DIR))
     .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
 
-  let nextShortId = nextDocumentShortId(await Promise.all(files.map(async (relativePath) => {
+  const existingShortIds = await Promise.all(files.map(async (relativePath) => {
     const content = await readExistingProjectFile(dataRoot, relativePath)
     return parseFields(content).short_id
-  })))
+  }))
   const usedShortIds = new Set<string>()
 
   for (const relativePath of files) {
@@ -1028,7 +1556,9 @@ async function normalizeProjectDocumentFiles(dataRoot: string) {
     const title = noteTitle(content, relativePath)
     const created = fields.created || localTime()
     let shortId = normalizeDocumentShortId(fields.short_id)
-    while (!shortId || usedShortIds.has(shortId)) shortId = nextShortId()
+    while (!shortId || usedShortIds.has(shortId)) {
+      shortId = await allocateShortId(dataRoot, 'W', [...existingShortIds, ...usedShortIds])
+    }
     usedShortIds.add(shortId)
     const missing: Record<string, string> = {
       id: fields.id || `document-${slug(relativePath.replace(/\.md$/, ''))}`,
@@ -1037,12 +1567,15 @@ async function normalizeProjectDocumentFiles(dataRoot: string) {
       status: fields.status || 'active',
       created,
       updated: fields.updated || created,
+      version: normalizeVersionId(fields.version) || currentVersionId,
       tags: fields.tags || 'document',
       summary: fields.summary || firstContentSummary(content) || title,
     }
     const next = addMissingMetadataFields(content, fields, missing)
-    const withUniqueShortId = next.replace(/^short_id::\s*.+$/m, `short_id:: ${shortId}`)
-    if (withUniqueShortId !== content) await writeProjectFile(dataRoot, relativePath, withUniqueShortId)
+    const withNormalizedFields = next
+      .replace(/^short_id::\s*.+$/m, `short_id:: ${shortId}`)
+      .replace(/^version::\s*.*$/m, `version:: ${normalizeVersionId(fields.version) || currentVersionId}`)
+    if (withNormalizedFields !== content) await writeProjectFile(dataRoot, relativePath, withNormalizedFields)
   }
 }
 
@@ -1148,6 +1681,7 @@ function parseDocumentNote(relativePath: string, content: string): ProjectDocume
     status: fields.status || 'active',
     shortId: fields.short_id || '',
     updated: fields.updated || fields.created || '',
+    version: normalizeVersionId(fields.version),
     tags: splitRefs(fields.tags),
     summary: fields.summary || readSection(content, ['摘要']) || firstContentSummary(content),
     content: content.trim(),
@@ -1224,99 +1758,8 @@ function stripFencedCode(content: string) {
     .join('\n')
 }
 
-async function replyTaskOpenQuestion(dataRoot: string, input: OpenQuestionReplyInput, answer: string) {
-  const current = await readProjectFile(dataRoot, TASKS_PATH)
-  let handled = false
-  const next = updateMarkdownBlocks(current, (block) => {
-    const fields = parseFields(block)
-    const matchesTask = input.shortId
-      ? fields.short_id === input.shortId
-      : block.includes(input.title || input.openQuestions)
-    if (!matchesTask) return block
-
-    handled = true
-    const remaining = removeListItemText(readSection(block, ['未确认事项']), input.openQuestions)
-    const replacement = remaining.length ? remaining.map((item) => `- ${item}`).join('\n') : '无。'
-    const withQuestions = replaceSection(block, ['未确认事项'], '未确认事项', replacement)
-    return appendToSection(withQuestions, '回答记录', `- ${formatQuestionReply(input, answer)}`)
-  })
-
-  if (!handled) throw new Error('未找到未确认事项来源')
-  await writeProjectFile(dataRoot, TASKS_PATH, next)
-}
-
-async function replyThoughtOpenQuestion(dataRoot: string, input: OpenQuestionReplyInput, answer: string) {
-  const current = await readProjectFile(dataRoot, THOUGHTS_PATH)
-  let handled = false
-  const next = updateMarkdownBlocks(current, (block) => {
-    const fields = parseFields(block)
-    const title = block.match(/^##\s+(.+)$/m)?.[1]?.trim() || ''
-    const matchesThought = input.thoughtId
-      ? fields.id === input.thoughtId
-      : input.shortId
-        ? fields.short_id === input.shortId
-        : title === input.title || block.includes(input.openQuestions)
-    if (!matchesThought) return block
-
-    handled = true
-    const remaining = removeListItemText(readSection(block, ['未确认事项']), input.openQuestions)
-    const replacement = remaining.length ? remaining.map((item) => `- ${item}`).join('\n') : '无。'
-    const withQuestions = replaceSection(block, ['未确认事项'], '未确认事项', replacement)
-    return appendToSection(withQuestions, '回答记录', `- ${formatQuestionReply(input, answer)}`)
-  })
-
-  if (!handled) throw new Error('未找到未确认事项来源')
-  await writeProjectFile(dataRoot, THOUGHTS_PATH, next)
-}
-
-async function replyLogOpenQuestion(dataRoot: string, input: OpenQuestionReplyInput, answer: string) {
-  const current = await readProjectFile(dataRoot, AGENT_LOG_PATH)
-  let handled = false
-  const next = updateMarkdownBlocks(current, (block) => {
-    const title = block.match(/^##\s+(.+)$/m)?.[1]?.trim() || ''
-    if (title !== input.title && !block.includes(input.openQuestions)) return block
-
-    handled = true
-    const remaining = removeListItemText(readSection(block, ['未确认事项']), input.openQuestions)
-    const replacement = remaining.length ? remaining.map((item) => `- ${item}`).join('\n') : '无。'
-    const withQuestions = replaceSection(block, ['未确认事项'], '未确认事项', replacement)
-    return appendToSection(withQuestions, '回答记录', `- ${formatQuestionReply(input, answer)}`)
-  })
-
-  if (!handled) throw new Error('未找到未确认事项来源')
-  await writeProjectFile(dataRoot, AGENT_LOG_PATH, next)
-}
-
-async function updateReplyRecordInFile(dataRoot: string, relativePath: string, input: OpenQuestionReplyInput, answer: string) {
-  const questionId = String(input.questionId || '').trim()
-  const current = await readProjectFile(dataRoot, relativePath)
-  let handled = false
-  const next = updateMarkdownBlocks(current, (block) => {
-    if (!block.includes(questionId)) return block
-    const records = readListSection(block, ['回答记录'])
-    let changed = false
-    const updatedRecords = records.map((reply) => {
-      const parsed = parseReplyRecordParts(reply)
-      if (parsed?.questionId !== questionId) return reply
-      changed = true
-      return formatQuestionReplyWithCreated({
-        ...input,
-        openQuestions: parsed.openQuestions || input.openQuestions,
-      }, answer, parsed.replyCreated)
-    })
-    if (!changed) return block
-
-    handled = true
-    return replaceSection(block, ['回答记录'], '回答记录', updatedRecords.map((reply) => `- ${reply}`).join('\n'))
-  })
-
-  if (!handled) throw new Error('未找到回复记录')
-  await writeProjectFile(dataRoot, relativePath, next)
-}
-
 function updateMarkdownBlocks(content: string, update: (block: string) => string) {
-  const next = content
-    .split(/\n(?=##\s+)/)
+  const next = splitMarkdownBlocks(content)
     .map((block, index) => {
       if (index === 0 && !block.trim().startsWith('## ')) return block.trimEnd()
       return update(block.trim())
@@ -1326,26 +1769,29 @@ function updateMarkdownBlocks(content: string, update: (block: string) => string
   return `${next.trimEnd()}\n`
 }
 
+async function updateQuestionRecord(dataRoot: string, questionId: string, update: (block: string) => string) {
+  const questionPath = await findVersionRecordPath(dataRoot, VERSION_QUESTIONS_FILE, questionId, normalizeQuestionShortId)
+  if (!questionPath) throw new Error('未找到待确认事项')
+  await mutateProjectFile(dataRoot, questionPath, (current) => {
+    let handled = false
+    const next = updateMarkdownBlocks(current, (block) => {
+      const fields = parseFields(block)
+      if (fields.id !== questionId && normalizeQuestionShortId(fields.short_id) !== normalizeQuestionShortId(questionId)) {
+        return block
+      }
+      handled = true
+      return update(block)
+    })
+    if (!handled) throw new Error('未找到待确认事项')
+    return { content: next, value: undefined }
+  })
+}
+
 function replaceSection(content: string, titles: string[], title: string, value: string) {
   const escaped = titles.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  const pattern = new RegExp(`###\\s+(?:${escaped})\\s+[\\s\\S]*?(?=\\n### |\\n## |$)`)
+  const pattern = new RegExp(`###\\s+(?:${escaped})\\s+[\\s\\S]*?(?=\\n### |$)`)
   const replacement = `### ${title}\n\n${value.trim()}`
   return pattern.test(content) ? content.replace(pattern, replacement) : `${content.trimEnd()}\n\n${replacement}`
-}
-
-function appendToSection(content: string, title: string, line: string) {
-  const current = readSection(content, [title])
-  const value = current ? `${current.trim()}\n${line}` : line
-  return replaceSection(content, [title], title, value)
-}
-
-function removeListItemText(section: string, target: string) {
-  const normalizedTarget = normalizeQuestionText(target)
-  return section
-    .split('\n')
-    .map((line) => line.trim().replace(/^[-*]\s+/, ''))
-    .filter((line) => line && !/^(?:无|暂无|没有|none|n\/a)[。.!！]?$/i.test(line))
-    .filter((line) => normalizeQuestionText(line) !== normalizedTarget)
 }
 
 async function writeCollaborationEntry(projectRoot: string, dataRoot: string) {
@@ -1364,6 +1810,20 @@ Agent brief:
 
 \`${path.join(dataRoot, 'agent-brief.json')}\`
 
+Current baseline:
+
+\`${path.join(dataRoot, BASELINE_PATH)}\`
+
+Version index:
+
+\`${path.join(dataRoot, VERSIONS_PATH)}\`
+
+Version records:
+
+\`${path.join(dataRoot, 'versions/Vxxx/')}\`
+
+The current version's exact task, question, risk, research, and work-log paths are listed in \`agent-brief.json.currentDataPaths\`.
+
 Shared knowledge root:
 
 \`${knowledgeRoot}\`
@@ -1378,12 +1838,13 @@ Project constraints:
 
 ## Agent Start
 
-1. Read the agent brief first.
-2. Read the local skill before writing tasks or agent logs.
-3. Read project constraints for current global rules.
-4. If more context is needed, read the Markdown files in the managed data root.
+1. Read the agent brief and current baseline first.
+2. Read the local skill before writing records.
+3. Work in the current active version by default.
+4. Read project constraints for project-wide rules.
+5. Read decisions, risks, and historical versions only when relevant.
 `
-  await writeFile(path.join(projectRoot, COLLABORATION_ENTRY), content, 'utf8')
+  await atomicWriteFile(path.join(projectRoot, COLLABORATION_ENTRY), content)
 }
 
 async function ensureCollaborationIgnored(projectRoot: string) {
@@ -1393,7 +1854,7 @@ async function ensureCollaborationIgnored(projectRoot: string) {
   try {
     current = await readFile(gitignorePath, 'utf8')
   } catch {
-    await writeFile(gitignorePath, `${COLLABORATION_ENTRY}\n`, 'utf8')
+    await atomicWriteFile(gitignorePath, `${COLLABORATION_ENTRY}\n`)
     return
   }
 
@@ -1403,25 +1864,26 @@ async function ensureCollaborationIgnored(projectRoot: string) {
   if (alreadyIgnored) return
 
   const separator = current.endsWith('\n') || current.length === 0 ? '' : '\n'
-  await writeFile(gitignorePath, `${current}${separator}${COLLABORATION_ENTRY}\n`, 'utf8')
+  await atomicWriteFile(gitignorePath, `${current}${separator}${COLLABORATION_ENTRY}\n`)
 }
 
 async function upsertProjectIndex(managerDataRoot: string, config: ProjectConfig) {
   const indexPath = path.join(managerDataRoot, 'projects.json')
-  const projects = await readProjectIndex(managerDataRoot)
-
-  const now = new Date().toISOString()
-  const next: ManagedProject = {
-    projectId: config.projectId,
-    projectName: config.name,
-    projectRoot: config.projectRoot,
-    dataRoot: config.dataRoot,
-    createdAt: projects.find((project) => project.projectId === config.projectId)?.createdAt || config.createdAt,
-    lastOpenedAt: now,
-  }
-  const merged = [next, ...projects.filter((project) => project.projectId !== config.projectId)]
-  await mkdir(managerDataRoot, { recursive: true })
-  await writeFile(indexPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf8')
+  await withFileMutation(indexPath, async () => {
+    const projects = await readProjectIndex(managerDataRoot)
+    const now = new Date().toISOString()
+    const next: ManagedProject = {
+      projectId: config.projectId,
+      projectName: config.name,
+      projectRoot: config.projectRoot,
+      dataRoot: config.dataRoot,
+      createdAt: projects.find((project) => project.projectId === config.projectId)?.createdAt || config.createdAt,
+      lastOpenedAt: now,
+    }
+    const merged = [next, ...projects.filter((project) => project.projectId !== config.projectId)]
+    await mkdir(managerDataRoot, { recursive: true })
+    await atomicWriteFile(indexPath, `${JSON.stringify(merged, null, 2)}\n`)
+  })
 }
 
 async function readProjectIndex(managerDataRoot: string): Promise<ManagedProject[]> {
@@ -1432,9 +1894,82 @@ async function readProjectIndex(managerDataRoot: string): Promise<ManagedProject
   }
 }
 
+function parseProjectVersions(content: string): ProjectVersion[] {
+  return splitMarkdownBlocks(content)
+    .filter((block) => block.trim().startsWith('## '))
+    .map((block) => {
+      const fields = parseFields(block)
+      const shortId = normalizeVersionId(fields.short_id)
+      return {
+        id: fields.id || `version-${shortId || createHash('sha1').update(block).digest('hex').slice(0, 8)}`,
+        shortId,
+        label: fields.label || shortId,
+        title: block.match(/^##\s+(.+)$/m)?.[1]?.trim() || fields.label || shortId || '未命名版本',
+        status: fields.status === 'completed' ? 'completed' as const : 'active' as const,
+        created: fields.created || '',
+        completed: fields.completed || '',
+        goal: readSection(block, ['版本目标']),
+        summary: readSection(block, ['内容描述', '版本总结']),
+        outcomes: readListSection(block, ['主要成果']),
+        followUps: readListSection(block, ['遗留事项']),
+      }
+    })
+    .sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'V'))
+}
+
+function parseProjectQuestions(content: string): ProjectOpenQuestion[] {
+  return splitMarkdownBlocks(content)
+    .filter((block) => block.trim().startsWith('## '))
+    .map((block) => {
+      const fields = parseFields(block)
+      const shortId = normalizeQuestionShortId(fields.short_id)
+      return {
+        id: fields.id || `question-${shortId}`,
+        displayId: shortId,
+        shortId,
+        title: block.match(/^##\s+(.+)$/m)?.[1]?.trim() || '待确认事项',
+        question: readSection(block, ['问题']),
+        background: readSection(block, ['背景']),
+        recommendation: readSection(block, ['建议']),
+        conclusion: readSection(block, ['结论']),
+        status: normalizeQuestionStatus(fields.status),
+        kind: normalizeQuestionKind(fields.kind),
+        scope: fields.scope === 'project' ? 'project' as const : 'version' as const,
+        version: normalizeVersionId(fields.version),
+        blocking: fields.blocking === 'yes' || fields.blocking === 'true',
+        created: fields.created || '',
+        updated: fields.updated || fields.created || '',
+        relations: splitRefs(fields.source_refs),
+      }
+    })
+    .sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'Q'))
+}
+
+function parseProjectRisks(content: string): ProjectRisk[] {
+  return splitMarkdownBlocks(content)
+    .filter((block) => block.trim().startsWith('## '))
+    .map((block) => {
+      const fields = parseFields(block)
+      const shortId = normalizeRiskShortId(fields.short_id)
+      return {
+        id: fields.id || `risk-${shortId}`,
+        shortId,
+        title: block.match(/^##\s+(.+)$/m)?.[1]?.trim() || '风险与后续事项',
+        kind: normalizeRiskKind(fields.kind),
+        status: fields.status === 'resolved' ? 'resolved' as const : fields.status === 'expired' ? 'expired' as const : 'open' as const,
+        version: normalizeVersionId(fields.version),
+        content: readSection(block, ['内容']),
+        handling: readSection(block, ['处理建议']),
+        created: fields.created || '',
+        updated: fields.updated || fields.created || '',
+        relations: splitRefs(fields.source_refs),
+      }
+    })
+    .sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'R'))
+}
+
 function parseProjectTasks(content: string): ProjectTask[] {
-  return content
-    .split(/\n(?=##\s+)/)
+  return splitMarkdownBlocks(content)
     .filter((block) => block.trim().startsWith('## '))
     .map((block) => {
       const fields = parseFields(block)
@@ -1446,6 +1981,7 @@ function parseProjectTasks(content: string): ProjectTask[] {
         priority: fields.priority || 'medium',
         area: fields.area || 'tool',
         updated: fields.updated || fields.created || '',
+        version: normalizeVersionId(fields.version),
         detail: readSection(block, ['执行范围']),
         acceptance: readSection(block, ['验收']),
         openQuestions: readSection(block, ['未确认事项']),
@@ -1454,8 +1990,7 @@ function parseProjectTasks(content: string): ProjectTask[] {
 }
 
 function parseThoughts(content: string): ProjectThought[] {
-  return content
-    .split(/\n(?=##\s+)/)
+  return splitMarkdownBlocks(content)
     .filter((block) => block.trim().startsWith('## '))
     .map((block) => {
       const fields = parseFields(block)
@@ -1465,6 +2000,7 @@ function parseThoughts(content: string): ProjectThought[] {
         title: block.match(/^##\s+(.+)$/m)?.[1]?.trim() || '输入',
         status: fields.status || 'inbox',
         created: fields.created || '',
+        version: normalizeVersionId(fields.version),
         content: readSection(block, ['内容']),
         answer: readSection(block, ['回答']),
         openQuestions: readSection(block, ['未确认事项']),
@@ -1474,8 +2010,7 @@ function parseThoughts(content: string): ProjectThought[] {
 }
 
 function parseUserConstraints(content: string): ProjectConstraint[] {
-  return content
-    .split(/\n(?=##\s+)/)
+  return splitMarkdownBlocks(content)
     .filter((block) => block.trim().startsWith('## '))
     .map((block) => {
       const fields = parseFields(block)
@@ -1487,6 +2022,7 @@ function parseUserConstraints(content: string): ProjectConstraint[] {
         title,
         status: normalizeConstraintStatus(fields.status || 'active'),
         scope: fields.scope || 'project',
+        version: normalizeVersionId(fields.version),
         source: 'user' as const,
         created: fields.created || '',
         updated: fields.updated || fields.created || '',
@@ -1499,8 +2035,7 @@ function parseUserConstraints(content: string): ProjectConstraint[] {
 }
 
 function parseDialogues(content: string): ProjectDialogue[] {
-  return content
-    .split(/\n(?=##\s+)/)
+  return splitMarkdownBlocks(content)
     .filter((block) => block.trim().startsWith('## '))
     .map((block) => {
       const title = block.match(/^##\s+(.+)$/m)?.[1]?.trim() || '研究'
@@ -1510,6 +2045,7 @@ function parseDialogues(content: string): ProjectDialogue[] {
         shortId: normalizeDialogueShortId(fields.short_id),
         title,
         created: fields.created || '',
+        version: normalizeVersionId(fields.version),
         tags: splitRefs(fields.tags),
         relatedTasks: splitRefs(fields.related_tasks),
         relatedThoughts: splitRefs(fields.related_thoughts),
@@ -1532,8 +2068,7 @@ function dialogueSortKey(dialogue: Pick<ProjectDialogue, 'created' | 'title' | '
 
 function parseProjectLogs(content: string, tasks: ProjectTask[] = []): ProjectLog[] {
   const taskByShortId = new Map(tasks.map((task) => [task.shortId, task]))
-  const parsedLogs = content
-    .split(/\n(?=##\s+)/)
+  const parsedLogs = splitMarkdownBlocks(content)
     .filter((block) => block.trim().startsWith('## '))
     .map((block, index) => {
       const fields = parseFields(block)
@@ -1553,6 +2088,7 @@ function parseProjectLogs(content: string, tasks: ProjectTask[] = []): ProjectLo
         created: fields.created || '',
         status: fields.status || relatedTasks[0]?.status || 'done',
         source: fields.source || '',
+        version: normalizeVersionId(fields.version),
         userGoal: readSection(block, ['用户目标']),
         userOriginal: readSection(block, ['用户原话']),
         understanding: readSection(block, ['需求理解']),
@@ -1608,6 +2144,15 @@ function normalizeConstraintShortId(value: string) {
   return match ? `C${match[1].padStart(3, '0')}` : ''
 }
 
+function normalizeVersionId(value: string | undefined) {
+  const match = String(value || '').trim().match(/^V(\d{1,4})$/i)
+  return match ? `V${match[1].padStart(3, '0')}` : ''
+}
+
+function recordInVersion(recordVersion: string | undefined, versionId: string) {
+  return normalizeVersionId(recordVersion) === normalizeVersionId(versionId)
+}
+
 function splitRefs(value: string) {
   return String(value || '')
     .split(/[,，\s]+/)
@@ -1626,140 +2171,25 @@ function projectLogSortKey(block: string, created: string, order: number) {
 
 function parseFields(block: string) {
   const fields: Record<string, string> = {}
-  for (const line of stripFencedCode(block).split('\n')) {
+  const lines = stripFencedCode(block).split('\n')
+  const headingIndex = lines.findIndex((line) => /^#{1,2}\s+/.test(line))
+  let started = false
+  for (const line of lines.slice(headingIndex >= 0 ? headingIndex + 1 : 0)) {
+    if (!line.trim() && !started) continue
     const match = line.match(/^([A-Za-z0-9_-]+)::\s*(.+)$/)
-    if (match) fields[match[1]] = match[2].trim()
+    if (!match) {
+      if (started) break
+      continue
+    }
+    started = true
+    fields[match[1]] = match[2].trim()
   }
   return fields
 }
 
-function parseTaskReplyRecords(content: string): Array<Omit<ProjectReplyRecord, 'displayId' | 'relations'>> {
-  return content
-    .split(/\n(?=##\s+)/)
-    .filter((block) => block.trim().startsWith('## '))
-    .flatMap((block) => {
-      const fields = parseFields(block)
-      const title = block.match(/^##\s+(.+)$/m)?.[1]?.trim() || '任务'
-      return readListSection(block, ['回答记录']).flatMap((reply) => {
-        const parsed = parseReplyRecordParts(reply)
-        if (!parsed) return []
-        return [{
-          ...parsed,
-          source: 'task' as const,
-          shortId: fields.short_id || '',
-          title,
-          reply,
-          created: fields.updated || fields.created || '',
-        }]
-      })
-    })
-}
-
-function assignOpenQuestionIds(items: Array<Omit<ProjectOpenQuestion, 'id' | 'displayId' | 'relations'>>): ProjectOpenQuestion[] {
-  const orderedIds = new Map(
-    items
-      .slice()
-      .sort(compareOpenQuestionsForNumbering)
-      .map((item, index) => [item, createQuestionId(item, index)]),
-  )
-  return items.map((item) => ({
-    ...enrichOpenQuestion(item, orderedIds.get(item) || createQuestionId(item, 0)),
-  }))
-}
-
-function compareOpenQuestionsForNumbering(
-  a: Omit<ProjectOpenQuestion, 'id' | 'displayId' | 'relations'>,
-  b: Omit<ProjectOpenQuestion, 'id' | 'displayId' | 'relations'>,
-) {
-  return openQuestionSortKey(a).localeCompare(openQuestionSortKey(b))
-}
-
-function openQuestionSortKey(item: Pick<ProjectOpenQuestion, 'created' | 'source' | 'shortId' | 'title' | 'openQuestions'>) {
-  return [
-    parseDisplayTimeKey(item.created),
-    item.source,
-    item.shortId,
-    item.title,
-    item.openQuestions,
-  ].join('\u0000')
-}
-
-function enrichOpenQuestion(item: Omit<ProjectOpenQuestion, 'id' | 'displayId' | 'relations'>, id: string): ProjectOpenQuestion {
-  return {
-    id,
-    displayId: displayQuestionId(id),
-    relations: questionRelations(item),
-    ...item,
-  }
-}
-
-function enrichReplyRecord(item: Omit<ProjectReplyRecord, 'displayId' | 'relations'>): ProjectReplyRecord {
-  return {
-    displayId: displayQuestionId(item.questionId),
-    relations: questionRelations(item),
-    ...item,
-  }
-}
-
-function displayQuestionId(id: string) {
-  return id.match(/^(Q\d{3})\b/)?.[1] || id
-}
-
-function questionRelations(item: Pick<ProjectOpenQuestion | ProjectReplyRecord, 'shortId' | 'source'>) {
-  const relations = []
-  if (item.shortId) relations.push(item.shortId)
-  if (item.source === 'thought') relations.push('想法')
-  return [...new Set(relations)]
-}
-
-function createQuestionId(item: Pick<ProjectOpenQuestion, 'source' | 'shortId' | 'title' | 'openQuestions'>, index: number) {
-  const seed = `${item.source}:${item.shortId}:${item.title}:${item.openQuestions}`
-  const hash = createHash('sha1').update(seed).digest('hex').slice(0, 4).toUpperCase()
-  return `Q${String(index + 1).padStart(3, '0')}-${hash}`
-}
-
-function parseReplyQuestionId(reply: string) {
-  return reply.match(/\b(Q\d{3}-[A-F0-9]{4})\b/)?.[1] || ''
-}
-
-function parseReplyQuestionText(reply: string) {
-  return reply.match(/问题：(.+?)(?:\s+回复：|$)/)?.[1]?.trim() || ''
-}
-
-function parseReplyCreated(reply: string) {
-  return reply.match(/\bQ\d{3}-[A-F0-9]{4}\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/)?.[1] || ''
-}
-
-function parseReplyAnswer(reply: string) {
-  return reply.match(/回复：([\s\S]*)$/)?.[1]?.trim() || ''
-}
-
-function parseReplyRecordParts(reply: string) {
-  const questionId = parseReplyQuestionId(reply)
-  const openQuestions = parseReplyQuestionText(reply)
-  const replyCreated = parseReplyCreated(reply)
-  const replyAnswer = parseReplyAnswer(reply)
-  if (!questionId || !openQuestions || !replyCreated) return null
-  return { questionId, openQuestions, replyCreated, replyAnswer }
-}
-
-function formatQuestionReply(input: OpenQuestionReplyInput, answer: string) {
-  return formatQuestionReplyWithCreated(input, answer, localTime())
-}
-
-function formatQuestionReplyWithCreated(input: OpenQuestionReplyInput, answer: string, created: string) {
-  const id = input.questionId || ''
-  const prefix = id ? `${id} ` : ''
-  return `${prefix}${created} 问题：${singleLineText(input.openQuestions)} 回复：${singleLineText(answer)}`
-}
-
-function singleLineText(value: string) {
-  return String(value || '').replace(/\s+/g, ' ').trim()
-}
-
 function readSection(content: string, titles: string[]) {
   const escaped = titles.map((title) => title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  const match = content.match(new RegExp(`###\\s+(?:${escaped})\\s+([\\s\\S]*?)(?=\\n### |\\n## |$)`))
+  const match = content.match(new RegExp(`###\\s+(?:${escaped})\\s+([\\s\\S]*?)(?=\\n### |$)`))
   return (match?.[1] || '').trim()
 }
 
@@ -1774,19 +2204,12 @@ function listSectionItems(value: string) {
     .filter((line) => line && !/^(?:无|暂无|没有|none|n\/a)[。.!！]?$/i.test(line))
 }
 
-function hasOpenQuestionText(value: string) {
-  const text = normalizeQuestionText(value)
-  return Boolean(text && !/^(?:无|暂无|没有|none|n\/a)[。.!！]?$/i.test(text))
-}
-
-function normalizeQuestionText(value: string) {
-  return value.trim().replace(/^[-*]\s*/, '').replace(/\s+/g, '')
-}
-
 function indexFromDashboard(dashboard: Dashboard) {
   return {
     generatedAt: new Date().toISOString(),
     project: dashboard.config.name,
+    currentVersion: dashboard.currentVersion?.shortId || '',
+    versionCount: dashboard.versions.length,
     taskCount: dashboard.tasks.length,
     dialogueCount: dashboard.dialogues.length,
     knowledgeCount: dashboard.knowledge.length,
@@ -1794,7 +2217,67 @@ function indexFromDashboard(dashboard: Dashboard) {
     constraintCount: dashboard.constraints.length,
     activeTaskCount: dashboard.activeTasks.length,
     openQuestionCount: dashboard.openQuestions.length,
+    pendingDecisionCount: dashboard.questions.filter((question) => question.status === 'decided').length,
+    activeRiskCount: dashboard.risks.filter((risk) => risk.status === 'open').length,
   }
+}
+
+function baselineMarkdown(dashboard: Dashboard) {
+  const version = dashboard.currentVersion
+  const currentVersionId = version?.shortId || dashboard.config.currentVersionId
+  const activeConstraints = dashboard.constraints
+    .filter((constraint) => constraint.source === 'user' && constraint.status === 'active')
+    .map((constraint) => `- ${constraint.shortId} ${constraint.title}`)
+  const activeTasks = dashboard.activeTasks
+    .map((task) => `- ${task.shortId} [${task.status}] ${task.title}`)
+  const openQuestions = dashboard.questions
+    .filter((question) => question.status === 'open' && (question.scope === 'project' || recordInVersion(question.version, currentVersionId)))
+    .map((question) => `- ${question.shortId} ${question.question || question.title}`)
+  const pendingDecisions = dashboard.questions
+    .filter((question) => question.status === 'decided' && (question.scope === 'project' || recordInVersion(question.version, currentVersionId)))
+    .map((question) => `- ${question.shortId} ${question.conclusion || question.question || question.title}`)
+  const risks = dashboard.risks
+    .filter((risk) => risk.status === 'open' && recordInVersion(risk.version, currentVersionId))
+    .map((risk) => `- ${risk.shortId} [${risk.kind}] ${risk.content || risk.title}`)
+
+  return `# 当前项目基线
+
+generated:: ${localTime()}
+project:: ${dashboard.config.name}
+current_version:: ${currentVersionId || '无'}
+version_label:: ${version?.label || '无'}
+version_title:: ${version?.title || '无'}
+
+## 当前版本
+
+### 目标
+
+${version?.goal || '暂无。'}
+
+### 内容描述
+
+${version?.summary || '暂无。'}
+
+## 当前有效约束
+
+${activeConstraints.join('\n') || '- 无。'}
+
+## 正在进行
+
+${activeTasks.join('\n') || '- 无。'}
+
+## 待决定
+
+${openQuestions.join('\n') || '- 无。'}
+
+## 已决定待落实
+
+${pendingDecisions.join('\n') || '- 无。'}
+
+## 已知风险与验证限制
+
+${risks.join('\n') || '- 无。'}
+`
 }
 
 function taskToMarkdown(
@@ -1811,6 +2294,8 @@ priority:: ${task.priority}
 area:: ${task.area}
 created:: ${meta.created}
 updated:: ${task.updated}
+version:: ${task.version}
+question_refs:: 无
 
 ### 用户原话
 
@@ -1827,10 +2312,6 @@ ${task.detail}
 ### 验收
 
 ${task.acceptance}
-
-### 未确认事项
-
-${task.openQuestions}
 `
 }
 
@@ -1842,6 +2323,7 @@ function researchDocumentMarkdown(input: {
   content: string
   answer: string
   acceptance: string
+  version: string
 }) {
   return `# ${input.title}
 
@@ -1851,6 +2333,7 @@ type:: document
 status:: active
 created:: ${input.created}
 updated:: ${input.created}
+version:: ${input.version}
 tags:: research, document
 source:: ${input.dialogueShortId}
 summary:: ${firstMeaningfulLine(input.answer) || firstMeaningfulLine(input.content)}
@@ -1882,6 +2365,7 @@ function researchLogMarkdown(input: {
   created: string
   summary: string
   acceptance: string
+  version: string
 }) {
   return `## ${input.created} 研究记录 ${input.dialogueShortId}
 
@@ -1890,6 +2374,7 @@ log_short_id:: ${input.logShortId}
 created:: ${input.created}
 task_short_id:: T000
 source:: research
+version:: ${input.version}
 
 ### 用户目标
 
@@ -1912,9 +2397,9 @@ source:: research
 
 ### 执行动作
 
-- 写入 ${DIALOGUES_PATH}
+- 写入 versions/${input.version}/${VERSION_DIALOGUES_FILE}
 - 写入 ${input.documentPath}
-- 写入 ${AGENT_LOG_PATH}
+- 写入 versions/${input.version}/${VERSION_LOGS_DIR}/
 
 ### 验证
 
@@ -1924,16 +2409,62 @@ source:: research
 
 ${input.acceptance}
 
-### 未确认事项
+### 已知风险
+
+无。
+
+### 后续事项
 
 无。
 `
 }
 
 function insertMarkdownEntry(current: string, entry: string) {
-  const blocks = current.split(/\n(?=##\s+)/)
+  const blocks = splitMarkdownBlocks(current)
   const preface = blocks.shift() || ''
   return `${preface.trimEnd()}\n\n${entry.trim()}\n\n${blocks.map((block) => block.trim()).filter(Boolean).join('\n\n')}\n`
+}
+
+function splitMarkdownBlocks(content: string) {
+  const normalized = content.replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n')
+  const offsets: number[] = []
+  let offset = 0
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (/^##\s+/.test(line) && isRecordHeading(lines, index)) offsets.push(offset)
+    offset += line.length + 1
+  }
+
+  if (!offsets.length) return [normalized]
+
+  const blocks = [normalized.slice(0, offsets[0]).trimEnd()]
+  offsets.forEach((start, index) => {
+    const end = offsets[index + 1] ?? normalized.length
+    blocks.push(normalized.slice(start, end).trim())
+  })
+  return blocks.filter((block, index) => index === 0 || Boolean(block))
+}
+
+function isRecordHeading(lines: string[], headingIndex: number) {
+  const fields: Record<string, string> = {}
+  let started = false
+
+  for (let index = headingIndex + 1; index < Math.min(lines.length, headingIndex + 32); index += 1) {
+    const line = lines[index]
+    if (!line.trim() && !started) continue
+    if (/^#{1,3}\s+/.test(line)) break
+    const match = line.match(/^([A-Za-z0-9_-]+)::\s*(.+)$/)
+    if (!match) {
+      if (started) break
+      continue
+    }
+    started = true
+    fields[match[1]] = match[2].trim()
+  }
+
+  return Boolean(fields.short_id || fields.log_short_id || (fields.id && fields.type))
 }
 
 function normalizeTitle(value: string) {
@@ -1975,6 +2506,34 @@ function normalizeConstraintStatus(value: string) {
   return ['active', 'draft', 'archived', 'readonly'].includes(value) ? value : 'active'
 }
 
+function normalizeQuestionShortId(value: string | undefined) {
+  const match = String(value || '').trim().match(/^Q(\d{1,4})$/i)
+  return match ? `Q${match[1].padStart(3, '0')}` : ''
+}
+
+function normalizeRiskShortId(value: string | undefined) {
+  const match = String(value || '').trim().match(/^R(\d{1,4})$/i)
+  return match ? `R${match[1].padStart(3, '0')}` : ''
+}
+
+function normalizeQuestionStatus(value: string | undefined): ProjectOpenQuestion['status'] {
+  return ['open', 'decided', 'resolved', 'expired'].includes(String(value))
+    ? value as ProjectOpenQuestion['status']
+    : 'open'
+}
+
+function normalizeQuestionKind(value: string | undefined): ProjectOpenQuestion['kind'] {
+  return ['decision', 'clarification', 'blocker'].includes(String(value))
+    ? value as ProjectOpenQuestion['kind']
+    : 'decision'
+}
+
+function normalizeRiskKind(value: string | undefined): ProjectRisk['kind'] {
+  return ['risk', 'verification', 'follow-up'].includes(String(value))
+    ? value as ProjectRisk['kind']
+    : 'risk'
+}
+
 function nextShortId(values: string[], prefix: string) {
   const next = Math.max(0, ...values.map((value) => Number(value.match(/\d+$/)?.[0] || 0))) + 1
   return `${prefix}${String(next).padStart(3, '0')}`
@@ -1986,10 +2545,7 @@ function createId(prefix: string, value: string) {
 
 function tasksTemplate(projectName: string) {
   const now = localTime()
-  return `# 工程任务
-
-> Electron Manager 初始化的数据源。每个二级标题是一张任务卡。
-> 写入时必须按 short_id 倒序维护：较大的 Txxx 写在较小的 Txxx 上方，例如 T036 在 T001 上面。
+  return `${taskRecordsTemplate()}
 
 ## 初始化 ${projectName} 项目协作数据
 
@@ -2001,6 +2557,8 @@ priority:: high
 area:: tool
 created:: ${now}
 updated:: ${now}
+version:: V001
+question_refs:: 无
 
 ### 用户原话
 
@@ -2021,10 +2579,14 @@ updated:: ${now}
 - Electron Manager 管理数据目录存在。
 - agent-brief.json 存在。
 - skills/project-collaboration/SKILL.md 存在。
+`
+}
 
-### 未确认事项
+function taskRecordsTemplate() {
+  return `# 工程任务
 
-无。
+> 当前版本的任务数据源。每个带任务元数据的二级标题是一张任务卡。
+> 写入时必须按 short_id 倒序维护：较大的 Txxx 写在较小的 Txxx 上方，例如 T036 在 T001 上面。
 `
 }
 
@@ -2035,22 +2597,29 @@ function dataSpecTemplate() {
 
 - Markdown 是主数据源。
 - JSON 只作为配置、同步包和可再生成缓存。
-- 任务卡必须保留用户原话、Agent 理解、执行范围、验收和未确认事项。
+- 版本是协作记录的物理边界：任务、想法、研究、问题和风险保存在 \`versions/Vxxx/\`，工作记录保存在 \`versions/Vxxx/工作记录/YYYY-MM.md\`。
+- 已完成版本默认只读；新记录只写入 \`agent-brief.json.currentDataPaths\` 指向的当前版本文件。
+- 所有项目记录必须写入 \`version:: Vxxx\`，用于标识产生或主要维护阶段，避免后续检索遗漏版本上下文。
+- 任务、想法、研究、问题、风险和工作记录按版本进入默认展示和检索范围；文档和项目约束是项目级资料，版本号只用于追溯，不决定是否可见。
+- 任务卡必须保留用户原话、Agent 理解、执行范围和验收。
 - 所有记录型 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面、\`D036\` 在 \`D012\` 上面。这是写入准则，不依赖界面排序或解析层重排。
-- 工作记录必须保留用户目标、需求理解、产出、关键步骤、验证、验收标准和未确认事项。
+- 工作记录必须保留用户目标、需求理解、产出、关键步骤、验证、验收标准、已知风险和后续事项。
 - 研究保存概要、研究标准和详细文档引用，使用 \`Dxxx\` 作为引用 ID；详细研究过程、路径分析和结论写入关联 \`Wxxx\` 文档。
 - 处理 \`Dxxx\` 研究时，必须同时读取 \`### 内容\` 和 \`### 验收标准\`；\`### 验收标准\` 是 Agent 回答或执行的约束，不是仅供 UI 展示的备注。
 - 研究默认采用 Tree-of-Thought：至少给出 3 条路径，并写明各自优点、缺点、适用条件和建议结论；用户可以自定义或覆盖这个默认标准。
 - 研究页只保留概要和详细文档引用；详细研究结果写入 \`${DOCUMENTS_DIR}/\` 的 \`Wxxx\` 文档，同时写入 Agent 工作记录。
 - 文档保存项目本地资料、手册、说明和附件型 Markdown，使用 \`Wxxx\` 作为引用 ID；文档不自动进入知识库。
+- 文档属于项目整体，不随版本切换隐藏；历史版本和当前版本都读取同一组项目文档。文档的 \`version::\` 仅表示来源版本。
 - 知识条目保存沉淀后的稳定知识、可复用结论、方案和运行经验，使用 \`Kxxx\` 作为引用 ID。
 - 研究、文档和知识条目允许独立删除；删除操作不级联，引用关系只由 \`related_documents\` 等字段表达。删除 \`Dxxx\` 研究不删除关联 \`Wxxx\` 文档，删除 \`Wxxx\` 文档不改写研究引用；删除 \`Kxxx\` 知识条目会删除全局共享知识库中的 Markdown，对所有项目生效。
-- 项目约束保存当前项目全局规则、长期约定和 Agent 必须遵守的协作准则，使用 \`Cxxx\` 作为引用 ID；系统生成的数据规范、交接说明和本地 SKILL 作为只读系统约束展示，不从用户约束文件删除。
+- 项目约束保存当前项目全局规则、长期约定和 Agent 必须遵守的协作准则，使用 \`Cxxx\` 作为引用 ID，并用 \`version:: Vxxx\` 标识来源版本；约束始终项目级可见，不参与版本过滤。系统生成的数据规范、交接说明和本地 SKILL 作为只读系统约束展示，不从用户约束文件删除。
 - 数据结构、字段或文件名调整后，应一次性整理当前 Markdown 数据并补齐缺失字段；没有内容写 \`无\` 或 \`暂无\`，不要新增长期运行时兼容判断或只在界面兜底。
-- 未确认事项由 Electron Manager 展示为独立 QID；任务 \`Txxx\`、想法 \`Ixxx\` 和工作记录引用 \`Lxxx\` 只作为 relation，不复用为未确认事项 ID。工作记录仍是任务副产品，不是独立执行模块。
+- 真正需要用户决定、澄清或解除阻塞的问题只写入当前版本的 \`待确认事项.md\`，使用稳定 \`Qxxx\`；状态为 \`open\`、\`decided\`、\`resolved\` 或 \`expired\`。
+- 验证限制、技术风险和后续事项写入当前版本的 \`风险与后续.md\`，使用 \`Rxxx\`，不得塞入任务、想法或工作记录的“未确认事项”。
+- 工作记录仍是任务副产品，不是独立执行模块。
 - 执行任务前将状态改为 doing，完成验收后改为 done。
 - 输入/想法被处理时，不能只修改 status；必须写入 \`### 回答\`，说明处理结论、关联任务或不处理原因。
-- 整理输入/想法时，只更新 \`${THOUGHTS_PATH}\` 的 \`### 回答\` 和必要任务卡；不要为单纯想法整理写 Agent 工作记录。
+- 整理输入/想法时，只更新当前版本 \`想法与问题.md\` 的 \`### 回答\` 和必要任务卡；不要为单纯想法整理写 Agent 工作记录。
 - 只有执行工程任务、修改代码/文档/规则或完成验收后，才写入 Agent 工作记录。
 
 ## 工作流顺序
@@ -2060,7 +2629,7 @@ function dataSpecTemplate() {
 \`\`\`
 
 - 想法/输入是收集入口，不代表承诺执行。
-- 整理想法时只更新 \`${THOUGHTS_PATH}\` 的 \`### 回答\`，必要时创建或关联任务短 ID。
+- 整理想法时只更新当前版本 \`想法与问题.md\` 的 \`### 回答\`，必要时创建或关联任务短 ID。
 - 任务是执行单位，必须有明确状态：\`todo\`、\`doing\`、\`done\` 或 \`abandoned\`。
 - Agent 开始执行任务前，把任务改为 \`doing\`；验收通过后改为 \`done\`。
 - Agent 工作记录只记录任务执行、代码/文档/规则修改和验收过程，不记录单纯想法整理。
@@ -2075,6 +2644,8 @@ short_id:: I001
 status:: inbox
 type:: thought
 created:: YYYY-MM-DD HH:mm
+version:: V001
+question_refs:: 无
 
 ### 内容
 
@@ -2084,13 +2655,10 @@ created:: YYYY-MM-DD HH:mm
 
 处理结论。若已转成任务，写明关联任务短 ID；若不处理，写明原因。
 
-### 未确认事项
-
-无。
 \`\`\`
 
 \`status\` 表示处理状态，\`### 回答\` 表示处理结论。标记为 done/handled 前必须先补充回答。
-如果想法本身产生待确认事项，写入 \`### 未确认事项\`；Electron Manager 会分配独立 QID，并把 \`Ixxx\` 作为 relation。
+如果想法产生真正需要用户决定的问题，在当前版本 \`待确认事项.md\` 新建独立 QID，并把 \`Ixxx\` 写入 \`source_refs\`。
 如果想法被整理成任务，只在回答中写明关联任务短 ID；后续 Agent 工作记录只记录该任务真正执行和验收的过程。
 
 ## 知识条目格式
@@ -2127,7 +2695,7 @@ summary:: 这条知识保存的稳定结论。
 - \`无\`、\`暂无\` 等占位字段应保留在 Markdown 中，但不作为卡片关联信息展示。
 - 研究和文档不会自动进入知识库；用户明确说“沉淀”“整理成知识库”“形成 K”，或要求 Agent 判断是否值得沉淀时，Agent 才汇总相关 \`Dxxx\`/\`Wxxx\`。
 - 沉淀时应对照已有 \`Kxxx\`，判断新增、合并、更新、冲突或升华；不同主题可生成多个 \`Kxxx\`。
-- 如果与已有知识冲突、缺少判断依据或需要用户选择，写入未确认事项，让协作页出现可回复问题，并关联相关 \`Dxxx\`/\`Wxxx\`/\`Kxxx\`。
+- 如果与已有知识冲突、缺少判断依据或需要用户选择，在当前版本 \`待确认事项.md\` 创建独立 QID，并关联相关 \`Dxxx\`/\`Wxxx\`/\`Kxxx\`；仅需补充验证或后续跟进时写入当前版本 \`风险与后续.md\`。
 - 生成或更新 \`Kxxx\` 时必须写明来源项目和来源记录，例如 \`source_project:: 项目名称\`、\`source:: D003\` 和 \`related_records:: D003\`。
 
 ## 文档格式
@@ -2141,6 +2709,7 @@ type:: document
 status:: active | archived
 created:: YYYY-MM-DD HH:mm
 updated:: YYYY-MM-DD HH:mm
+version:: V001
 tags:: document
 summary:: 这份文档的简短摘要。
 
@@ -2165,13 +2734,14 @@ status:: active | draft | archived
 scope:: project
 created:: YYYY-MM-DD HH:mm
 updated:: YYYY-MM-DD HH:mm
+version:: V001
 
 ### 内容
 
 需要当前项目所有 Agent 长期遵守的规则、边界或协作准则。
 \`\`\`
 
-约束位于项目本地 \`${CONSTRAINTS_PATH}\`，用于保存用户手动输入或要求 Agent 长期遵守的项目级全局规则。新增约束时按 \`Cxxx\` 倒序写入；删除操作只删除用户约束，不删除系统生成的数据规范、交接说明或本地 SKILL。
+约束位于项目本地 \`${CONSTRAINTS_PATH}\`，用于保存用户手动输入或要求 Agent 长期遵守的项目级全局规则。\`version::\` 只标识约束首次产生或主要维护的版本，约束不随版本切换隐藏。新增约束时按 \`Cxxx\` 倒序写入；删除操作只删除用户约束，不删除系统生成的数据规范、交接说明或本地 SKILL。
 
 ## 研究格式
 
@@ -2182,6 +2752,8 @@ id:: dialogue-...
 short_id:: D123
 type:: dialogue
 created:: YYYY-MM-DD HH:mm
+updated:: YYYY-MM-DD HH:mm
+version:: V001
 mode:: learning | research | decision
 tags:: learning, research
 related_tasks:: T001
@@ -2224,6 +2796,7 @@ type:: agent-log
 log_short_id:: L001
 created:: YYYY-MM-DD HH:mm
 task_short_id:: T001
+version:: V001
 
 ### 用户目标
 
@@ -2265,7 +2838,11 @@ Agent 对目标、边界、风险和上下文的理解。
 
 - 判断任务完成的标准。
 
-### 未确认事项
+### 已知风险
+
+无。
+
+### 后续事项
 
 无。
 ~~~
@@ -2277,16 +2854,18 @@ function handoffTemplate(projectRoot: string) {
 
 ## 启动顺序
 
-1. 先读取 Electron Manager 管理数据目录中的 \`agent-brief.json\`。
+1. 先读取 Electron Manager 管理数据目录中的 \`agent-brief.json\` 和 \`${BASELINE_PATH}\`。
 2. 再读取 \`skills/project-collaboration/SKILL.md\`，写任务和工作记录时必须遵守其中规则。
-3. 需要完整上下文时读取 \`${TASKS_PATH}\` 和 \`${AGENT_LOG_PATH}\`。
-4. 写入或整理记录时，任务、想法、研究、文档、知识、工作记录和项目约束 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面。
-5. 处理 \`Dxxx\` 研究时读取 \`${DIALOGUES_PATH}\`，同时使用 \`### 内容\` 和 \`### 验收标准\`；验收标准是回答或执行的完成口径。默认研究标准是 Tree-of-Thought：至少 3 条路径，并写明各自优缺点、适用条件和建议结论。
-6. 需要长期知识时读取全局共享知识库 \`${GLOBAL_KNOWLEDGE_DIR}/\` 中的 \`Kxxx\` 条目；知识库不属于单个项目。
-7. 需要当前项目全局约束时读取 \`${CONSTRAINTS_PATH}\` 中的 \`Cxxx\` 条目；系统生成的数据规范、交接说明和本地 SKILL 是只读系统约束。
-8. 执行任务前更新任务状态为 doing。
-9. 完成验收后更新任务状态为 done，并写入工作记录。
-10. 整理输入/想法时只写回想法回答和必要任务卡；没有执行工程任务时，不写入 Agent 工作记录。
+3. 从 \`agent-brief.json.currentDataPaths\` 获取当前版本的实际文件路径；默认只检索这些文件。
+4. 信息不足或用户指定历史版本时，再读取 \`${VERSIONS_PATH}\` 和对应 \`versions/Vxxx/\` 目录。
+5. 所有项目记录都必须写入当前 \`version:: Vxxx\`；文档和项目约束的版本号只用于来源追溯，不参与版本过滤。
+6. 写入或整理记录时，任务、想法、研究、文档、知识、工作记录和项目约束 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面。
+7. 处理 \`Dxxx\` 研究时读取当前版本 \`研究.md\`，同时使用 \`### 内容\` 和 \`### 验收标准\`；验收标准是回答或执行的完成口径。默认研究标准是 Tree-of-Thought：至少 3 条路径，并写明各自优缺点、适用条件和建议结论。
+8. 需要长期知识时读取全局共享知识库 \`${GLOBAL_KNOWLEDGE_DIR}/\` 中的 \`Kxxx\` 条目；知识库不属于单个项目。
+9. 需要当前项目全局约束时读取 \`${CONSTRAINTS_PATH}\` 中的 \`Cxxx\` 条目；系统生成的数据规范、交接说明和本地 SKILL 是只读系统约束。
+10. 执行任务前更新任务状态为 doing。
+11. 完成验收后更新任务状态为 done，并写入当前版本的当月工作记录。
+12. 整理输入/想法时只写回想法回答和必要任务卡；没有执行工程任务时，不写入 Agent 工作记录。
 
 ## 工作流顺序
 
@@ -2297,17 +2876,18 @@ function handoffTemplate(projectRoot: string) {
 - 想法是入口，任务是执行单位，工作记录是任务执行后的记录。
 - 研究保存概要、标准和详细文档引用，使用 \`Dxxx\` 引用；详细研究结果写入 \`Wxxx\` 文档，研究动作写入工作记录。
 - 文档保存项目本地资料和说明，使用 \`Wxxx\` 引用；文档不会自动进入知识库。
+- 文档和项目约束是项目级资料，必须标注来源版本，但不按版本过滤；版本切换只影响协作记录视野。
 - 研究、文档和知识可独立删除；删除操作不级联，引用关系只由字段表达。
-- 项目约束保存当前项目长期规则，使用 \`Cxxx\` 引用；新增约束要写入 \`${CONSTRAINTS_PATH}\`。
+- 项目约束保存当前项目长期规则，使用 \`Cxxx\` 引用；新增约束要写入 \`${CONSTRAINTS_PATH}\` 并标注当前版本。
 - 处理研究时不要只看标题或内容；必须检查同一条记录的 \`### 验收标准\`，并用它校准回答深度、列举范围、验证方式或交付边界。没有自定义标准时，按默认 Tree-of-Thought 标准执行。
 - 想法被采纳时，在 \`### 回答\` 中写清关联任务短 ID。
-- 待确认事项是独立 QID；用 relation 标明关联的 \`Txxx\`、\`Ixxx\` 或工作记录引用 \`Lxxx\`。
+- 待确认事项只写入当前版本 \`待确认事项.md\`，使用稳定 QID 和明确生命周期；验证限制、风险和后续事项写入当前版本 \`风险与后续.md\`。
 - 任务开始前更新为 \`doing\`，验收通过后更新为 \`done\`。
 - 只有实际执行任务、修改代码/文档/规则或完成验收时，才写 Agent 工作记录。
 
 ## 工作记录要求
 
-写入 \`${AGENT_LOG_PATH}\` 时必须保留：
+写入当前版本 \`工作记录/YYYY-MM.md\` 时必须保留：
 
 - \`### 用户目标\`
 - \`### 需求理解\`
@@ -2316,7 +2896,8 @@ function handoffTemplate(projectRoot: string) {
 - \`### 执行动作\`
 - \`### 验证\`
 - \`### 验收标准\`
-- \`### 未确认事项\`
+- \`### 已知风险\`
+- \`### 后续事项\`
 
 ## 本地 Skill
 
@@ -2341,9 +2922,7 @@ function dialoguesTemplate() {
 }
 
 function agentLogTemplate() {
-  return `# Agent 工作记录
-
-> 写入时必须按记录 ID 倒序维护：较大的 Lxxx 写在较小的 Lxxx 上方，例如 L036 在 L001 上面。
+  return `${agentLogRecordsTemplate()}
 
 ## 初始化 Agent Hub
 
@@ -2351,6 +2930,8 @@ type:: agent-log
 log_short_id:: L001
 created:: ${localTime()}
 task_short_id:: T001
+version:: V001
+question_refs:: 无
 
 ### 用户目标
 
@@ -2384,9 +2965,20 @@ task_short_id:: T001
 - agent-brief.json 存在。
 - 本地协作 skill 存在。
 
-### 未确认事项
+### 已知风险
 
 无。
+
+### 后续事项
+
+无。
+`
+}
+
+function agentLogRecordsTemplate() {
+  return `# Agent 工作记录
+
+> 当前版本当月的执行记录。写入时必须按记录 ID 倒序维护：较大的 Lxxx 写在较小的 Lxxx 上方，例如 L036 在 L001 上面。
 `
 }
 
@@ -2400,8 +2992,57 @@ function changeIndexTemplate() {
 function constraintsTemplate() {
   return `# 项目约束
 
-> 当前项目的全局约束、协作准则和长期规则。手动写入时使用 Cxxx，并按 short_id 倒序维护：较大的 Cxxx 写在较小的 Cxxx 上方，例如 C036 在 C001 上面。
+> 当前项目的全局约束、协作准则和长期规则。手动写入时使用 Cxxx、标注 version:: Vxxx，并按 short_id 倒序维护：较大的 Cxxx 写在较小的 Cxxx 上方，例如 C036 在 C001 上面。
 > 系统生成的协作规则会在界面中作为只读约束展示；这里主要保存用户手动补充或要求 Agent 长期遵守的项目约束。
+`
+}
+
+function questionsTemplate() {
+  return `# 待确认事项
+
+> 这里只记录确实需要用户决定、澄清或解除阻塞的问题。验证限制、风险和后续事项写入 collaboration/风险与后续.md。
+> 问题状态：open（待决定）、decided（已决定待落实）、resolved（已解决）、expired（已过期）。
+`
+}
+
+function risksTemplate() {
+  return `# 风险与后续
+
+> 保存验证限制、技术风险和后续事项，不要求用户逐条回复。
+> 类型：risk、verification、follow-up。状态：open、resolved、expired。
+`
+}
+
+function versionsTemplate(projectName: string) {
+  const now = localTime()
+  return `# 版本索引
+
+> 版本是人和 Agent 共用的阶段上下文。新记录默认归入当前 active 版本。
+
+## ${projectName} 初始版本
+
+id:: version-${Date.now()}-initial
+short_id:: V001
+label:: v0.1
+status:: active
+created:: ${now}
+completed:: 无
+
+### 版本目标
+
+建立当前项目的稳定协作上下文。
+
+### 内容描述
+
+项目初始化后的当前工作阶段。
+
+### 主要成果
+
+- 无。
+
+### 遗留事项
+
+- 无。
 `
 }
 
@@ -2417,36 +3058,44 @@ Use this skill when working on this project with Electron Manager initialized da
 ## Start Here
 
 1. Read \`${path.join(dataRoot, 'agent-brief.json')}\`.
-2. Read this skill file before writing tasks or agent logs: \`${path.join(dataRoot, SKILL_PATH)}\`.
-3. If more context is needed, read \`${path.join(dataRoot, TASKS_PATH)}\`.
-4. Read \`${path.join(dataRoot, CONSTRAINTS_PATH)}\` for current project constraints.
-5. Read \`${path.join(dataRoot, AGENT_LOG_PATH)}\` for recent decisions.
+2. Read the current project baseline: \`${path.join(dataRoot, BASELINE_PATH)}\`.
+3. Read this skill file before writing records: \`${path.join(dataRoot, SKILL_PATH)}\`.
+4. Work within the current version from \`${path.join(dataRoot, VERSIONS_PATH)}\` by default.
+5. Resolve the exact current task, thought, research, question, risk, and work-log paths from \`agent-brief.json.currentDataPaths\`.
+6. Read current questions only for decisions or clarifications that need user input; read current risks for verification limits and follow-up work.
+7. Read historical \`versions/Vxxx/\` directories only when the current context is insufficient or the user explicitly requests history.
+8. Read \`${path.join(dataRoot, CONSTRAINTS_PATH)}\` for project-wide constraints.
 
 ## Rules
 
+- Treat the current active version as the default context. Store version-scoped records inside \`versions/Vxxx/\` and add \`version:: Vxxx\` to every project record. Project documents and project constraints use it only as provenance; both remain project-wide and are never version-filtered.
+- Treat completed version directories as read-only history. Write new records only to the paths exposed by \`agent-brief.json.currentDataPaths\`.
+- Search historical versions only when current context is insufficient or the user explicitly asks for history.
 - Before executing a task, set its status to \`doing\`.
 - After verification, set its status to \`done\`.
 - Keep all record Markdown physically ordered by descending record ID: larger \`Txxx\`, \`Ixxx\`, \`Dxxx\`, \`Wxxx\`, \`Kxxx\`, \`Lxxx\`, and \`Cxxx\` entries must appear above smaller IDs, for example \`T036\` above \`T001\` and \`D036\` above \`D012\`. This is a writing rule; do not rely on UI sorting or parser reordering to fix record order.
 - Preserve user wording in \`### 用户原话\`.
-- Keep \`### Agent 理解\`, \`### 执行范围\`, \`### 验收\`, and \`### 未确认事项\` explicit.
-- Keep agent logs explicit with \`### 需求理解\`, \`### 产出\`, \`### 关键步骤\`, \`### 验证\`, \`### 验收标准\`, and \`### 未确认事项\`.
+- Keep \`### Agent 理解\`, \`### 执行范围\`, and \`### 验收\` explicit in tasks.
+- Keep agent logs explicit with \`### 需求理解\`, \`### 产出\`, \`### 关键步骤\`, \`### 验证\`, \`### 验收标准\`, \`### 已知风险\`, and \`### 后续事项\`.
 - Agent logs should include \`log_short_id:: Lxxx\` and should include \`task_short_id:: Txxx\` for real task execution; general logs without a task relation use \`T000\`.
 - Put acceptance criteria near the end of agent logs, after execution and verification details.
-- Do not omit required agent-log sections just because the UI can display \`未记录\`; write the sections into Markdown.
+- Do not omit required agent-log sections just because the UI can display a fallback; write the sections into Markdown.
 - When data structures, fields, or file names change, normalize the current Markdown data in place and fill missing fields with explicit values such as \`无\` or \`暂无\`. Do not add long-lived runtime compatibility branches or rely only on UI fallbacks.
-- Treat open questions as independent QID items in Electron Manager. Task short IDs, thought short IDs, and work-log reference IDs such as \`L001\` are relation labels, not open-question IDs.
+- Treat questions as independent QID items in the current version's \`待确认事项.md\`. Use \`open\` for pending user decisions, \`decided\` for confirmed decisions awaiting implementation, \`resolved\` after implementation, and \`expired\` when no longer relevant.
+- Only create a QID for a genuine decision, clarification, or blocker that requires the user. Put technical risk, unavailable verification, and follow-up work in the current version's \`风险与后续.md\`; never create inline \`### 未确认事项\` sections in tasks, thoughts, or logs.
+- Task short IDs, thought short IDs, and work-log reference IDs such as \`L001\` are relation labels, not question IDs. Use \`question_refs:: Qxxx\` where a record implements or relates to a decision.
 - Treat work logs as task execution byproducts. Use \`Lxxx\` only for reference, jump, and audit trails; do not treat logs as execution modules.
 - Use \`Wxxx\` documents in project-local \`${DOCUMENTS_DIR}/\` for manuals, source material, specs, and other Markdown documents. Documents do not automatically become knowledge notes.
 - Use knowledge notes in the global shared \`${path.join(path.dirname(path.dirname(dataRoot)), GLOBAL_KNOWLEDGE_DIR)}\` directory for stable knowledge, detailed answers, decisions refined from research notes, runbooks, and reusable context. Reference them as \`Kxxx\`. Knowledge is shared by all projects and is not stored under a single project data root. The Knowledge Base view shows only \`Kxxx\` notes; each knowledge note should include \`source_project:: <project name>\` so the card can show where it came from. The Documents view shows only project-local Markdown files under \`${DOCUMENTS_DIR}/\`, not tasks, thoughts, research, collaboration, or work logs. Research notes and documents do not automatically become knowledge notes; when the user asks to distill or summarize into knowledge, or asks the Agent to judge whether something should enter knowledge, collect the relevant \`Dxxx\`/\`Wxxx\`, compare them with existing global \`Kxxx\`, then create, update, merge, or refine knowledge. If there is a conflict or missing decision, create an open question linked to the relevant \`Dxxx\`/\`Wxxx\`/\`Kxxx\`.
-- Use project constraints in \`${CONSTRAINTS_PATH}\` for project-wide rules, collaboration boundaries, long-lived preferences, and requirements that every Agent should obey. Reference them as \`Cxxx\`. New constraints are user-authored records; generated data specs, handoff notes, and this skill are read-only system constraints in the app view.
-- Use research notes in \`${DIALOGUES_PATH}\` for research summaries, standards, and links to detailed \`Wxxx\` documents. Reference them as \`Dxxx\`. Default research uses Tree-of-Thought: provide at least 3 paths with pros, cons, fit conditions, and a recommendation, unless the user provides a custom standard. Keep research entries brief; write detailed research results into project-local \`Wxxx\` documents and write the research action into \`${AGENT_LOG_PATH}\`. If the user explicitly asks to save something, write a record; if you judge something is worth preserving, ask before saving it. Executable work still belongs in tasks, task execution still belongs in agent logs, and open questions still use QIDs.
-- When a user asks an agent to answer, continue, verify, or execute a \`Dxxx\` research record, read that specific record from \`${DIALOGUES_PATH}\`, then read its related \`Wxxx\` document for the detailed research result. Treat \`### 验收标准\` as the completion criteria, and do not answer from the \`Dxxx\` summary alone.
+- Use project constraints in \`${CONSTRAINTS_PATH}\` for project-wide rules, collaboration boundaries, long-lived preferences, and requirements that every Agent should obey. Reference them as \`Cxxx\` and record their source version. Constraints remain project-wide regardless of that version. New constraints are user-authored records; generated data specs, handoff notes, and this skill are read-only system constraints in the app view.
+- Use the current version's \`研究.md\` for research summaries, standards, and links to detailed \`Wxxx\` documents. Reference them as \`Dxxx\`. Default research uses Tree-of-Thought: provide at least 3 paths with pros, cons, fit conditions, and a recommendation, unless the user provides a custom standard. Keep research entries brief; write detailed research results into project-local \`Wxxx\` documents and write the research action into the current monthly work log. If the user explicitly asks to save something, write a record; if you judge something is worth preserving, ask before saving it. Executable work still belongs in tasks, task execution still belongs in agent logs, and open questions still use QIDs.
+- When a user asks an agent to answer, continue, verify, or execute a \`Dxxx\` research record, read that specific record from the matching version's \`研究.md\`, then read its related \`Wxxx\` document for the detailed research result. Treat \`### 验收标准\` as the completion criteria, and do not answer from the \`Dxxx\` summary alone.
 - Research, documents, and knowledge notes are independently deletable records. Deletion does not cascade. \`related_documents\` and similar fields express references only; they do not imply automatic deletion or reference rewriting. Deleting a \`Kxxx\` knowledge note removes the global shared Markdown note and affects every project.
-- If an input/thought itself raises an open question, add \`### 未确认事项\`; Electron Manager displays it as a QID with the thought's \`Ixxx\` relation.
-- When handling an input/thought in \`${THOUGHTS_PATH}\`, do not only change \`status\`; add \`### 回答\` with the conclusion, related task short ID, or reason for not acting.
+- If an input/thought raises a genuine user decision, create an independent QID in the current version's \`待确认事项.md\` and link the thought through \`relations:: Ixxx\`. Otherwise record the concern in the current version's \`风险与后续.md\`.
+- When handling an input/thought in the current version's \`想法与问题.md\`, do not only change \`status\`; add \`### 回答\` with the conclusion, related task short ID, or reason for not acting.
 - Follow the workflow: thought/input -> answered triage -> optional task -> task status -> agent log after task execution and verification.
 - Do not create an agent log for thought triage alone. If a thought becomes a task, record the task short ID in \`### 回答\`; write an agent log only when that task is actually executed and verified.
-- Record task execution, code/document/rule changes, and verification in \`${AGENT_LOG_PATH}\`.
+- Record task execution, code/document/rule changes, and verification in the current version's monthly work log.
 - Do not revert unrelated user or agent changes.
 
 ## Copyable Sync Prompt

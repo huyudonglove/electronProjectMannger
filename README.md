@@ -37,7 +37,9 @@ Electron Manager organizes project context into a few record types:
 | Documents | `Wxxx` | Project-local Markdown documents, manuals, source material, and specs. |
 | Knowledge | `Kxxx` | Distilled long-term knowledge, reusable answers, runbooks, and decisions. |
 | Work Logs | `Lxxx` | Agent execution records after real work is done. |
-| Open Questions | `Qxxx` | Pending decisions or confirmations surfaced from tasks, thoughts, or logs. |
+| Versions | `Vxxx` | Human and agent collaboration stages with a goal, summary, and history boundary. |
+| Questions | `Qxxx` | Stable decisions, clarifications, or blockers with explicit lifecycle states. |
+| Risks | `Rxxx` | Verification limits, technical risks, and follow-up work that do not require a user reply. |
 
 Research records and project documents do not automatically become knowledge notes. When you want to preserve a stable conclusion, distill one or more `Dxxx` records or `Wxxx` documents into `Kxxx` knowledge notes yourself, or ask an agent to judge whether they are worth adding.
 
@@ -114,7 +116,7 @@ For each selected project, Electron Manager creates managed data under Electron'
 On macOS this is usually:
 
 ```text
-~/Library/Application Support/@electron-manager/desktop/
+~/Library/Application Support/electron-manager/
   projects.json
   knowledge/
   projects/
@@ -122,18 +124,24 @@ On macOS this is usually:
       project.json
       agent-brief.json
       index.json
-      tasks/
-        工程任务.md
-      thoughts/
-        想法与问题.md
-      research/
-        研究.md
-      work-logs/
-        Agent 工作记录.md
+      record-counters.json
+      versions/
+        版本索引.md
+        V001/
+          工程任务.md
+          想法与问题.md
+          研究.md
+          待确认事项.md
+          风险与后续.md
+          工作记录/
+            YYYY-MM.md
       collaboration/
         数据层规范.md
         Agent 同步交接.md
         需求变更索引.md
+        当前项目基线.md
+      constraints/
+        项目约束.md
       documents/
       skills/project-collaboration/SKILL.md
 ```
@@ -164,17 +172,21 @@ That file points to the managed data directory. The most important generated fil
 <app-data-root>/knowledge/
 ```
 
-The generated brief and skill explain how to read project context, update tasks, write work logs, handle research records, and preserve open questions.
+The generated brief exposes `currentVersionRoot` and `currentDataPaths`. Agents read the current version by default and only expand into historical `versions/Vxxx/` directories when needed.
 
 ## Data Rules
 
 Electron Manager intentionally keeps data rules explicit so humans and agents can both understand the project state.
 
-- Tasks keep user wording, agent understanding, execution scope, acceptance criteria, and open questions.
+- Tasks keep user wording, agent understanding, execution scope, and acceptance criteria.
+- Version-scoped records are physically grouped under `versions/Vxxx/`. Completed versions are historical context; new records go only to the active version.
+- Work logs are split by month under the owning version so no single log file grows forever.
+- Record writes are serialized and atomically replaced. Persistent counters prevent IDs from being reused after deletion.
 - Record Markdown is maintained in descending ID order as a writing rule: larger `Txxx`/`Ixxx`/`Dxxx`/`Wxxx`/`Kxxx`/`Lxxx` entries should appear above smaller IDs, not be fixed by UI sorting.
 - Thoughts are inbox items. Triage a thought by writing an answer and optionally creating or linking a task.
 - Work logs are written after real task execution or verification, not for ordinary thought triage.
-- Open questions are displayed as independent `Qxxx` items. Task IDs, thought IDs, and work-log IDs are relation labels, not question IDs.
+- Questions are independent `Qxxx` items with `open`, `decided`, `resolved`, or `expired` status. Task, thought, and log IDs are relation labels.
+- Verification limits, risks, and follow-ups are independent `Rxxx` items and never enter the pending-user-decision list.
 - Research records preserve summaries and links to detailed documents. The default research standard is Tree-of-Thought: at least three paths with pros, cons, fit conditions, and a recommendation. Detailed research results are written to `Wxxx` documents, and the research action is also written to work logs.
 - Documents preserve project-local Markdown material and use independent `Wxxx` IDs.
 - Knowledge notes preserve stable, reusable conclusions.
@@ -191,7 +203,8 @@ Agent work logs should keep these sections:
 ### 执行动作
 ### 验证
 ### 验收标准
-### 未确认事项
+### 已知风险
+### 后续事项
 ```
 
 Research records use:
@@ -287,7 +300,9 @@ Electron Manager 会把项目上下文拆成几类记录：
 | 文档 | `Wxxx` | 项目本地 Markdown 文档、手册、资料和规格说明。 |
 | 知识 | `Kxxx` | 沉淀后的长期知识、可复用答案、运行手册和决策。 |
 | 工作记录 | `Lxxx` | Agent 真正执行任务后的记录。 |
-| 待确认 | `Qxxx` | 从任务、想法或工作记录中提取出的待确认问题。 |
+| 版本 | `Vxxx` | 人和 Agent 共用的协作阶段，包含目标、概要和历史边界。 |
+| 协作问题 | `Qxxx` | 需要决定、澄清或解除阻塞的稳定记录。 |
+| 风险与后续 | `Rxxx` | 不要求用户逐条回复的验证限制、技术风险和后续事项。 |
 
 研究记录和项目文档不会自动进入知识库。当你希望把一段稳定结论长期保存时，可以自己把一个或多个 `Dxxx` 研究记录或 `Wxxx` 文档沉淀成 `Kxxx` 知识条目，也可以让 Agent 帮你判断是否值得沉淀。
 
@@ -364,7 +379,7 @@ pnpm test
 macOS 下通常是：
 
 ```text
-~/Library/Application Support/@electron-manager/desktop/
+~/Library/Application Support/electron-manager/
   projects.json
   knowledge/
   projects/
@@ -372,18 +387,24 @@ macOS 下通常是：
       project.json
       agent-brief.json
       index.json
-      tasks/
-        工程任务.md
-      thoughts/
-        想法与问题.md
-      research/
-        研究.md
-      work-logs/
-        Agent 工作记录.md
+      record-counters.json
+      versions/
+        版本索引.md
+        V001/
+          工程任务.md
+          想法与问题.md
+          研究.md
+          待确认事项.md
+          风险与后续.md
+          工作记录/
+            YYYY-MM.md
       collaboration/
         数据层规范.md
         Agent 同步交接.md
         需求变更索引.md
+        当前项目基线.md
+      constraints/
+        项目约束.md
       documents/
       skills/project-collaboration/SKILL.md
 ```
@@ -414,17 +435,21 @@ macOS 下通常是：
 <app-data-root>/knowledge/
 ```
 
-这些文件会告诉 Agent 如何读取上下文、更新任务、写工作记录、处理研究记录，以及保留待确认事项。
+`agent-brief.json` 会直接给出 `currentVersionRoot` 和 `currentDataPaths`。Agent 默认只读取当前版本，只有上下文不足或用户明确追溯时才进入历史版本目录。
 
 ## 数据规则
 
 Electron Manager 会尽量把数据规则写清楚，让人和 Agent 都能理解项目状态。
 
-- 任务保留用户原话、Agent 理解、执行范围、验收标准和未确认事项。
+- 任务保留用户原话、Agent 理解、执行范围和验收标准。
+- 任务、想法、研究、协作问题、风险和工作记录按版本物理归档到 `versions/Vxxx/`；已完成版本作为历史，新记录只进入当前版本。
+- 工作记录在版本内按月份分片，避免单个文件无限增长。
+- Markdown 修改采用串行队列和原子替换；记录 ID 使用持久计数器，删除后不会复用。
 - 所有记录型 Markdown 都按 ID 倒序维护：更大的 `Txxx`/`Ixxx`/`Dxxx`/`Wxxx`/`Kxxx`/`Lxxx` 应该在更小 ID 上方，这是写入准则，不靠界面排序修正。
 - 想法是收集入口。整理想法时，应写入回答，并在需要时创建或关联任务。
 - 工作记录只在实际执行任务或完成验证后写入，不为普通想法整理单独写工作记录。
-- 待确认事项以独立 `Qxxx` 展示。任务 ID、想法 ID、工作记录 ID 只是关联标签，不复用为问题 ID。
+- 协作问题以独立 `Qxxx` 展示，支持待决定、待落实、已解决和已过期。任务 ID、想法 ID、工作记录 ID 只是关联标签。
+- 验证限制、技术风险和后续事项使用独立 `Rxxx`，不会混入需要用户决定的列表。
 - 研究记录保存概要和详细文档引用。默认研究标准是 Tree-of-Thought：至少三条路径，并写明各自优点、缺点、适用条件和建议结论。详细研究结果写入 `Wxxx` 文档，研究动作也写入工作记录。
 - 文档保存项目本地 Markdown 资料，使用独立 `Wxxx` 编号。
 - 知识条目保存稳定、可复用的长期结论。
@@ -441,7 +466,8 @@ Agent 工作记录建议保留这些段落：
 ### 执行动作
 ### 验证
 ### 验收标准
-### 未确认事项
+### 已知风险
+### 后续事项
 ```
 
 研究记录使用：

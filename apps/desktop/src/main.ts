@@ -6,7 +6,9 @@ import {
   appendTask,
   appendDialogue,
   appendConstraint,
+  appendProjectQuestion,
   appendThought,
+  createProjectVersion,
   deleteConstraint,
   deleteDialogue,
   deleteDocument,
@@ -21,6 +23,8 @@ import {
   removeManagedProject,
   replyOpenQuestion,
   refreshAgentBrief,
+  updateQuestionStatus,
+  updateRiskStatus,
   updateReplyRecord,
   updateProjectGuidance,
   updateTaskStatus,
@@ -33,6 +37,8 @@ let managerDataRoot = ''
 let projectWatchers: FSWatcher[] = []
 let watchedProjectRoot = ''
 let watcherTimer: NodeJS.Timeout | null = null
+
+app.setPath('userData', path.join(app.getPath('appData'), 'electron-manager'))
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -129,6 +135,32 @@ function registerIpc() {
     return appendTask(managerDataRoot, projectRoot, payload)
   })
 
+  ipcMain.handle('project:create-version', async (_event, projectRoot: string, payload) => {
+    return createProjectVersion(managerDataRoot, projectRoot, payload)
+  })
+
+  ipcMain.handle('project:add-question', async (_event, projectRoot: string, payload) => {
+    return appendProjectQuestion(managerDataRoot, projectRoot, payload)
+  })
+
+  ipcMain.handle('project:update-question-status', async (
+    _event,
+    projectRoot: string,
+    questionId: string,
+    status: string,
+  ) => {
+    return updateQuestionStatus(managerDataRoot, projectRoot, questionId, status as 'open' | 'decided' | 'resolved' | 'expired')
+  })
+
+  ipcMain.handle('project:update-risk-status', async (
+    _event,
+    projectRoot: string,
+    riskId: string,
+    status: string,
+  ) => {
+    return updateRiskStatus(managerDataRoot, projectRoot, riskId, status as 'open' | 'resolved' | 'expired')
+  })
+
   ipcMain.handle('project:update-task-status', async (_event, projectRoot: string, taskId: string, status: string) => {
     return updateTaskStatus(managerDataRoot, projectRoot, taskId, status)
   })
@@ -190,6 +222,7 @@ async function openProject(projectRoot: string) {
   }
 
   const project = await recordProjectOpen(managerDataRoot, projectRoot)
+  await refreshAgentBrief(managerDataRoot, projectRoot)
   const dashboard = await getDashboard(managerDataRoot, projectRoot)
   startProjectWatcher(projectRoot, [dashboard.config.dataRoot, dashboard.agentBrief.knowledgeRoot])
 
@@ -210,10 +243,22 @@ function startProjectWatcher(projectRoot: string, watchRoots: string[]) {
   const uniqueRoots = [...new Set(watchRoots.filter(Boolean))]
   for (const watchRoot of uniqueRoots) {
     try {
-      projectWatchers.push(watch(watchRoot, { recursive: true }, () => {
+      projectWatchers.push(watch(watchRoot, { recursive: true }, (_eventType, filename) => {
+        const changedPath = String(filename || '').replaceAll('\\', '/')
+        if (changedPath && !changedPath.toLowerCase().endsWith('.md')) return
+        if (
+          changedPath.endsWith('agent-brief.json')
+          || changedPath.endsWith('index.json')
+          || changedPath.endsWith('collaboration/当前项目基线.md')
+        ) return
         if (watcherTimer) clearTimeout(watcherTimer)
-        watcherTimer = setTimeout(() => {
-          mainWindow?.webContents.send('project:data-changed', { projectRoot })
+        watcherTimer = setTimeout(async () => {
+          try {
+            await refreshAgentBrief(managerDataRoot, projectRoot)
+            mainWindow?.webContents.send('project:data-changed', { projectRoot })
+          } catch (error) {
+            console.warn('failed to refresh project brief after Markdown change', error)
+          }
         }, 250)
       }))
     } catch (error) {

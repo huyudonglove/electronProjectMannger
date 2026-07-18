@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive } from 'vue'
+import { computed, nextTick, onMounted, reactive, watch } from 'vue'
 
 type AnyRecord = Record<string, any>
 
@@ -13,6 +13,10 @@ declare global {
       openFolderPath: (folderPath: string) => Promise<boolean>
       initProject: (projectRoot: string) => Promise<any>
       getDashboard: (projectRoot: string) => Promise<any>
+      createVersion: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      addQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      updateQuestionStatus: (projectRoot: string, questionId: string, status: string) => Promise<any>
+      updateRiskStatus: (projectRoot: string, riskId: string, status: string) => Promise<any>
       addTask: (projectRoot: string, payload: AnyRecord) => Promise<any>
       updateTaskStatus: (projectRoot: string, taskId: string, status: string) => Promise<any>
       deleteTask: (projectRoot: string, taskId: string) => Promise<any>
@@ -59,6 +63,7 @@ const icons: Record<string, string> = {
   folderOpen: '<path d="M6 17a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1" /><path d="M4 15l2-5h14l-2 7a2 2 0 0 1-2 1H6a2 2 0 0 1-2-3Z" />',
   gitPullRequest: '<circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><path d="M6 9v12" />',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" />',
+  layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" />',
   layoutDashboard: '<rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" />',
   listChecks: '<path d="m3 17 2 2 4-4" /><path d="m3 7 2 2 4-4" /><path d="M13 6h8" /><path d="M13 12h8" /><path d="M13 18h8" />',
   messageCircle: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />',
@@ -71,6 +76,7 @@ const icons: Record<string, string> = {
   refresh: '<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M3 21v-5h5" /><path d="M3 12a9 9 0 0 1 15.74-6.26L21 8" /><path d="M16 8h5V3" />',
   rotateLeft: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
   scrollText: '<path d="M8 21h8" /><path d="M12 21V7" /><path d="M16 7h3a2 2 0 0 1 2 2v8" /><path d="M8 7H5a2 2 0 0 0-2 2v8" /><path d="M7 3h10" /><path d="M7 7h10" />',
+  search: '<circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="M9 12l2 2 4-5" />',
   slash: '<circle cx="12" cy="12" r="8" /><path d="M7 17 17 7" />',
   sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
@@ -83,6 +89,7 @@ const sections = [
   ['capture', '想法', 'messageCircle'],
   ['board', '任务', 'listChecks'],
   ['dialogues', '研究', 'messagesSquare'],
+  ['versions', '版本', 'layers'],
   ['collaboration', '协作', 'gitPullRequest'],
   ['agent-logs', '工作记录', 'scrollText'],
   ['documents', '文档', 'fileText'],
@@ -104,6 +111,12 @@ const state = reactive({
   busy: false,
   autoRefreshing: false,
   selectedLogIndex: 0,
+  logQuery: '',
+  selectedVersionId: '',
+  collabTab: 'open' as 'open' | 'decided' | 'risks' | 'history',
+  collabHistoryExpanded: false,
+  versionDialogOpen: false,
+  questionDialogOpen: false,
   dialogueTocCollapsed: false,
   quickOpen: false,
   quickCreateMode: '',
@@ -127,6 +140,17 @@ const quickThoughtForm = reactive({ content: '', status: '' })
 const quickDialogueForm = reactive({ content: '', acceptance: '', status: '' })
 const quickConstraintForm = reactive({ title: '', content: '', status: '' })
 const replyForm = reactive({ answer: '', status: '' })
+const versionForm = reactive({ label: '', title: '', goal: '', summary: '', status: '' })
+const questionForm = reactive({
+  title: '',
+  question: '',
+  background: '',
+  recommendation: '',
+  kind: 'decision',
+  scope: 'version',
+  blocking: false,
+  status: '',
+})
 
 const taskRefs = new Map<string, Element>()
 const thoughtRefs = new Map<string, Element>()
@@ -134,15 +158,52 @@ const dialogueRefs = new Map<number, Element>()
 const logRefs = new Map<number, Element>()
 
 const dashboard = computed(() => state.dashboard)
-const tasks = computed(() => dashboard.value?.tasks || [])
-const thoughts = computed(() => dashboard.value?.thoughts || [])
-const dialogues = computed(() => dashboard.value?.dialogues || [])
+const versions = computed(() => dashboard.value?.versions || [])
+const currentVersion = computed(() => dashboard.value?.currentVersion || null)
+const selectedVersion = computed(() => {
+  if (state.selectedVersionId === 'all') {
+    return {
+      shortId: '全部版本',
+      label: '全部',
+      title: '版本历史总览',
+      goal: '包含当前版本和已归档版本的协作记录。',
+    }
+  }
+  return versions.value.find((version: AnyRecord) => version.shortId === state.selectedVersionId) || currentVersion.value
+})
+const allTasks = computed(() => dashboard.value?.tasks || [])
+const allThoughts = computed(() => dashboard.value?.thoughts || [])
+const allDialogues = computed(() => dashboard.value?.dialogues || [])
+const allDocuments = computed(() => dashboard.value?.documents || [])
+const allLogs = computed(() => dashboard.value?.logs || [])
+const tasks = computed(() => allTasks.value.filter(recordMatchesSelectedVersion))
+const thoughts = computed(() => allThoughts.value.filter(recordMatchesSelectedVersion))
+const dialogues = computed(() => allDialogues.value.filter(recordMatchesSelectedVersion))
 const knowledge = computed(() => dashboard.value?.knowledge || [])
-const documents = computed(() => dashboard.value?.documents || [])
+const documents = computed(() => allDocuments.value)
 const constraints = computed(() => dashboard.value?.constraints || [])
-const logs = computed(() => dashboard.value?.logs || [])
-const openQuestions = computed(() => dashboard.value?.openQuestions || [])
-const replyRecords = computed(() => dashboard.value?.replyRecords || [])
+const logs = computed(() => {
+  const query = state.logQuery.trim().toLocaleLowerCase()
+  return allLogs.value
+    .filter(recordMatchesSelectedVersion)
+    .filter((log: AnyRecord) => !query || [
+      log.shortId,
+      log.title,
+      log.userGoal,
+      log.userOriginal,
+      log.understanding,
+      ...(log.outputs || []),
+      ...(log.relatedTasks || []).flatMap((task: AnyRecord) => [task.shortId, task.title]),
+    ].some((value) => String(value || '').toLocaleLowerCase().includes(query)))
+})
+const questions = computed(() => dashboard.value?.questions || [])
+const risks = computed(() => dashboard.value?.risks || [])
+const visibleQuestions = computed(() => questions.value.filter(questionMatchesSelectedVersion))
+const openQuestions = computed(() => visibleQuestions.value.filter((item: AnyRecord) => item.status === 'open'))
+const pendingDecisions = computed(() => visibleQuestions.value.filter((item: AnyRecord) => item.status === 'decided'))
+const activeRisks = computed(() => risks.value.filter((item: AnyRecord) => item.status === 'open' && recordMatchesSelectedVersion(item)))
+const replyRecords = computed(() => visibleQuestions.value.filter((item: AnyRecord) => ['resolved', 'expired'].includes(item.status)))
+const collabAttentionCount = computed(() => openQuestions.value.length + pendingDecisions.value.length)
 const activeThemeIcon = computed(() => state.theme === 'dark' ? 'moon' : 'sun')
 const visibleLog = computed(() => logs.value[clampLogIndex(state.selectedLogIndex, logs.value)])
 
@@ -167,6 +228,13 @@ const statusDescription = computed(() => {
 const groupedDocuments = computed(() => groupDocumentsByFolder(documents.value))
 const userConstraints = computed(() => constraints.value.filter((item: AnyRecord) => item.source !== 'system'))
 const systemConstraints = computed(() => constraints.value.filter((item: AnyRecord) => item.source === 'system'))
+
+watch(
+  () => [state.logQuery, state.selectedVersionId],
+  () => {
+    state.selectedLogIndex = 0
+  },
+)
 
 onMounted(() => {
   applyTheme(localStorage.getItem('electron-manager-theme') || 'dark')
@@ -229,6 +297,16 @@ function ensureReady() {
     return null
   }
   return api
+}
+
+function recordMatchesSelectedVersion(item: AnyRecord) {
+  if (state.selectedVersionId === 'all') return true
+  return String(item?.version || '') === state.selectedVersionId
+}
+
+function questionMatchesSelectedVersion(item: AnyRecord) {
+  if (state.selectedVersionId === 'all') return true
+  return item?.scope === 'project' || String(item?.version || '') === state.selectedVersionId
 }
 
 async function restoreLastProject() {
@@ -580,7 +658,7 @@ function openReplyDialog(item: AnyRecord) {
 function openEditReplyDialog(item: AnyRecord) {
   state.replyItem = item
   state.replyMode = 'edit'
-  replyForm.answer = String(item.replyAnswer || '').trim()
+  replyForm.answer = String(item.conclusion || '').trim()
   replyForm.status = ''
 }
 
@@ -602,18 +680,13 @@ async function submitReply() {
       replyForm.status = '先写回复'
       return
     }
-    if (!String(item.openQuestions || '').trim()) {
+    if (!String(item.question || '').trim()) {
       replyForm.status = '待确认内容不能为空'
       return
     }
     replyForm.status = '保存中...'
     const payload = {
-      questionId: state.replyMode === 'edit' ? item.questionId : item.id,
-      source: item.source,
-      shortId: item.shortId,
-      thoughtId: item.thoughtId,
-      title: item.title,
-      openQuestions: item.openQuestions,
+      questionId: item.id || item.shortId,
       answer,
     }
     updateDashboard(await (state.replyMode === 'edit'
@@ -628,16 +701,141 @@ function updateState(result: AnyRecord) {
   state.projectRoot = result.projectRoot
   state.initialized = result.initialized
   state.dashboard = result.dashboard
+  syncSelectedVersion(result.dashboard)
   state.selectedLogIndex = clampLogIndex(state.selectedLogIndex, result.dashboard?.logs || [])
 }
 
 function updateDashboard(nextDashboard: AnyRecord) {
   state.initialized = true
   state.dashboard = nextDashboard
+  syncSelectedVersion(nextDashboard)
   state.selectedLogIndex = clampLogIndex(state.selectedLogIndex, nextDashboard.logs || [])
   if (state.selectedTask) {
     state.selectedTask = (nextDashboard.tasks || []).find((task: AnyRecord) => task.id === state.selectedTask?.id) || null
   }
+}
+
+function syncSelectedVersion(nextDashboard: AnyRecord) {
+  const currentId = nextDashboard?.currentVersion?.shortId || nextDashboard?.config?.currentVersionId || ''
+  const valid = state.selectedVersionId === 'all'
+    || (nextDashboard?.versions || []).some((version: AnyRecord) => version.shortId === state.selectedVersionId)
+  if (!valid || !state.selectedVersionId) state.selectedVersionId = currentId
+}
+
+function openVersionDialog() {
+  versionForm.label = `v0.${versions.value.length + 1}`
+  versionForm.title = ''
+  versionForm.goal = ''
+  versionForm.summary = ''
+  versionForm.status = ''
+  state.versionDialogOpen = true
+}
+
+function closeVersionDialog() {
+  state.versionDialogOpen = false
+}
+
+async function saveVersion() {
+  await runAction('正在创建版本...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    if (!versionForm.label.trim() || !versionForm.title.trim() || !versionForm.goal.trim()) {
+      versionForm.status = '请填写版本名称、标题和目标'
+      return
+    }
+    versionForm.status = '保存中...'
+    updateDashboard(await api.createVersion(state.projectRoot, {
+      label: versionForm.label,
+      title: versionForm.title,
+      goal: versionForm.goal,
+      summary: versionForm.summary,
+    }))
+    closeVersionDialog()
+    showToast('版本已创建')
+  })
+}
+
+function openQuestionDialog() {
+  questionForm.title = ''
+  questionForm.question = ''
+  questionForm.background = ''
+  questionForm.recommendation = ''
+  questionForm.kind = 'decision'
+  questionForm.scope = 'version'
+  questionForm.blocking = false
+  questionForm.status = ''
+  state.questionDialogOpen = true
+}
+
+function closeQuestionDialog() {
+  state.questionDialogOpen = false
+}
+
+async function saveQuestion() {
+  await runAction('正在保存问题...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    if (!questionForm.title.trim() || !questionForm.question.trim()) {
+      questionForm.status = '请填写标题和问题'
+      return
+    }
+    questionForm.status = '保存中...'
+    updateDashboard(await api.addQuestion(state.projectRoot, {
+      title: questionForm.title,
+      question: questionForm.question,
+      background: questionForm.background,
+      recommendation: questionForm.recommendation,
+      kind: questionForm.kind,
+      scope: questionForm.scope,
+      blocking: questionForm.blocking,
+    }))
+    closeQuestionDialog()
+    showToast('问题已保存')
+  })
+}
+
+async function setQuestionStatus(item: AnyRecord, status: string) {
+  await runAction('正在更新问题...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    updateDashboard(await api.updateQuestionStatus(state.projectRoot, item.id || item.shortId, status))
+    showToast(status === 'resolved' ? '已标记落实' : '已标记过期')
+  })
+}
+
+async function setRiskStatus(item: AnyRecord, status: string) {
+  await runAction('正在更新风险...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    updateDashboard(await api.updateRiskStatus(state.projectRoot, item.id || item.shortId, status))
+    showToast(status === 'resolved' ? '已标记处理完成' : '已标记过期')
+  })
+}
+
+function versionRecordCount(versionId: string, records: AnyRecord[]) {
+  return records.filter((item) => item.version === versionId).length
+}
+
+function versionHistoryQuestions(versionId: string) {
+  return questions.value.filter((item: AnyRecord) =>
+    item.version === versionId && ['resolved', 'expired'].includes(item.status))
+}
+
+function versionHistoryRisks(versionId: string) {
+  return risks.value.filter((item: AnyRecord) =>
+    item.version === versionId && ['resolved', 'expired'].includes(item.status))
+}
+
+function versionHistoryCount(versionId: string) {
+  return versionHistoryQuestions(versionId).length + versionHistoryRisks(versionId).length
+}
+
+function questionKindText(kind: string) {
+  return ({ decision: '决策', clarification: '澄清', blocker: '阻塞' } as Record<string, string>)[kind] || kind
+}
+
+function riskKindText(kind: string) {
+  return ({ risk: '风险', verification: '验证限制', 'follow-up': '后续事项' } as Record<string, string>)[kind] || kind
 }
 
 function toggleTheme() {
@@ -738,13 +936,18 @@ function openAgentLog(index: number) {
 }
 
 function openQuestionTarget(item: AnyRecord) {
-  if (item.source === 'log') {
-    setActiveSection('agent-logs')
-    openAgentLog(item.logIndex || 0)
-  } else if (item.source === 'thought') {
-    openThought(item.thoughtId || findThoughtIdByShortId(item.shortId))
+  const relation = (item.relations || []).find((value: string) => /^[TIL]\d+$/i.test(value))
+  if (!relation) return
+  if (/^L/i.test(relation)) {
+    const index = logs.value.findIndex((log: AnyRecord) => log.shortId === relation)
+    if (index >= 0) {
+      setActiveSection('agent-logs')
+      openAgentLog(index)
+    }
+  } else if (/^I/i.test(relation)) {
+    openThought(findThoughtIdByShortId(relation))
   } else {
-    openBoardTask(findTaskIdByShortId(item.shortId))
+    openBoardTask(findTaskIdByShortId(relation))
   }
 }
 
@@ -1291,8 +1494,8 @@ function escapeHtml(value: any) {
       <div class="brand">
         <span class="mark">E</span>
         <div>
-          <strong>Agent Manager</strong>
-          <small>Local Project Hub</small>
+          <strong>Electron Manager</strong>
+          <small>Project Collaboration</small>
         </div>
       </div>
       <nav>
@@ -1305,7 +1508,7 @@ function escapeHtml(value: any) {
         >
           <span class="nav-icon" v-html="icon(iconName)" />
           <span>{{ label }}</span>
-          <span v-if="key === 'collaboration' && openQuestions.length" class="nav-count">{{ openQuestions.length }}</span>
+          <span v-if="key === 'collaboration' && collabAttentionCount" class="nav-count">{{ collabAttentionCount }}</span>
         </a>
       </nav>
       <div class="sidebar-footer">
@@ -1334,12 +1537,21 @@ function escapeHtml(value: any) {
           <small>{{ state.status }}</small>
         </div>
         <div class="topbar-actions">
+          <label v-if="state.initialized && versions.length" class="version-filter">
+            <span>视野</span>
+            <select v-model="state.selectedVersionId" aria-label="版本视野">
+              <option v-for="version in versions" :key="version.shortId" :value="version.shortId">
+                {{ version.shortId }} · {{ version.label }}{{ version.status === 'active' ? '（当前）' : '' }}
+              </option>
+              <option value="all">全部版本</option>
+            </select>
+          </label>
           <button class="btn icon-button btn-outline-primary" type="button" title="打开项目" aria-label="打开项目" :disabled="state.busy" @click="openRecentProjects" v-html="icon('history')" />
           <button class="btn icon-button btn-ghost" type="button" title="手动刷新" aria-label="手动刷新" :disabled="state.busy || !state.initialized" @click="refreshDashboard({ quiet: false })" v-html="icon('refresh')" />
         </div>
       </header>
 
-      <section id="overview" class="section view" :class="{ 'active-view': state.section === 'overview' }">
+      <section v-if="state.section === 'overview'" id="overview" class="section view active-view">
         <div class="section-head">
           <h2>总览</h2>
           <span>{{ generatedAtText }}</span>
@@ -1411,7 +1623,7 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section id="capture" class="section view" :class="{ 'active-view': state.section === 'capture' }">
+      <section v-if="state.section === 'capture'" id="capture" class="section view active-view">
         <div class="section-head"><h2>想法</h2><span></span></div>
         <div class="thoughts">
           <p v-if="!thoughts.length" class="empty-panel">暂无想法</p>
@@ -1439,7 +1651,7 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section id="board" class="section view" :class="{ 'active-view': state.section === 'board' }">
+      <section v-if="state.section === 'board'" id="board" class="section view active-view">
         <div class="section-head"><h2>任务</h2><span></span></div>
         <div class="board-summary"><span v-for="part in boardSummaryParts()" :key="part">{{ part }}</span></div>
         <div class="board">
@@ -1478,7 +1690,7 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section id="dialogues" class="section view" :class="{ 'active-view': state.section === 'dialogues' }">
+      <section v-if="state.section === 'dialogues'" id="dialogues" class="section view active-view">
         <div class="section-head"><h2>研究</h2><span></span></div>
         <div class="dialogue-layout" :class="{ 'toc-collapsed': state.dialogueTocCollapsed }">
           <p v-if="!dialogues.length" class="empty-panel">暂无研究。</p>
@@ -1527,62 +1739,159 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section id="collaboration" class="section view" :class="{ 'active-view': state.section === 'collaboration' }">
-        <div class="section-head"><h2>协作</h2><span></span></div>
-        <div>
-          <div class="collab-open-questions">
-            <p v-if="!openQuestions.length" class="empty-panel">暂无待确认</p>
-            <section v-else class="card collab-open-panel">
-              <div class="collab-open-head"><div><span class="badge warning-badge">待确认</span></div><span class="collab-open-count">{{ openQuestions.length }}</span></div>
-              <div class="collab-open-list">
-                <article v-for="(item, index) in openQuestions" :key="item.id || index" class="collab-open-item">
-                  <div class="collab-card-top-right">
-                    <span v-for="relation in item.relations || []" :key="relation" class="badge muted-badge">{{ relation }}</span>
-                    <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看" aria-label="查看" @click="openQuestionTarget(item)" v-html="icon('eye')" />
-                  </div>
-                  <div class="collab-open-main">
-                    <div class="collab-question-id-row"><span class="task-short-id" :title="item.id || ''">{{ item.displayId || item.id }}</span></div>
-                    <strong class="collab-question-title">{{ item.title }}</strong>
-                    <p class="collab-question-text">{{ item.openQuestions }}</p>
-                  </div>
-                  <div class="collab-card-bottom-left"><div class="collab-question-meta"><time>{{ item.created ? formatTime(item.created) : '未知时间' }}</time></div></div>
-                  <div class="collab-card-bottom-right"><button class="btn btn-primary btn-sm" type="button" @click="openReplyDialog(item)">回复</button></div>
-                </article>
-              </div>
-            </section>
+      <section v-if="state.section === 'versions'" id="versions" class="section view active-view">
+        <div class="section-head">
+          <div><h2>版本</h2><span>{{ versions.length }} 个阶段</span></div>
+          <button class="btn btn-primary btn-sm" type="button" @click="openVersionDialog">
+            <span class="button-icon" v-html="icon('plus')" />新版本
+          </button>
+        </div>
+        <div v-if="currentVersion" class="version-baseline">
+          <div class="version-baseline-title">
+            <span class="task-short-id">{{ currentVersion.shortId }}</span>
+            <span class="badge">{{ currentVersion.label }}</span>
+            <span class="badge warning-badge">当前基线</span>
           </div>
-          <div class="collab-replies">
-            <section v-if="replyRecords.length" class="card collab-reply-panel">
-              <div class="collab-confirmed-head"><span class="badge">已回复</span><span>{{ replyRecords.length }} 条</span></div>
-              <div class="collab-reply-list">
-                <article v-for="(item, index) in replyRecords" :key="item.questionId || index" class="collab-reply-item">
-                  <div class="collab-card-top-right">
-                    <span class="badge" :class="replyFollowUpState(item).badgeClass" :title="replyFollowUpState(item).title">{{ replyFollowUpState(item).label }}</span>
-                    <span v-for="relation in item.relations || []" :key="relation" class="badge muted-badge">{{ relation }}</span>
-                    <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="编辑回复" aria-label="编辑回复" @click="openEditReplyDialog(item)" v-html="icon('edit')" />
-                    <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看" aria-label="查看" @click="openQuestionTarget(item)" v-html="icon('eye')" />
-                  </div>
-                  <div class="collab-reply-main">
-                    <div class="collab-question-id-row"><span class="task-short-id" :title="item.questionId || ''">{{ item.displayId || item.questionId }}</span></div>
-                    <strong class="collab-question-title">{{ item.title }}</strong>
-                    <p class="collab-question-text">{{ item.openQuestions || '暂无内容' }}</p>
-                    <div class="collab-reply-answer"><time>{{ formatTime(item.replyCreated) }}</time><p>回复：{{ item.replyAnswer || item.reply || '暂无内容' }}</p></div>
-                  </div>
-                  <div class="collab-card-bottom-left"><div class="collab-question-meta"><time>来源：{{ item.created ? formatTime(item.created) : '未知时间' }}</time><span>{{ replyFollowUpState(item).title }}</span></div></div>
-                </article>
+          <h3>{{ currentVersion.title }}</h3>
+          <p>{{ currentVersion.goal }}</p>
+          <small>{{ currentVersion.summary }}</small>
+        </div>
+        <div class="version-list">
+          <article v-for="version in versions" :key="version.shortId" class="card version-card">
+            <div class="version-card-head">
+              <div>
+                <span class="task-short-id">{{ version.shortId }}</span>
+                <span class="badge" :class="{ 'warning-badge': version.status === 'active' }">{{ version.label }}</span>
               </div>
-            </section>
-          </div>
-          <div class="collab-rules"></div>
+              <span>{{ version.status === 'active' ? '进行中' : formatTime(version.completed) }}</span>
+            </div>
+            <h3>{{ version.title }}</h3>
+            <p>{{ version.goal }}</p>
+            <small>{{ version.summary }}</small>
+            <div class="version-metrics">
+              <span>任务 {{ versionRecordCount(version.shortId, allTasks) }}</span>
+              <span>想法 {{ versionRecordCount(version.shortId, allThoughts) }}</span>
+              <span>记录 {{ versionRecordCount(version.shortId, allLogs) }}</span>
+              <span>问题 {{ versionRecordCount(version.shortId, questions) }}</span>
+            </div>
+          </article>
         </div>
       </section>
 
-      <section id="agent-logs" class="section view" :class="{ 'active-view': state.section === 'agent-logs' }">
+      <section v-if="state.section === 'collaboration'" id="collaboration" class="section view active-view">
+        <div class="section-head">
+          <div><h2>协作</h2><span>{{ selectedVersion?.shortId || '当前版本' }} · 只呈现需要处理的内容</span></div>
+          <button class="btn btn-primary btn-sm" type="button" @click="openQuestionDialog">
+            <span class="button-icon" v-html="icon('plus')" />新问题
+          </button>
+        </div>
+        <div v-if="selectedVersion" class="collab-baseline">
+          <div>
+            <span class="badge warning-badge">{{ state.selectedVersionId === 'all' ? '全部版本' : selectedVersion.shortId === currentVersion?.shortId ? '当前项目基线' : '历史版本' }}</span>
+            <strong>{{ selectedVersion.label }} · {{ selectedVersion.title }}</strong>
+            <p>{{ selectedVersion.goal }}</p>
+          </div>
+          <div class="collab-baseline-metrics">
+            <span><strong>{{ openQuestions.length }}</strong> 待决定</span>
+            <span><strong>{{ pendingDecisions.length }}</strong> 待落实</span>
+            <span><strong>{{ activeRisks.length }}</strong> 风险/后续</span>
+          </div>
+        </div>
+        <div class="segmented-control collab-tabs" role="tablist" aria-label="协作记录类型">
+          <button type="button" :class="{ active: state.collabTab === 'open' }" @click="state.collabTab = 'open'">待决定 <span>{{ openQuestions.length }}</span></button>
+          <button type="button" :class="{ active: state.collabTab === 'decided' }" @click="state.collabTab = 'decided'">待落实 <span>{{ pendingDecisions.length }}</span></button>
+          <button type="button" :class="{ active: state.collabTab === 'risks' }" @click="state.collabTab = 'risks'">风险与后续 <span>{{ activeRisks.length }}</span></button>
+          <button type="button" :class="{ active: state.collabTab === 'history' }" @click="state.collabTab = 'history'">版本历史</button>
+        </div>
+
+        <div v-if="state.collabTab === 'open'" class="collab-record-list">
+          <p v-if="!openQuestions.length" class="empty-panel">当前版本没有需要你决定的问题。</p>
+          <article v-for="item in openQuestions" :key="item.id" class="card collab-record">
+            <div class="collab-record-head">
+              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge muted-badge">{{ questionKindText(item.kind) }}</span><span v-if="item.blocking" class="badge warning-badge">阻塞</span></div>
+              <div class="collab-record-actions">
+                <button v-if="item.relations?.length" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看关联记录" aria-label="查看关联记录" @click="openQuestionTarget(item)" v-html="icon('eye')" />
+                <button class="btn btn-outline-secondary btn-sm" type="button" @click="setQuestionStatus(item, 'expired')">过期</button>
+                <button class="btn btn-primary btn-sm" type="button" @click="openReplyDialog(item)">决定</button>
+              </div>
+            </div>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.question }}</p>
+            <div v-if="item.background && item.background !== '无。'" class="collab-context"><strong>背景</strong><span>{{ item.background }}</span></div>
+            <div v-if="item.recommendation && item.recommendation !== '无。'" class="collab-recommendation"><strong>建议</strong><span>{{ item.recommendation }}</span></div>
+            <div class="collab-record-meta"><span>{{ item.scope === 'project' ? '项目级' : item.version }}</span><span v-for="relation in item.relations || []" :key="relation">{{ relation }}</span><time>{{ formatTime(item.updated) }}</time></div>
+          </article>
+        </div>
+
+        <div v-else-if="state.collabTab === 'decided'" class="collab-record-list">
+          <p v-if="!pendingDecisions.length" class="empty-panel">没有已确认但尚未落实的决定。</p>
+          <article v-for="item in pendingDecisions" :key="item.id" class="card collab-record decided-record">
+            <div class="collab-record-head">
+              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge">已决定</span></div>
+              <div class="collab-record-actions">
+                <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="编辑决定" aria-label="编辑决定" @click="openEditReplyDialog(item)" v-html="icon('edit')" />
+                <button class="btn btn-primary btn-sm" type="button" @click="setQuestionStatus(item, 'resolved')">标记已落实</button>
+              </div>
+            </div>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.question }}</p>
+            <div class="collab-decision"><strong>决定</strong><span>{{ item.conclusion }}</span></div>
+            <div class="collab-record-meta"><span>{{ item.version }}</span><span v-for="relation in item.relations || []" :key="relation">{{ relation }}</span><time>{{ formatTime(item.updated) }}</time></div>
+          </article>
+        </div>
+
+        <div v-else-if="state.collabTab === 'risks'" class="collab-record-list">
+          <p v-if="!activeRisks.length" class="empty-panel">当前版本没有未处理的风险或后续事项。</p>
+          <article v-for="item in activeRisks" :key="item.id" class="card collab-record risk-record">
+            <div class="collab-record-head">
+              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge muted-badge">{{ riskKindText(item.kind) }}</span></div>
+              <div class="collab-record-actions">
+                <button class="btn btn-outline-secondary btn-sm" type="button" @click="setRiskStatus(item, 'expired')">过期</button>
+                <button class="btn btn-primary btn-sm" type="button" @click="setRiskStatus(item, 'resolved')">已处理</button>
+              </div>
+            </div>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.content }}</p>
+            <div v-if="item.handling && item.handling !== '无。'" class="collab-context"><strong>处理建议</strong><span>{{ item.handling }}</span></div>
+            <div class="collab-record-meta"><span>{{ item.version }}</span><span v-for="relation in item.relations || []" :key="relation">{{ relation }}</span></div>
+          </article>
+        </div>
+
+        <div v-else class="version-history-list">
+          <details v-for="version in versions" :key="version.shortId" class="version-history-group" :open="version.status === 'active'">
+            <summary>
+              <span><span class="task-short-id">{{ version.shortId }}</span><strong>{{ version.label }} · {{ version.title }}</strong></span>
+              <span>{{ versionHistoryCount(version.shortId) }} 条</span>
+            </summary>
+            <div class="collab-history-records">
+              <p v-if="!versionHistoryCount(version.shortId)" class="empty-panel">这个版本暂无已归档协作记录。</p>
+              <article v-for="item in versionHistoryQuestions(version.shortId)" :key="item.id" class="collab-history-row">
+                <span class="task-short-id">{{ item.shortId }}</span>
+                <div><strong>{{ item.title }}</strong><p>{{ item.conclusion || item.question }}</p></div>
+                <span class="badge muted-badge">{{ item.status === 'resolved' ? '已解决' : '已过期' }}</span>
+              </article>
+              <article v-for="item in versionHistoryRisks(version.shortId)" :key="item.id" class="collab-history-row">
+                <span class="task-short-id">{{ item.shortId }}</span>
+                <div><strong>{{ item.title }}</strong><p>{{ item.content }}</p></div>
+                <span class="badge muted-badge">{{ item.status === 'resolved' ? '已处理' : '已过期' }}</span>
+              </article>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section v-if="state.section === 'agent-logs'" id="agent-logs" class="section view active-view">
         <div class="agent-log-layout">
           <aside class="agent-log-index">
-            <div class="section-head compact-head"><h2>目录</h2><span>{{ logs.length }} 条</span></div>
+            <div class="agent-log-index-head">
+              <div class="section-head compact-head"><h2>目录</h2><span>{{ logs.length }} 条</span></div>
+              <label class="agent-log-search">
+                <span v-html="icon('search')" />
+                <input v-model="state.logQuery" type="search" placeholder="搜索记录、任务或内容" aria-label="搜索工作记录" />
+              </label>
+            </div>
             <div class="agent-log-toc">
-              <p v-if="!logs.length" class="empty-panel">暂无工作记录。</p>
+              <p v-if="!logs.length" class="empty-panel">{{ state.logQuery.trim() ? '没有匹配的工作记录。' : '暂无工作记录。' }}</p>
               <button v-for="(log, index) in logs" :key="log.id || index" class="agent-log-toc-item" :class="{ active: index === state.selectedLogIndex }" type="button" @click="openAgentLog(index)">
                 <span class="agent-log-toc-meta"><span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span><span class="badge" :class="statusBadgeClass(log.status)">{{ statusText(log.status || 'done') }}</span></span>
                 <span class="agent-log-toc-relations"><span v-if="!resolveLogTasks(log).length" class="badge muted-badge">general</span><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
@@ -1624,7 +1933,7 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section id="knowledge" class="section view" :class="{ 'active-view': state.section === 'knowledge' }">
+      <section v-if="state.section === 'knowledge'" id="knowledge" class="section view active-view">
         <div class="section-head"><h2>知识库</h2><span>{{ knowledge.length }} 条</span></div>
         <div class="library-shelf">
           <div v-if="!knowledge.length" class="empty-panel empty-state">
@@ -1644,7 +1953,7 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section id="documents" class="section view" :class="{ 'active-view': state.section === 'documents' }">
+      <section v-if="state.section === 'documents'" id="documents" class="section view active-view">
         <div class="section-head"><h2>文档</h2><span>{{ documents.length }} 条</span></div>
         <div class="library-shelf">
           <div v-if="!documents.length" class="empty-panel empty-state documents-empty-state">
@@ -1656,10 +1965,10 @@ function escapeHtml(value: any) {
             <div class="library-grid document-card-grid">
               <article v-for="note in notes" :key="note.path" class="library-card library-card-frame document-card" role="button" tabindex="0" @click="openMarkdownDocument(note, 'document')" @keydown.enter.prevent="openMarkdownDocument(note, 'document')" @keydown.space.prevent="openMarkdownDocument(note, 'document')">
                 <span class="library-card-icon" v-html="icon('fileText')" />
-                <span class="library-card-kicker"><span>{{ note.shortId || 'W000' }}</span><span>{{ noteCategory(note.path) }}</span></span>
+                <span class="library-card-kicker"><span>{{ note.shortId || 'W000' }}</span><span>{{ noteCategory(note.path) }} · {{ note.version || '未标注' }}</span></span>
                 <strong>{{ documentDisplayTitle(note) }}</strong>
                 <small>{{ noteCardSummary(note, 'document') }}</small>
-                <span class="library-card-origin">出处：{{ noteOriginProject(note, 'document') }}</span>
+                <span class="library-card-origin">出处：{{ noteOriginProject(note, 'document') }} · 来源版本：{{ note.version || '未标注' }}</span>
                 <button class="btn icon-button btn-outline-secondary btn-sm library-card-delete" type="button" title="删除文档" aria-label="删除文档" @click.stop="deleteDocumentNote(note)" v-html="icon('trash')" />
               </article>
             </div>
@@ -1667,7 +1976,7 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section id="constraints" class="section view" :class="{ 'active-view': state.section === 'constraints' }">
+      <section v-if="state.section === 'constraints'" id="constraints" class="section view active-view">
         <div class="section-head"><h2>约束</h2><span>{{ constraints.length }} 条</span></div>
         <div class="constraint-shelf">
           <section class="constraint-group">
@@ -1680,10 +1989,10 @@ function escapeHtml(value: any) {
               <article v-for="constraint in userConstraints" :key="constraint.id || constraint.shortId" class="constraint-card">
                 <button class="constraint-card-main" type="button" @click="openMarkdownDocument(constraint, 'constraint')">
                   <span class="library-card-icon constraint-card-icon" v-html="icon('shield')" />
-                  <span class="library-card-kicker"><span>{{ constraint.shortId || 'C000' }}</span><span>{{ constraintStatusText(constraint.status) }}</span></span>
+                  <span class="library-card-kicker"><span>{{ constraint.shortId || 'C000' }}</span><span>{{ constraintStatusText(constraint.status) }} · {{ constraint.version || '未标注' }}</span></span>
                   <strong>{{ constraint.title }}</strong>
                   <small>{{ constraintSummary(constraint) }}</small>
-                  <span class="library-card-origin">范围：{{ constraint.scope || 'project' }}</span>
+                  <span class="library-card-origin">范围：{{ constraint.scope || 'project' }} · 来源版本：{{ constraint.version || '未标注' }}</span>
                 </button>
                 <button class="btn icon-button btn-outline-secondary btn-sm constraint-delete" type="button" title="删除约束" aria-label="删除约束" @click="deleteConstraintRecord(constraint)" v-html="icon('trash')" />
               </article>
@@ -1695,10 +2004,10 @@ function escapeHtml(value: any) {
               <article v-for="constraint in systemConstraints" :key="constraint.id || constraint.path" class="constraint-card system-constraint-card">
                 <button class="constraint-card-main" type="button" @click="openMarkdownDocument(constraint, 'constraint')">
                   <span class="library-card-icon constraint-card-icon" v-html="icon('scrollText')" />
-                  <span class="library-card-kicker"><span>{{ constraint.shortId }}</span><span>只读</span></span>
+                  <span class="library-card-kicker"><span>{{ constraint.shortId }}</span><span>只读 · {{ constraint.version || '未标注' }}</span></span>
                   <strong>{{ constraint.title }}</strong>
                   <small>{{ constraintSummary(constraint) }}</small>
-                  <span class="library-card-origin">{{ constraint.path }}</span>
+                  <span class="library-card-origin">{{ constraint.path }} · 来源版本：{{ constraint.version || '未标注' }}</span>
                 </button>
               </article>
             </div>
@@ -1773,10 +2082,6 @@ function escapeHtml(value: any) {
           <div v-if="state.selectedTask.acceptance" v-html="renderListTextBlock(state.selectedTask.acceptance)" />
           <p v-else>暂无验收标准</p>
         </section>
-        <section v-if="state.selectedTask.openQuestions">
-          <strong>未确认事项</strong>
-          <div v-html="renderListTextBlock(state.selectedTask.openQuestions)" />
-        </section>
       </div>
     </section>
   </div>
@@ -1815,11 +2120,46 @@ function escapeHtml(value: any) {
   <div v-if="state.replyItem" class="modal-overlay" @click.self="closeReplyDialog">
     <form class="card reply-dialog" role="dialog" aria-modal="true" aria-labelledby="replyDialogTitle" @submit.prevent="submitReply">
       <div class="project-dialog-head">
-        <div><h2 id="replyDialogTitle">{{ state.replyMode === 'edit' ? '编辑回复' : '回复待确认' }}</h2><p>{{ state.replyItem.openQuestions || '待确认内容' }}</p></div>
+        <div><h2 id="replyDialogTitle">{{ state.replyMode === 'edit' ? '编辑决定' : '确认决定' }}</h2><p>{{ state.replyItem.question || '待确认内容' }}</p></div>
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeReplyDialog" v-html="icon('x')" />
       </div>
       <textarea v-model="replyForm.answer" rows="5" placeholder="写下回复或处理结论。"></textarea>
       <div class="quick-task-actions"><span>{{ replyForm.status }}</span><button class="btn icon-button btn-primary" type="submit" :title="state.replyMode === 'edit' ? '更新回复' : '保存回复'" :aria-label="state.replyMode === 'edit' ? '更新回复' : '保存回复'" v-html="icon('check')" /></div>
+    </form>
+  </div>
+
+  <div v-if="state.versionDialogOpen" class="modal-overlay" @click.self="closeVersionDialog">
+    <form class="card record-dialog" role="dialog" aria-modal="true" aria-labelledby="versionDialogTitle" @submit.prevent="saveVersion">
+      <div class="project-dialog-head">
+        <div><h2 id="versionDialogTitle">创建新版本</h2><p>当前版本会进入历史，新记录自动归入新版本。</p></div>
+        <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeVersionDialog" v-html="icon('x')" />
+      </div>
+      <div class="record-dialog-grid">
+        <label><span>版本名称</span><input v-model="versionForm.label" type="text" placeholder="v0.2" /></label>
+        <label><span>版本标题</span><input v-model="versionForm.title" type="text" placeholder="真实数据联调" /></label>
+      </div>
+      <label><span>版本目标</span><textarea v-model="versionForm.goal" rows="3" placeholder="这一阶段完成后，项目应达到什么状态。"></textarea></label>
+      <label><span>内容描述</span><textarea v-model="versionForm.summary" rows="3" placeholder="大致包含哪些工作。"></textarea></label>
+      <div class="quick-task-actions"><span>{{ versionForm.status }}</span><button class="btn btn-primary" type="submit">创建版本</button></div>
+    </form>
+  </div>
+
+  <div v-if="state.questionDialogOpen" class="modal-overlay" @click.self="closeQuestionDialog">
+    <form class="card record-dialog" role="dialog" aria-modal="true" aria-labelledby="questionDialogTitle" @submit.prevent="saveQuestion">
+      <div class="project-dialog-head">
+        <div><h2 id="questionDialogTitle">新建协作问题</h2><p>只记录确实需要决定、澄清或解除阻塞的事项。</p></div>
+        <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuestionDialog" v-html="icon('x')" />
+      </div>
+      <label><span>标题</span><input v-model="questionForm.title" type="text" placeholder="需要决定什么" /></label>
+      <label><span>问题</span><textarea v-model="questionForm.question" rows="3" placeholder="给出可以直接作答的问题。"></textarea></label>
+      <label><span>背景</span><textarea v-model="questionForm.background" rows="2" placeholder="为什么现在需要决定。"></textarea></label>
+      <label><span>建议</span><textarea v-model="questionForm.recommendation" rows="2" placeholder="Agent 的建议方案。"></textarea></label>
+      <div class="record-dialog-grid">
+        <label><span>类型</span><select v-model="questionForm.kind"><option value="decision">决策</option><option value="clarification">澄清</option><option value="blocker">阻塞</option></select></label>
+        <label><span>范围</span><select v-model="questionForm.scope"><option value="version">当前版本</option><option value="project">整个项目</option></select></label>
+      </div>
+      <label class="checkbox-row"><input v-model="questionForm.blocking" type="checkbox" /><span>阻塞当前工作</span></label>
+      <div class="quick-task-actions"><span>{{ questionForm.status }}</span><button class="btn btn-primary" type="submit">保存问题</button></div>
     </form>
   </div>
 

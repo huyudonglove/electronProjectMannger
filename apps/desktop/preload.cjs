@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld('electronManager', {
   refreshBrief: (projectRoot) => ipcRenderer.invoke('project:refresh-brief', projectRoot),
   getDashboard: (projectRoot) => ipcRenderer.invoke('project:get-dashboard', projectRoot),
   updateGuidance: (projectRoot) => ipcRenderer.invoke('project:update-guidance', projectRoot),
+  createVersion: (projectRoot, payload) => ipcRenderer.invoke('project:create-version', projectRoot, payload),
+  addQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:add-question', projectRoot, payload),
+  updateQuestionStatus: (projectRoot, questionId, status) =>
+    ipcRenderer.invoke('project:update-question-status', projectRoot, questionId, status),
+  updateRiskStatus: (projectRoot, riskId, status) =>
+    ipcRenderer.invoke('project:update-risk-status', projectRoot, riskId, status),
   addTask: (projectRoot, payload) => ipcRenderer.invoke('project:add-task', projectRoot, payload),
   updateTaskStatus: (projectRoot, taskId, status) =>
     ipcRenderer.invoke('project:update-task-status', projectRoot, taskId, status),
