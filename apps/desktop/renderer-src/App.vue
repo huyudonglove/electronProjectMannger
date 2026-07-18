@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, watch } from 'vue'
+import AppSidebar from './components/layout/AppSidebar.vue'
+import AppTopbar from './components/layout/AppTopbar.vue'
+import UiTag from './components/ui/UiTag.vue'
+import OverviewView from './components/views/OverviewView.vue'
+import TaskBoardView from './components/views/TaskBoardView.vue'
 
 type AnyRecord = Record<string, any>
+type UiTone = 'neutral' | 'complete' | 'warning' | 'danger'
 
 declare global {
   interface Window {
@@ -53,10 +59,16 @@ const boardColumns = [
 ] as const
 
 const icons: Record<string, string> = {
+  alertTriangle: '<path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4" /><path d="M12 17h.01" />',
   archive: '<path d="M4 7h16" /><path d="M6 7v11h12V7" /><path d="M9 11h6" /><path d="M5 4h14v3H5z" />',
   bookOpen: '<path d="M12 7v14" /><path d="M3 18a1 1 0 0 1-1-1V5a2 2 0 0 1 2-2h5a3 3 0 0 1 3 3v15a3 3 0 0 0-3-3H3Z" /><path d="M21 18a1 1 0 0 0 1-1V5a2 2 0 0 0-2-2h-5a3 3 0 0 0-3 3" />',
+  braces: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1" /><path d="M16 21h1a2 2 0 0 0 2-2v-5a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />',
   check: '<path d="m5 12 4 4L19 6" />',
   chevronDown: '<path d="m6 9 6 6 6-6" />',
+  circleCheck: '<circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" />',
+  circleDot: '<circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="2" />',
+  circleX: '<circle cx="12" cy="12" r="9" /><path d="m9 9 6 6" /><path d="m15 9-6 6" />',
+  clock: '<circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />',
   copy: '<path d="M8 8h11v11H8z" /><path d="M5 15H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1" />',
   cornerUpLeft: '<path d="m9 14-4-4 4-4" /><path d="M5 10h11a4 4 0 0 1 0 8h-1" />',
   edit: '<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />',
@@ -65,6 +77,7 @@ const icons: Record<string, string> = {
   folderOpen: '<path d="M6 17a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1" /><path d="M4 15l2-5h14l-2 7a2 2 0 0 1-2 1H6a2 2 0 0 1-2-3Z" />',
   gitPullRequest: '<circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><path d="M6 9v12" />',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" />',
+  link: '<path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />',
   layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" />',
   layoutDashboard: '<rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" />',
   listChecks: '<path d="m3 17 2 2 4-4" /><path d="m3 7 2 2 4-4" /><path d="M13 6h8" /><path d="M13 12h8" /><path d="M13 18h8" />',
@@ -82,25 +95,39 @@ const icons: Record<string, string> = {
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="M9 12l2 2 4-5" />',
   slash: '<circle cx="12" cy="12" r="8" /><path d="M7 17 17 7" />',
   sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
+  tag: '<path d="M20.6 13.6 11 4H4v7l9.6 9.6a2 2 0 0 0 2.8 0l4.2-4.2a2 2 0 0 0 0-2.8Z" /><circle cx="7.5" cy="7.5" r=".8" />',
   trash: '<path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M6 7l1 13h10l1-13" /><path d="M9 7V4h6v3" />',
   x: '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
 }
 
-const sections = [
-  ['overview', '总览', 'layoutDashboard'],
-  ['capture', '想法', 'messageCircle'],
-  ['board', '任务', 'listChecks'],
-  ['dialogues', '研究', 'messagesSquare'],
-  ['versions', '版本', 'layers'],
-  ['collaboration', '协作', 'gitPullRequest'],
-  ['agent-logs', '工作记录', 'scrollText'],
-  ['documents', '文档', 'fileText'],
-  ['constraints', '约束', 'shield'],
+const navigationGroups = [
+  {
+    label: '工作区',
+    items: [
+      ['overview', '总览', 'layoutDashboard'],
+      ['capture', '想法', 'messageCircle'],
+      ['board', '任务', 'listChecks'],
+      ['dialogues', '研究', 'messagesSquare'],
+      ['collaboration', '协作', 'gitPullRequest'],
+    ],
+  },
+  {
+    label: '资料库',
+    items: [
+      ['documents', '文档', 'fileText'],
+    ],
+  },
+  {
+    label: '管理',
+    items: [
+      ['versions', '版本', 'layers'],
+      ['agent-logs', '工作记录', 'scrollText'],
+      ['constraints', '约束', 'shield'],
+    ],
+  },
 ] as const
 
-const utilitySections = [
-  ['knowledge', '知识库', 'bookOpen'],
-] as const
+const knowledgeNavItem = ['knowledge', '知识库', 'bookOpen'] as const
 
 const state = reactive({
   projectRoot: '',
@@ -263,7 +290,7 @@ function icon(name: string) {
 }
 
 function setActiveSection(section: string) {
-  const validSections = [...sections, ...utilitySections]
+  const validSections = [...navigationGroups.flatMap((group) => group.items), knowledgeNavItem]
   state.section = validSections.some(([key]) => key === section) ? section : 'overview'
   history.replaceState(null, '', `#${state.section}`)
 }
@@ -1245,11 +1272,28 @@ function statusText(status: string) {
   return statusLabels[status] || String(status || 'Todo')
 }
 
-function statusBadgeClass(status: string) {
-  if (status === 'done') return ''
-  if (status === 'doing') return 'warning-badge'
-  if (status === 'abandoned') return 'danger-badge'
-  return 'muted-badge'
+function statusTone(status: string): UiTone {
+  if (['done', 'handled', 'resolved'].includes(status)) return 'complete'
+  if (['doing', 'pending'].includes(status)) return 'warning'
+  if (['abandoned', 'failed', 'blocked'].includes(status)) return 'danger'
+  return 'neutral'
+}
+
+function statusIcon(status: string) {
+  if (['done', 'handled', 'resolved'].includes(status)) return 'circleCheck'
+  if (['doing', 'pending'].includes(status)) return 'clock'
+  if (['abandoned', 'failed', 'blocked'].includes(status)) return 'circleX'
+  return 'circleDot'
+}
+
+function priorityTone(priority: string): UiTone {
+  if (priority === 'high') return 'danger'
+  if (priority === 'medium') return 'warning'
+  return 'neutral'
+}
+
+function priorityIcon(priority: string) {
+  return priority === 'high' ? 'alertTriangle' : 'circleDot'
 }
 
 function logLevelText(level: string) {
@@ -1260,10 +1304,14 @@ function logLevelText(level: string) {
   }[level] || '标准'
 }
 
-function priorityClass(priority: string) {
-  if (priority === 'high') return 'danger-badge'
-  if (priority === 'low') return 'muted-badge'
-  return ''
+function logLevelIcon(level: string) {
+  if (level === 'deep') return 'search'
+  if (level === 'standard') return 'layers'
+  return 'circleDot'
+}
+
+function researchModeIcon(mode: string) {
+  return mode === 'depth' ? 'search' : mode === 'breadth' ? 'gitPullRequest' : 'circleDot'
 }
 
 function knowledgeStatusText(status: string) {
@@ -1349,10 +1397,17 @@ function renderReadableMarkdown(markdown: string) {
       html.push(`<${level}>${escapeHtml(heading[2])}</${level}>`)
       continue
     }
-    const field = line.match(/^([A-Za-z0-9_-]+)::\s*(.+)$/)
+    const field = parseMarkdownMetadataField(line)
     if (field) {
       closeList()
-      html.push(`<p class="log-meta-line"><span>${escapeHtml(field[1])}</span>${escapeHtml(field[2])}</p>`)
+      const fields = [field]
+      while (index + 1 < lines.length) {
+        const nextField = parseMarkdownMetadataField(lines[index + 1].trim())
+        if (!nextField) break
+        fields.push(nextField)
+        index += 1
+      }
+      html.push(renderMarkdownMetadataDetails(fields))
       continue
     }
     const item = line.match(/^[-*]\s+(.+)$/)
@@ -1370,6 +1425,18 @@ function renderReadableMarkdown(markdown: string) {
   closeList()
   closeCode()
   return html.join('') || '<p class="empty">暂无内容</p>'
+}
+
+function parseMarkdownMetadataField(line: string) {
+  const match = line.match(/^([A-Za-z0-9_-]+)::\s*(.+)$/)
+  return match ? { key: match[1], value: match[2] } : null
+}
+
+function renderMarkdownMetadataDetails(fields: Array<{ key: string, value: string }>) {
+  const rows = fields
+    .map(({ key, value }) => `<p class="log-meta-line"><span>${escapeHtml(key)}</span>${escapeHtml(value)}</p>`)
+    .join('')
+  return `<details class="markdown-meta-details"><summary><span>记录信息</span><small>${fields.length} 项</small></summary><div class="markdown-meta-content">${rows}</div></details>`
 }
 
 function isMarkdownTableHeader(line: string, nextLine: string) {
@@ -1506,171 +1573,60 @@ function escapeHtml(value: any) {
 
 <template>
   <main class="page-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="mark">E</span>
-        <div>
-          <strong>Electron Manager</strong>
-          <small>Project Collaboration</small>
-        </div>
-      </div>
-      <nav>
-        <a
-          v-for="[key, label, iconName] in sections"
-          :key="key"
-          :href="`#${key}`"
-          :class="{ active: state.section === key }"
-          @click.prevent="setActiveSection(key)"
-        >
-          <span class="nav-icon" v-html="icon(iconName)" />
-          <span>{{ label }}</span>
-          <span v-if="key === 'collaboration' && collabAttentionCount" class="nav-count">{{ collabAttentionCount }}</span>
-        </a>
-      </nav>
-      <div class="sidebar-footer">
-        <a
-          v-for="[key, label, iconName] in utilitySections"
-          :key="key"
-          :href="`#${key}`"
-          class="utility-nav-link"
-          :class="{ active: state.section === key }"
-          @click.prevent="setActiveSection(key)"
-        >
-          <span class="nav-icon" v-html="icon(iconName)" />
-          <span>{{ label }}</span>
-        </a>
-        <button class="theme-toggle" type="button" :aria-pressed="state.theme === 'dark'" :title="state.theme === 'dark' ? '切换亮色模式' : '切换暗色模式'" @click="toggleTheme">
-          <span class="theme-toggle-icon" v-html="icon(activeThemeIcon)" />
-          <span class="theme-toggle-label">{{ state.theme === 'dark' ? '暗色' : '亮色' }}</span>
-        </button>
-      </div>
-    </aside>
+    <AppSidebar
+      :navigation-groups="navigationGroups"
+      :knowledge-item="knowledgeNavItem"
+      :active-section="state.section"
+      :collab-attention-count="collabAttentionCount"
+      :theme="state.theme"
+      :active-theme-icon="activeThemeIcon"
+      :disabled="state.busy"
+      :icon="icon"
+      @select-section="setActiveSection"
+      @toggle-theme="toggleTheme"
+    />
 
     <section class="content">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow" aria-hidden="true"></p>
-          <small>{{ state.status }}</small>
-        </div>
-        <div class="topbar-actions">
-          <div v-if="state.initialized && versions.length" class="version-switcher" @focusout="closeVersionMenu">
-            <button
-              class="version-switcher-trigger"
-              :class="{ 'is-open': state.versionMenuOpen }"
-              type="button"
-              aria-haspopup="listbox"
-              :aria-expanded="state.versionMenuOpen"
-              aria-label="选择版本"
-              @click="state.versionMenuOpen = !state.versionMenuOpen"
-            >
-              <span class="version-switcher-icon" v-html="icon('layers')" />
-              <span class="version-switcher-label">{{ state.selectedVersionId === 'all' ? '全部版本' : `${selectedVersion?.shortId || ''} · ${selectedVersion?.label || ''}` }}</span>
-              <span class="version-switcher-chevron" v-html="icon('chevronDown')" />
-            </button>
-            <div v-if="state.versionMenuOpen" class="version-menu" role="listbox" aria-label="版本">
-              <button
-                v-for="version in versions"
-                :key="version.shortId"
-                class="version-menu-item"
-                :class="{ active: state.selectedVersionId === version.shortId }"
-                type="button"
-                role="option"
-                :aria-selected="state.selectedVersionId === version.shortId"
-                @click="selectVersion(version.shortId)"
-              >
-                <span class="version-menu-copy"><strong>{{ version.shortId }} · {{ version.label }}</strong><small>{{ version.title }}</small></span>
-                <span v-if="version.status === 'active'" class="version-menu-current">当前</span>
-                <span v-if="state.selectedVersionId === version.shortId" class="version-menu-check" v-html="icon('check')" />
-              </button>
-              <button
-                class="version-menu-item"
-                :class="{ active: state.selectedVersionId === 'all' }"
-                type="button"
-                role="option"
-                :aria-selected="state.selectedVersionId === 'all'"
-                @click="selectVersion('all')"
-              >
-                <span class="version-menu-copy"><strong>全部版本</strong><small>查看当前与历史记录</small></span>
-                <span v-if="state.selectedVersionId === 'all'" class="version-menu-check" v-html="icon('check')" />
-              </button>
-            </div>
-          </div>
-          <button class="btn icon-button btn-outline-primary" type="button" title="打开项目" aria-label="打开项目" :disabled="state.busy" @click="openRecentProjects" v-html="icon('history')" />
-          <button class="btn icon-button btn-ghost" type="button" title="手动刷新" aria-label="手动刷新" :disabled="state.busy || !state.initialized" @click="refreshDashboard({ quiet: false })" v-html="icon('refresh')" />
-        </div>
-      </header>
+      <AppTopbar
+        :status="state.status"
+        :initialized="state.initialized"
+        :busy="state.busy"
+        :versions="versions"
+        :selected-version-id="state.selectedVersionId"
+        :selected-version="selectedVersion"
+        :version-menu-open="state.versionMenuOpen"
+        :icon="icon"
+        @toggle-version-menu="state.versionMenuOpen = !state.versionMenuOpen"
+        @close-version-menu="closeVersionMenu"
+        @select-version="selectVersion"
+        @open-projects="openRecentProjects"
+        @refresh="refreshDashboard({ quiet: false })"
+      />
 
-      <section v-if="state.section === 'overview'" id="overview" class="section view active-view">
-        <div class="section-head">
-          <h2>总览</h2>
-          <span>{{ generatedAtText }}</span>
-        </div>
-        <section class="card status-panel">
-          <span v-if="!state.projectRoot" class="badge">Ready</span>
-          <h2>{{ statusTitle }}</h2>
-          <p v-if="statusDescription">{{ statusDescription }}</p>
-        </section>
-        <div class="stats">
-          <article class="card stat">
-            <div class="stat-head"><span class="stat-icon" v-html="icon('listChecks')" /><span>任务</span></div>
-            <strong>{{ tasks.length }}</strong>
-          </article>
-          <article class="card stat">
-            <div class="stat-head"><span class="stat-icon" v-html="icon('messageCircle')" /><span>想法</span></div>
-            <strong>{{ thoughts.length }}</strong>
-          </article>
-          <article class="card stat">
-            <div class="stat-head"><span class="stat-icon" v-html="icon('messagesSquare')" /><span>研究</span></div>
-            <strong>{{ dialogues.length }}</strong>
-          </article>
-          <article class="card stat">
-            <div class="stat-head"><span class="stat-icon" v-html="icon('bookOpen')" /><span>知识</span></div>
-            <strong>{{ knowledge.length }}</strong>
-          </article>
-          <article class="card stat">
-            <div class="stat-head"><span class="stat-icon" v-html="icon('gitPullRequest')" /><span>未确认</span></div>
-            <strong>{{ openQuestions.length }}</strong>
-          </article>
-          <article class="card stat">
-            <div class="stat-head"><span class="stat-icon" v-html="icon('scrollText')" /><span>记录</span></div>
-            <strong>{{ logs.length }}</strong>
-          </article>
-          <article class="card stat">
-            <div class="stat-head"><span class="stat-icon" v-html="icon('shield')" /><span>约束</span></div>
-            <strong>{{ constraints.length }}</strong>
-          </article>
-        </div>
-        <div class="card paths">
-          <div>
-            <span>当前项目</span>
-            <code>{{ state.projectRoot ? projectDisplayName(state.projectRoot) : '尚未打开项目' }}</code>
-          </div>
-          <div>
-            <span>数据层</span>
-            <div class="path-value">
-              <code>{{ dashboard?.agentBrief?.dataRoot || '初始化后显示' }}</code>
-              <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开数据层文件夹" aria-label="打开数据层文件夹" :disabled="state.busy || !state.initialized || !dashboard?.agentBrief?.dataRoot" @click="openDataRoot" v-html="icon('folderOpen')" />
-            </div>
-          </div>
-          <div>
-            <span>全局知识库</span>
-            <div class="path-value">
-              <code>{{ dashboard?.agentBrief?.knowledgeRoot || '初始化后显示' }}</code>
-              <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开知识库文件夹" aria-label="打开知识库文件夹" :disabled="state.busy || !state.initialized || !dashboard?.agentBrief?.knowledgeRoot" @click="openKnowledgeRoot" v-html="icon('folderOpen')" />
-            </div>
-          </div>
-        </div>
-        <div class="card agent-sync-card">
-          <div class="agent-sync-head">
-            <div><span class="badge">Agent 同步</span></div>
-            <div class="agent-sync-actions">
-              <button class="btn icon-button btn-outline-primary btn-sm" type="button" title="复制同步" aria-label="复制同步" :disabled="state.busy || !state.initialized" @click="copyBrief" v-html="icon('copy')" />
-            </div>
-          </div>
-          <p class="brief-summary">{{ dashboard?.agentBrief ? '复制给新 Agent 的同步指令' : '打开项目后显示同步入口。' }}</p>
-          <small></small>
-        </div>
-      </section>
+      <OverviewView
+        v-if="state.section === 'overview'"
+        :generated-at-text="generatedAtText"
+        :project-root="state.projectRoot ? projectDisplayName(state.projectRoot) : ''"
+        :initialized="state.initialized"
+        :status-title="statusTitle"
+        :status-description="statusDescription"
+        :counts="{
+          tasks: tasks.length,
+          thoughts: thoughts.length,
+          dialogues: dialogues.length,
+          knowledge: knowledge.length,
+          questions: openQuestions.length,
+          logs: logs.length,
+          constraints: constraints.length,
+        }"
+        :data-root="dashboard?.agentBrief?.dataRoot || ''"
+        :knowledge-root="dashboard?.agentBrief?.knowledgeRoot || ''"
+        :busy="state.busy"
+        :icon="icon"
+        @open-data-root="openDataRoot"
+        @open-knowledge-root="openKnowledgeRoot"
+        @copy-brief="copyBrief"
+      />
 
       <section v-if="state.section === 'capture'" id="capture" class="section view active-view">
         <div class="section-head"><h2>想法</h2><span></span></div>
@@ -1688,7 +1644,12 @@ function escapeHtml(value: any) {
                 <div class="thought-title-row">
                   <span v-if="thought.shortId" class="thought-short-id">{{ thought.shortId }}</span>
                   <strong v-if="thoughtDisplayTitle(thought)">{{ thoughtDisplayTitle(thought) }}</strong>
-                  <span class="badge" :class="statusBadgeClass(thought.status)">{{ statusText(thought.status) }}</span>
+                  <UiTag
+                    :label="statusText(thought.status)"
+                    :tone="statusTone(thought.status)"
+                    variant="status"
+                    :icon-svg="icon(statusIcon(thought.status))"
+                  />
                 </div>
               </div>
               <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="删除输入" aria-label="删除输入" @click="deleteThought(thought.id)" v-html="icon('trash')" />
@@ -1700,44 +1661,21 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section v-if="state.section === 'board'" id="board" class="section view active-view">
-        <div class="section-head"><h2>任务</h2><span></span></div>
-        <div class="board-summary"><span v-for="part in boardSummaryParts()" :key="part">{{ part }}</span></div>
-        <div class="board">
-          <section v-for="[status, label] in boardColumns" :key="status" class="card column">
-            <div class="column-head"><h3>{{ label }}</h3><span class="badge">{{ tasks.filter((task: AnyRecord) => task.status === status).length }}</span></div>
-            <div class="tasks">
-              <p v-if="!boardItems(status).length" class="empty">暂无任务</p>
-              <article
-                v-for="task in boardItems(status)"
-                :key="task.id"
-                :ref="(el) => setTaskRef(task.id, el as Element | null)"
-                class="task"
-                :class="{ done: task.status === 'done', 'task-highlight': state.highlightedTask === task.id }"
-                role="button"
-                tabindex="0"
-                @click="openTaskDetail(task)"
-                @keydown.enter.prevent="openTaskDetail(task)"
-                @keydown.space.prevent="openTaskDetail(task)"
-              >
-                <div class="task-head">
-                  <div class="task-title"><span v-if="task.shortId" class="task-short-id">{{ task.shortId }}</span><span>{{ task.title }}</span></div>
-                  <button class="btn icon-button btn-outline-secondary btn-sm task-delete-button" type="button" title="删除任务" aria-label="删除任务" @click.stop="deleteTask(task.id)" v-html="icon('trash')" />
-                </div>
-                <div class="task-meta">
-                  <span class="badge" :class="priorityClass(task.priority)">{{ task.priority || 'medium' }}</span>
-                  <span class="badge muted-badge">{{ task.area || 'tool' }}</span>
-                  <span class="badge" :class="statusBadgeClass(task.status)">{{ statusText(task.status) }}</span>
-                </div>
-                <p v-if="task.detail">{{ String(task.detail).slice(0, 180) }}{{ String(task.detail).length > 180 ? '...' : '' }}</p>
-              </article>
-              <button v-if="status === 'done' && tasks.filter((task: AnyRecord) => task.status === 'done').length > 6" class="done-toggle" type="button" @click="state.doneExpanded = !state.doneExpanded">
-                {{ state.doneExpanded ? '收起已完成任务' : `展开 ${hiddenDoneCount(status)} 个已完成任务` }}
-              </button>
-            </div>
-          </section>
-        </div>
-      </section>
+      <TaskBoardView
+        v-if="state.section === 'board'"
+        :columns="boardColumns"
+        :tasks="tasks"
+        :board-items="boardItems"
+        :board-summary="boardSummaryParts()"
+        :hidden-done-count="hiddenDoneCount"
+        :done-expanded="state.doneExpanded"
+        :highlighted-task="state.highlightedTask"
+        :set-task-ref="setTaskRef"
+        :icon="icon"
+        @open-task="openTaskDetail"
+        @delete-task="deleteTask"
+        @toggle-done="state.doneExpanded = !state.doneExpanded"
+      />
 
       <section v-if="state.section === 'dialogues'" id="dialogues" class="section view active-view">
         <div class="section-head"><h2>研究</h2><span>{{ activeDialogues.length }} 条待处理</span></div>
@@ -1757,13 +1695,19 @@ function escapeHtml(value: any) {
                   :key="dialogue.id || dialogue.shortId || index"
                   :ref="(el) => setDialogueRef(index, el as Element | null)"
                   class="card dialogue"
+                  :data-mode="dialogue.mode || 'legacy'"
                   :class="{ 'dialogue-highlight': state.highlightedDialogue === index }"
                 >
                   <div class="dialogue-head">
                     <div>
                       <span class="task-short-id">{{ dialogue.shortId || 'D000' }}</span>
-                      <span class="badge research-mode-badge" :class="`research-mode-${dialogue.mode || 'legacy'}`">{{ researchModeLabel(dialogue.mode) }}</span>
-                      <span class="badge" :class="statusBadgeClass(dialogue.status)">{{ researchStatusText(dialogue.status) }}</span>
+                      <UiTag :label="researchModeLabel(dialogue.mode)" :icon-svg="icon(researchModeIcon(dialogue.mode))" />
+                      <UiTag
+                        :label="researchStatusText(dialogue.status)"
+                        :tone="statusTone(dialogue.status)"
+                        variant="status"
+                        :icon-svg="icon(statusIcon(dialogue.status))"
+                      />
                       <strong>{{ dialogueDisplayTitle(dialogue) }}</strong>
                     </div>
                     <div class="dialogue-actions">
@@ -1780,7 +1724,7 @@ function escapeHtml(value: any) {
                     <p v-else>{{ dialogue.status === 'doing' ? 'Agent 正在研究。' : '等待 Agent 处理。' }}</p>
                   </section>
                   <section class="dialogue-block dialogue-meta-block"><strong>验收标准</strong><p>{{ dialogue.acceptance || '无。' }}</p></section>
-                  <div v-if="dialogueRefsList(dialogue).length" class="dialogue-relations"><span v-for="ref in dialogueRefsList(dialogue)" :key="ref" class="badge muted-badge">{{ ref }}</span></div>
+                  <div v-if="dialogueRefsList(dialogue).length" class="dialogue-relations"><UiTag v-for="ref in dialogueRefsList(dialogue)" :key="ref" :label="ref" :icon-svg="icon('link')" /></div>
                 </article>
               </div>
             </div>
@@ -1817,7 +1761,7 @@ function escapeHtml(value: any) {
             <div class="version-card-head">
               <div>
                 <span class="task-short-id">{{ version.shortId }}</span>
-                <span class="badge">{{ version.label }}</span>
+                <UiTag :label="version.label" :icon-svg="icon('tag')" />
               </div>
               <span class="version-state" :class="{ 'is-current': version.status === 'active' }">{{ version.status === 'active' ? '当前版本' : `完成于 ${formatTime(version.completed)}` }}</span>
             </div>
@@ -1852,7 +1796,11 @@ function escapeHtml(value: any) {
           <p v-if="!openQuestions.length" class="empty-panel">当前没有等待你回复的协作问题。</p>
           <article v-for="item in openQuestions" :key="item.id" class="card collab-record">
             <div class="collab-record-head">
-              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge muted-badge">{{ questionKindText(item.kind) }}</span><span v-if="item.blocking" class="badge warning-badge">阻塞</span></div>
+              <div>
+                <span class="task-short-id">{{ item.shortId }}</span>
+                <UiTag :label="questionKindText(item.kind)" :icon-svg="icon('messageCircle')" />
+                <UiTag v-if="item.blocking" label="阻塞" tone="warning" variant="status" :icon-svg="icon('alertTriangle')" />
+              </div>
               <div class="collab-record-actions">
                 <button v-if="item.relations?.length" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看关联记录" aria-label="查看关联记录" @click="openQuestionTarget(item)" v-html="icon('eye')" />
                 <button class="btn btn-primary btn-sm" type="button" @click="openReplyDialog(item)">回复</button>
@@ -1876,7 +1824,7 @@ function escapeHtml(value: any) {
           <p v-if="!pendingDecisions.length" class="empty-panel">当前没有等待 Agent 跟进的协作线程。</p>
           <article v-for="item in pendingDecisions" :key="item.id" class="card collab-record decided-record">
             <div class="collab-record-head">
-              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge">待 Agent 跟进</span></div>
+              <div><span class="task-short-id">{{ item.shortId }}</span><UiTag label="待 Agent 跟进" tone="warning" variant="status" :icon-svg="icon('clock')" /></div>
               <div class="collab-record-actions">
                 <button class="btn btn-outline-secondary btn-sm" type="button" @click="openReplyDialog(item)">补充说明</button>
                 <button class="btn btn-primary btn-sm" type="button" @click="completeQuestion(item)">标记已完成</button>
@@ -1901,7 +1849,7 @@ function escapeHtml(value: any) {
           <p v-if="!activeRisks.length" class="empty-panel">当前版本没有未处理的风险或后续事项。</p>
           <article v-for="item in activeRisks" :key="item.id" class="card collab-record risk-record">
             <div class="collab-record-head">
-              <div><span class="task-short-id">{{ item.shortId }}</span><span class="badge muted-badge">{{ riskKindText(item.kind) }}</span></div>
+              <div><span class="task-short-id">{{ item.shortId }}</span><UiTag :label="riskKindText(item.kind)" tone="warning" :icon-svg="icon('alertTriangle')" /></div>
               <div class="collab-record-actions">
                 <button class="btn btn-primary btn-sm" type="button" @click="resolveRisk(item)">标记已处理</button>
               </div>
@@ -1934,14 +1882,14 @@ function escapeHtml(value: any) {
                   </div>
                 </div>
                 <div class="collab-history-actions">
-                  <span class="badge muted-badge">{{ item.status === 'resolved' ? '已完成' : '已归档' }}</span>
+                  <UiTag :label="item.status === 'resolved' ? '已完成' : '已归档'" :tone="item.status === 'resolved' ? 'complete' : 'neutral'" variant="status" :icon-svg="icon(item.status === 'resolved' ? 'circleCheck' : 'archive')" />
                   <button class="btn btn-outline-secondary btn-sm" type="button" @click="openReplyDialog(item)">继续讨论</button>
                 </div>
               </article>
               <article v-for="item in versionHistoryRisks(version.shortId)" :key="item.id" class="collab-history-row">
                 <span class="task-short-id">{{ item.shortId }}</span>
                 <div><strong>{{ item.title }}</strong><p>{{ item.content }}</p></div>
-                <span class="badge muted-badge">{{ item.status === 'resolved' ? '已处理' : '已归档' }}</span>
+                <UiTag :label="item.status === 'resolved' ? '已处理' : '已归档'" :tone="item.status === 'resolved' ? 'complete' : 'neutral'" variant="status" :icon-svg="icon(item.status === 'resolved' ? 'circleCheck' : 'archive')" />
               </article>
             </div>
           </details>
@@ -1961,8 +1909,12 @@ function escapeHtml(value: any) {
             <div class="agent-log-toc">
               <p v-if="!logs.length" class="empty-panel">{{ state.logQuery.trim() ? '没有匹配的工作记录。' : '暂无工作记录。' }}</p>
               <button v-for="(log, index) in logs" :key="log.id || index" class="agent-log-toc-item" :class="{ active: index === state.selectedLogIndex }" type="button" @click="openAgentLog(index)">
-                <span class="agent-log-toc-meta"><span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span><span class="badge" :class="statusBadgeClass(log.status)">{{ statusText(log.status || 'done') }}</span><span class="badge muted-badge">{{ logLevelText(log.recordLevel) }}</span></span>
-                <span class="agent-log-toc-relations"><span v-if="!resolveLogTasks(log).length" class="badge muted-badge">general</span><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
+                <span class="agent-log-toc-meta">
+                  <span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span>
+                  <UiTag v-if="log.status && log.status !== 'done'" :label="statusText(log.status)" :tone="statusTone(log.status)" variant="status" :icon-svg="icon(statusIcon(log.status))" />
+                  <UiTag :label="logLevelText(log.recordLevel)" :icon-svg="icon(logLevelIcon(log.recordLevel))" />
+                </span>
+                <span class="agent-log-toc-relations"><UiTag v-if="!resolveLogTasks(log).length" label="general" :icon-svg="icon('tag')" /><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
                 <strong>{{ primaryLogPrompt(log) }}</strong>
                 <small>{{ log.title }} · {{ formatTime(log.created) || '未标注日期' }}</small>
               </button>
@@ -1976,15 +1928,21 @@ function escapeHtml(value: any) {
                 :key="log.id || index"
                 :ref="(el) => setLogRef(index, el as Element | null)"
                 class="card collab-log agent-log-card"
+                :data-record-level="log.recordLevel || 'light'"
                 :class="{ active: index === state.selectedLogIndex, 'collab-log-highlight': state.highlightedLog === index }"
               >
                 <div class="collab-card-head collab-card-head--meta">
                   <div>
-                    <div class="log-badges"><span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span><span class="badge" :class="statusBadgeClass(log.status)">{{ statusText(log.status || 'done') }}</span><span class="badge muted-badge">{{ logLevelText(log.recordLevel) }}</span><span v-if="log.source" class="badge muted-badge">{{ log.source }}</span></div>
+                    <div class="log-badges">
+                      <span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span>
+                      <UiTag :label="statusText(log.status || 'done')" :tone="statusTone(log.status || 'done')" variant="status" :icon-svg="icon(statusIcon(log.status || 'done'))" />
+                      <UiTag :label="logLevelText(log.recordLevel)" :icon-svg="icon(logLevelIcon(log.recordLevel))" />
+                      <UiTag v-if="log.source" :label="log.source" :icon-svg="icon('tag')" />
+                    </div>
                     <h3>{{ log.title }}</h3>
                     <small>{{ formatTime(log.created) || '未标注日期' }}</small>
                   </div>
-                  <div class="log-task-relations"><span v-if="!resolveLogTasks(log).length" class="badge muted-badge">general</span><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></div>
+                  <div class="log-task-relations"><UiTag v-if="!resolveLogTasks(log).length" label="general" :icon-svg="icon('tag')" /><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></div>
                 </div>
                 <section v-if="log.userOriginal && log.userOriginal !== primaryLogPrompt(log)"><strong>用户原话</strong><div v-html="renderTextBlock(log.userOriginal)" /></section>
                 <section :class="{ 'missing-field': !log.understanding }"><strong>理解</strong><div v-if="log.understanding" v-html="renderTextBlock(log.understanding)" /><p v-else>未记录</p></section>
@@ -2076,7 +2034,7 @@ function escapeHtml(value: any) {
             <div class="constraint-grid system-constraint-grid">
               <article v-for="constraint in systemConstraints" :key="constraint.id || constraint.path" class="constraint-card system-constraint-card">
                 <button class="constraint-card-main" type="button" @click="openMarkdownDocument(constraint, 'constraint')">
-                  <span class="library-card-icon constraint-card-icon" v-html="icon('scrollText')" />
+                  <span class="library-card-icon constraint-card-icon" v-html="icon('braces')" />
                   <span class="library-card-kicker"><span>{{ constraint.shortId }}</span><span>只读 · {{ constraint.version || '未标注' }}</span></span>
                   <strong>{{ constraint.title }}</strong>
                   <small>{{ constraintSummary(constraint) }}</small>
@@ -2139,9 +2097,9 @@ function escapeHtml(value: any) {
         <div>
           <div class="task-detail-badges">
             <span v-if="state.selectedTask.shortId" class="task-short-id">{{ state.selectedTask.shortId }}</span>
-            <span class="badge" :class="priorityClass(state.selectedTask.priority)">{{ state.selectedTask.priority || 'medium' }}</span>
-            <span class="badge muted-badge">{{ state.selectedTask.area || 'tool' }}</span>
-            <span class="badge" :class="statusBadgeClass(state.selectedTask.status)">{{ statusText(state.selectedTask.status) }}</span>
+            <UiTag :label="state.selectedTask.priority || 'medium'" :tone="priorityTone(state.selectedTask.priority)" :icon-svg="icon(priorityIcon(state.selectedTask.priority))" />
+            <UiTag :label="state.selectedTask.area || 'tool'" :icon-svg="icon('tag')" />
+            <UiTag :label="statusText(state.selectedTask.status)" :tone="statusTone(state.selectedTask.status)" variant="status" :icon-svg="icon(statusIcon(state.selectedTask.status))" />
           </div>
           <h2 id="taskDetailTitle">{{ state.selectedTask.title || '未命名任务' }}</h2>
           <p>{{ state.selectedTask.updated ? `更新于 ${formatTime(state.selectedTask.updated)}` : '未标注更新时间' }}</p>
@@ -2250,8 +2208,8 @@ function escapeHtml(value: any) {
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeMarkdownDocument" v-html="icon('x')" />
       </div>
       <div class="markdown-dialog-meta">
-        <span class="badge">出处：{{ markdownDialogOrigin() }}</span>
-        <span v-for="label in markdownDialogBadges()" :key="label" class="badge muted-badge">{{ label }}</span>
+        <UiTag :label="`出处：${markdownDialogOrigin()}`" :icon-svg="icon('fileText')" />
+        <UiTag v-for="label in markdownDialogBadges()" :key="label" :label="label" :icon-svg="icon('tag')" />
       </div>
       <div class="markdown-dialog-body rendered-markdown" v-html="renderReadableMarkdown(state.markdownDocument.content || '')" />
     </section>
