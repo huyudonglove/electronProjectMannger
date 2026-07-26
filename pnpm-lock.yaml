@@ -43,6 +43,19 @@ importers:
         specifier: ^24.13.2
         version: 24.13.2
 
+  packages/agent-provider-openai:
+    dependencies:
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+    devDependencies:
+      '@electron-manager/agent-runtime-local':
+        specifier: workspace:*
+        version: link:../agent-runtime-local
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/agent-runtime-local:
     dependencies:
       '@electron-manager/agent-core':

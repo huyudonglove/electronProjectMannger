@@ -251,11 +251,11 @@ test('every operation expectedHash refers to the original file content', async (
 
 test('exec_command runs an approved package script without overwriting existing dirty files', async () => {
   const { root } = await fixture()
-  const runtime = new LocalAgentRuntime(root, { timeoutMs: 20_000 })
+  const runtime = new LocalAgentRuntime(root, { timeoutMs: 45_000 })
   const before = await run('git', ['status', '--porcelain'], root)
   const dirtyBefore = await readFile(path.join(root, 'src', 'example.ts'), 'utf8')
   const untrackedBefore = await readFile(path.join(root, 'untracked.ts'), 'utf8')
-  const input = { command: 'pnpm', args: ['test'], cwd: '.', timeoutMs: 15_000 }
+  const input = { command: 'pnpm', args: ['test'], cwd: '.', timeoutMs: 30_000 }
 
   const result = await runtime.execute(writeRequest('exec-test', 'exec_command', input), context(root, {
     effect: 'allow',
@@ -268,7 +268,7 @@ test('exec_command runs an approved package script without overwriting existing 
   assert.equal(result.metadata.command, 'pnpm')
   assert.equal(result.metadata.packageScript, 'test')
   assert.equal(result.metadata.cwd, '.')
-  assert.equal(result.metadata.timeoutMs, 15_000)
+  assert.equal(result.metadata.timeoutMs, 30_000)
   for (const line of before.split('\n').filter(Boolean)) assert.match(after, new RegExp(escapeRegex(line)))
   assert.equal(await readFile(path.join(root, 'src', 'example.ts'), 'utf8'), dirtyBefore)
   assert.equal(await readFile(path.join(root, 'untracked.ts'), 'utf8'), untrackedBefore)

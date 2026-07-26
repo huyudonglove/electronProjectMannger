@@ -1,5 +1,6 @@
 import { completeLedger, evaluateCompletion } from './completion.js'
 import { AgentCoreError, toAgentError } from './errors.js'
+import { assertJsonSchemaValue, parseAgentTurnAction } from './schema.js'
 import {
   clearPendingAction,
   detectRepeatedFailure,
@@ -198,11 +199,11 @@ export class AgentStepper {
     for await (const event of this.provider.stream(request, signal)) {
       if (event.type === 'action') {
         if (action) throw new AgentCoreError('MODEL_ERROR', 'Model returned more than one action in a single turn')
-        action = structuredClone(event.action)
+        action = parseAgentTurnAction(event.action)
       } else if (event.type === 'tool_request') {
         throw new AgentCoreError('MODEL_ERROR', 'Provider returned a legacy tool_request instead of a structured action')
       } else if (event.type === 'error') {
-        throw new AgentCoreError('MODEL_ERROR', event.error.message, { retryable: event.error.retryable, details: event.error.details })
+        throw new AgentCoreError(event.error.code, event.error.message, { retryable: event.error.retryable, details: event.error.details })
       } else if (event.type === 'completed') {
         completed = true
       }
@@ -285,6 +286,7 @@ export class AgentStepper {
   ): Promise<AgentStepResult> {
     const normalizedRequest = { ...request, input: structuredClone(request.input), requestedAt: this.#clock() }
     const tool = this.#tool(normalizedRequest.name)
+    assertJsonSchemaValue(normalizedRequest.input, tool.inputSchema, `${normalizedRequest.name}.input`)
     const permission = await this.permissionPolicy.decide(structuredClone(normalizedRequest), structuredClone(tool), structuredClone(state.ledger))
     state.ledger = recordToolRequest(state.ledger, normalizedRequest)
     state.event('tool.requested', `Requested ${normalizedRequest.name}`, normalizedRequest.requestedAt, {

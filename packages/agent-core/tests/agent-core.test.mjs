@@ -19,6 +19,8 @@ import {
   recordToolRequest,
   recordToolResult,
   recordVerification,
+  parseAgentTurnAction,
+  assertJsonSchemaValue,
   setPendingAction,
   sequenceAgentEvent,
   toAgentError,
@@ -238,6 +240,50 @@ test('errors, fake model and fake runtime keep adapter behavior testable', async
   )
   assert.equal(result.ok, true)
   assert.equal(runtime.calls.length, 1)
+})
+
+test('AgentTurnAction and tool inputs are rejected when runtime schemas are malformed', () => {
+  assert.throws(
+    () => parseAgentTurnAction({ kind: 'tool', request: { id: 'x', name: 'read_file', input: {}, requestedAt: at(1), actionDigest: 'x', legacy: true } }),
+    /legacy is not allowed/,
+  )
+  assert.throws(() => parseAgentTurnAction({ kind: 'unknown' }), /Unknown AgentTurnAction kind/)
+  assert.throws(() => parseAgentTurnAction([{ kind: 'blocked', summary: 'x', reason: 'y' }]), /must be an object/)
+  assert.throws(
+    () => assertJsonSchemaValue({ path: 'a.ts', extra: true }, {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+      additionalProperties: false,
+    }, 'read_file.input'),
+    /extra is not allowed/,
+  )
+})
+
+test('AgentStepper rejects multiple actions and the legacy tool_request event', async () => {
+  const cases = [
+    [
+      { type: 'action', action: { kind: 'blocked', summary: 'first', reason: 'fixture' } },
+      { type: 'action', action: { kind: 'blocked', summary: 'second', reason: 'fixture' } },
+      { type: 'completed', finishReason: 'stop' },
+    ],
+    [
+      { type: 'tool_request', request: toolRequest('legacy-1', 'read_file', { path: 'src/a.ts' }, 'legacy-digest') },
+      { type: 'completed', finishReason: 'tool_calls' },
+    ],
+  ]
+  for (const events of cases) {
+    const stepper = new AgentStepper({
+      provider: new FakeModelProvider([events]),
+      runtime: new FakeAgentRuntime(),
+      permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture' }),
+      tools,
+      clock: advancingClock(1),
+    })
+    const result = await stepper.step(createRunLedger(input(), at(0)))
+    assert.equal(result.disposition, 'failed')
+    assert.match(result.summary, /more than one action|legacy tool_request/)
+  }
 })
 
 test('event sequencing is monotonic and independent from model history', () => {

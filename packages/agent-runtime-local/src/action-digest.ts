@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { AgentCoreError, type JsonValue, type ToolRequest } from '@electron-manager/agent-core'
+import { AgentCoreError, stableJson, type JsonValue, type ToolRequest } from '@electron-manager/agent-core'
 
 export function computeActionDigest(toolName: string, input: Record<string, JsonValue>) {
   return createHash('sha256')
@@ -17,12 +17,4 @@ export function assertActionDigest(request: ToolRequest) {
       details: { requestId: request.id },
     })
   }
-}
-
-function stableJson(value: JsonValue): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key]!)}`).join(',')}}`
-  }
-  return JSON.stringify(value)
 }
