@@ -37,6 +37,22 @@ importers:
         specifier: ^8.1.3
         version: 8.1.3(@types/node@24.13.2)(jiti@2.7.0)
 
+  packages/agent-core:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
+  packages/agent-runtime-local:
+    dependencies:
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/project-core:
     devDependencies:
       '@types/node':
