@@ -106,4 +106,27 @@ export const localWriteToolDefinitions: ToolDefinition[] = [
   },
 ]
 
-export const localToolDefinitions: ToolDefinition[] = [...localReadToolDefinitions, ...localWriteToolDefinitions]
+export const localProcessToolDefinitions: ToolDefinition[] = [
+  {
+    name: 'exec_command',
+    description: 'Run an approved repository-defined package verification script without an outer shell. Scripts may have project-local side effects and must be followed by Git inspection.',
+    risk: 'process',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: ['pnpm', 'npm'] },
+        args: { type: 'array', items: { type: 'string' } },
+        cwd: { type: 'string', description: 'Existing project-relative directory. Defaults to the project root.' },
+        timeoutMs: { type: 'number', description: 'Positive timeout bounded by the runtime maximum.' },
+      },
+      required: ['command', 'args'],
+      additionalProperties: false,
+    },
+  },
+]
+
+export const localToolDefinitions: ToolDefinition[] = [
+  ...localReadToolDefinitions,
+  ...localWriteToolDefinitions,
+  ...localProcessToolDefinitions,
+]

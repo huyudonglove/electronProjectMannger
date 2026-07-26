@@ -35,6 +35,16 @@ export async function resolveProjectPath(projectRoot: string, requestedPath = '.
   }
 }
 
+export async function resolveProjectDirectory(projectRoot: string, requestedPath = '.'): Promise<ResolvedProjectPath> {
+  const resolved = await resolveProjectPath(projectRoot, requestedPath)
+  if (!(await stat(resolved.absolutePath)).isDirectory()) {
+    throw new AgentCoreError('INVALID_INPUT', `Path is not a directory: ${requestedPath}`, {
+      details: { path: requestedPath },
+    })
+  }
+  return resolved
+}
+
 export async function resolveProjectPathCandidate(projectRoot: string, requestedPath: string): Promise<ResolvedProjectPath> {
   if (requestedPath.includes('\0')) throw new AgentCoreError('INVALID_INPUT', 'Path cannot contain null bytes')
   const root = await realpath(projectRoot)

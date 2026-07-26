@@ -10,16 +10,18 @@ import {
   type ToolResult,
 } from '@electron-manager/agent-core'
 
-import { resolveProjectPath, resolveProjectPathCandidate } from './path-guard.js'
+import { resolveProjectDirectory, resolveProjectPath, resolveProjectPathCandidate } from './path-guard.js'
 import { runProcess } from './process-runner.js'
 import { readFileLines } from './read-file.js'
 import { assertActionDigest } from './action-digest.js'
 import { applyProjectPatch, createProjectFile, parsePatchOperations } from './write-tools.js'
+import { parseRestrictedCommand } from './command-policy.js'
 
 export interface LocalRuntimeOptions {
   maxOutputChars?: number
   timeoutMs?: number
   maxWriteChars?: number
+  allowedPackageScripts?: string[]
   clock?: () => string
 }
 
@@ -30,6 +32,7 @@ export class LocalAgentRuntime implements AgentRuntime {
   readonly maxOutputChars: number
   readonly timeoutMs: number
   readonly maxWriteChars: number
+  readonly allowedPackageScripts?: string[]
   readonly #clock: () => string
   readonly #handlers: Map<string, ToolHandler>
 
@@ -38,6 +41,7 @@ export class LocalAgentRuntime implements AgentRuntime {
     this.maxOutputChars = options.maxOutputChars ?? 20_000
     this.timeoutMs = options.timeoutMs ?? 30_000
     this.maxWriteChars = options.maxWriteChars ?? 1_000_000
+    this.allowedPackageScripts = options.allowedPackageScripts
     this.#clock = options.clock || (() => new Date().toISOString())
     this.#handlers = new Map([
       ['list_files', this.#listFiles.bind(this)],
@@ -47,6 +51,7 @@ export class LocalAgentRuntime implements AgentRuntime {
       ['git_diff', this.#gitDiff.bind(this)],
       ['create_file', this.#createFile.bind(this)],
       ['apply_patch', this.#applyPatch.bind(this)],
+      ['exec_command', this.#execCommand.bind(this)],
     ])
   }
 
@@ -188,6 +193,35 @@ export class LocalAgentRuntime implements AgentRuntime {
       },
     }
   }
+
+  async #execCommand(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
+    const startedAt = this.#clock()
+    assertActionDigest(request)
+    const command = parseRestrictedCommand(request.input, {
+      defaultTimeoutMs: this.timeoutMs,
+      maxTimeoutMs: this.timeoutMs,
+      allowedPackageScripts: this.allowedPackageScripts,
+    })
+    const cwd = await resolveProjectDirectory(context.projectRoot, command.cwd)
+    const result = await runProcess(command.command, command.args, {
+      cwd: cwd.absolutePath,
+      timeoutMs: command.timeoutMs,
+      maxOutputChars: this.maxOutputChars,
+      env: commandEnvironment(),
+    })
+    const toolResult = processToolResult(request, startedAt, this.#clock(), result, `Ran ${command.command} ${command.packageScript}`)
+    toolResult.metadata = {
+      command: command.command,
+      args: command.args,
+      cwd: cwd.relativePath,
+      packageScript: command.packageScript,
+      timeoutMs: command.timeoutMs,
+      signal: result.signal,
+      stdoutChars: result.stdoutChars,
+      stderrChars: result.stderrChars,
+    }
+    return toolResult
+  }
 }
 
 export { LocalAgentRuntime as LocalReadRuntime }
@@ -254,4 +288,15 @@ function optionalStringArray(value: JsonValue | undefined, name: string) {
     throw new AgentCoreError('INVALID_INPUT', `${name} must be an array of strings`)
   }
   return value as string[]
+}
+
+function commandEnvironment(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    CI: '1',
+    NO_COLOR: '1',
+    FORCE_COLOR: '0',
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+    npm_config_update_notifier: 'false',
+  }
 }

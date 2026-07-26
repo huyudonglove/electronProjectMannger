@@ -18,6 +18,8 @@ export interface ProcessRunResult {
   output: string
   truncated: boolean
   timedOut: boolean
+  stdoutChars: number
+  stderrChars: number
 }
 
 export function runProcess(command: string, args: string[], options: ProcessRunOptions): Promise<ProcessRunResult> {
@@ -31,6 +33,8 @@ export function runProcess(command: string, args: string[], options: ProcessRunO
     })
     let stdout = ''
     let stderr = ''
+    let stdoutChars = 0
+    let stderrChars = 0
     let timedOut = false
     let timeoutTimer: NodeJS.Timeout | undefined
     let forceKillTimer: NodeJS.Timeout | undefined
@@ -39,9 +43,11 @@ export function runProcess(command: string, args: string[], options: ProcessRunO
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
+      stdoutChars += chunk.length
       if (stdout.length < collectionLimit) stdout += chunk.slice(0, collectionLimit - stdout.length)
     })
     child.stderr.on('data', (chunk: string) => {
+      stderrChars += chunk.length
       if (stderr.length < collectionLimit) stderr += chunk.slice(0, collectionLimit - stderr.length)
     })
 
@@ -63,6 +69,8 @@ export function runProcess(command: string, args: string[], options: ProcessRunO
         output: limited.text,
         truncated: limited.truncated || stdout.length >= collectionLimit || stderr.length >= collectionLimit,
         timedOut,
+        stdoutChars,
+        stderrChars,
       })
     })
 

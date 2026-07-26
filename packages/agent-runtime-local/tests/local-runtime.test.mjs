@@ -24,6 +24,13 @@ async function fixture() {
   await writeFile(path.join(root, 'src', 'deleted.ts'), 'export const removed = true\n', 'utf8')
   await writeFile(path.join(root, 'src', 'second.ts'), 'export const second = 10\n', 'utf8')
   await writeFile(path.join(root, 'long.txt'), `${'0123456789'.repeat(300)}\n`, 'utf8')
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify({
+    private: true,
+    scripts: {
+      test: 'node -e "console.log(\'fixture test passed\')"',
+      slow: 'node -e "setTimeout(() => {}, 5000)"',
+    },
+  }, null, 2)}\n`, 'utf8')
   await writeFile(path.join(outside, 'secret.txt'), 'outside secret\n', 'utf8')
   await symlink(path.join(outside, 'secret.txt'), path.join(root, 'escape.txt'))
   await symlink(outside, path.join(root, 'linked-outside'))
@@ -242,8 +249,98 @@ test('every operation expectedHash refers to the original file content', async (
   assert.equal(await readFile(path.join(root, 'src', 'example.ts'), 'utf8'), 'export function result() {\n  return 43\n}\n')
 })
 
+test('exec_command runs an approved package script without overwriting existing dirty files', async () => {
+  const { root } = await fixture()
+  const runtime = new LocalAgentRuntime(root, { timeoutMs: 20_000 })
+  const before = await run('git', ['status', '--porcelain'], root)
+  const dirtyBefore = await readFile(path.join(root, 'src', 'example.ts'), 'utf8')
+  const untrackedBefore = await readFile(path.join(root, 'untracked.ts'), 'utf8')
+  const input = { command: 'pnpm', args: ['test'], cwd: '.', timeoutMs: 15_000 }
+
+  const result = await runtime.execute(writeRequest('exec-test', 'exec_command', input), context(root, {
+    effect: 'allow',
+    reason: 'approved verification command',
+  }))
+  const after = await run('git', ['status', '--porcelain'], root)
+
+  assert.equal(result.ok, true)
+  assert.match(result.output, /fixture test passed/)
+  assert.equal(result.metadata.command, 'pnpm')
+  assert.equal(result.metadata.packageScript, 'test')
+  assert.equal(result.metadata.cwd, '.')
+  assert.equal(result.metadata.timeoutMs, 15_000)
+  for (const line of before.split('\n').filter(Boolean)) assert.match(after, new RegExp(escapeRegex(line)))
+  assert.equal(await readFile(path.join(root, 'src', 'example.ts'), 'utf8'), dirtyBefore)
+  assert.equal(await readFile(path.join(root, 'untracked.ts'), 'utf8'), untrackedBefore)
+})
+
+test('exec_command rejects shells, network tools, package mutations and forwarded arguments', async () => {
+  const { root } = await fixture()
+  const runtime = new LocalAgentRuntime(root)
+  const marker = path.join(root, 'shell-owned.txt')
+  const deniedInputs = [
+    { command: 'sh', args: ['-c', `touch ${marker}`] },
+    { command: 'curl', args: ['https://example.com'] },
+    { command: 'pnpm', args: ['add', 'left-pad'] },
+    { command: 'pnpm', args: ['test', ';', 'touch', marker] },
+    { command: 'npm', args: ['build'] },
+    { command: 'git', args: ['add', '.'] },
+  ]
+
+  for (const [index, input] of deniedInputs.entries()) {
+    const result = await runtime.execute(writeRequest(`denied-command-${index}`, 'exec_command', input), context(root))
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'COMMAND_NOT_ALLOWED')
+  }
+  await assert.rejects(() => readFile(marker, 'utf8'), { code: 'ENOENT' })
+})
+
+test('exec_command requires approval and keeps cwd inside a real project directory', async () => {
+  const { root, outside } = await fixture()
+  const runtime = new LocalAgentRuntime(root)
+  const input = { command: 'pnpm', args: ['test'] }
+
+  const approval = await runtime.execute(writeRequest('approval', 'exec_command', input), context(root, {
+    effect: 'ask',
+    reason: 'process execution requires approval',
+  }))
+  assert.equal(approval.ok, false)
+  assert.equal(approval.error.code, 'APPROVAL_REQUIRED')
+
+  const lexicalInput = { ...input, cwd: path.join('..', path.basename(outside)) }
+  const lexical = await runtime.execute(writeRequest('exec-lexical', 'exec_command', lexicalInput), context(root))
+  assert.equal(lexical.ok, false)
+  assert.equal(lexical.error.code, 'PATH_OUTSIDE_PROJECT')
+
+  const symlinkInput = { ...input, cwd: 'linked-outside' }
+  const symlinked = await runtime.execute(writeRequest('exec-symlink', 'exec_command', symlinkInput), context(root))
+  assert.equal(symlinked.ok, false)
+  assert.equal(symlinked.error.code, 'PATH_OUTSIDE_PROJECT')
+
+  const fileInput = { ...input, cwd: 'package.json' }
+  const fileCwd = await runtime.execute(writeRequest('exec-file-cwd', 'exec_command', fileInput), context(root))
+  assert.equal(fileCwd.ok, false)
+  assert.equal(fileCwd.error.code, 'INVALID_INPUT')
+})
+
+test('exec_command enforces its timeout and records termination evidence', async () => {
+  const { root } = await fixture()
+  const runtime = new LocalAgentRuntime(root, { timeoutMs: 2_000, allowedPackageScripts: ['test', 'slow'] })
+  const input = { command: 'pnpm', args: ['slow'], timeoutMs: 100 }
+
+  const result = await runtime.execute(writeRequest('exec-timeout', 'exec_command', input), context(root))
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'TOOL_TIMEOUT')
+  assert.notEqual(result.metadata.signal, null)
+  assert.equal(result.metadata.timeoutMs, 100)
+})
+
 async function run(command, args, cwd) {
   const result = await runProcess(command, args, { cwd, timeoutMs: 10_000, maxOutputChars: 20_000 })
   if (result.exitCode !== 0) throw new Error(result.output || `${command} failed`)
   return result.output
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
