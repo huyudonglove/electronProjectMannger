@@ -5,6 +5,10 @@ import type {
   ModelRequest,
   ModelStreamEvent,
   RuntimeContext,
+  PermissionDecision,
+  PermissionPolicy,
+  RunLedger,
+  ToolDefinition,
   ToolRequest,
   ToolResult,
 } from './protocol.js'
@@ -36,6 +40,20 @@ export class FakeModelProvider implements ModelProvider {
       if (signal?.aborted) throw signal.reason
       yield structuredClone(event)
     }
+  }
+}
+
+export class FakePermissionPolicy implements PermissionPolicy {
+  readonly calls: Array<{ request: ToolRequest; tool: ToolDefinition; ledger: RunLedger }> = []
+  readonly #decide: (request: ToolRequest, tool: ToolDefinition, ledger: RunLedger) => PermissionDecision | Promise<PermissionDecision>
+
+  constructor(decide: PermissionDecision | ((request: ToolRequest, tool: ToolDefinition, ledger: RunLedger) => PermissionDecision | Promise<PermissionDecision>)) {
+    this.#decide = typeof decide === 'function' ? decide : () => decide
+  }
+
+  async decide(request: ToolRequest, tool: ToolDefinition, ledger: RunLedger) {
+    this.calls.push({ request: structuredClone(request), tool: structuredClone(tool), ledger: structuredClone(ledger) })
+    return structuredClone(await this.#decide(request, tool, ledger))
   }
 }
 

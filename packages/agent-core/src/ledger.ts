@@ -113,15 +113,18 @@ export function recordToolRequest(ledger: RunLedger, request: ToolRequest): RunL
   if (ledger.toolExecutions.some((item) => item.request.id === request.id)) {
     throw new AgentCoreError('INVALID_INPUT', `Duplicate tool request id: ${request.id}`)
   }
+  return update(ledger, request.requestedAt, {
+    toolExecutions: [...ledger.toolExecutions, { request: { ...request, input: { ...request.input } } }],
+  })
+}
+
+export function recordAgentStep(ledger: RunLedger, at: string): RunLedger {
   if (ledger.stepCount >= ledger.limits.maxSteps) {
     throw new AgentCoreError('LIMIT_EXCEEDED', 'Run step limit reached', {
       details: { maxSteps: ledger.limits.maxSteps },
     })
   }
-  return update(ledger, request.requestedAt, {
-    stepCount: ledger.stepCount + 1,
-    toolExecutions: [...ledger.toolExecutions, { request: { ...request, input: { ...request.input } } }],
-  })
+  return update(ledger, at, { stepCount: ledger.stepCount + 1 })
 }
 
 export function recordToolResult(ledger: RunLedger, result: ToolResult): RunLedger {

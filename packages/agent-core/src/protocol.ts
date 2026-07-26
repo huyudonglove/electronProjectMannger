@@ -157,11 +157,14 @@ export interface ApprovalRecord {
 
 export interface PendingAction {
   id: string
-  kind: 'tool_approval' | 'user_input'
+  kind: 'plan_approval' | 'tool_approval' | 'user_input'
   summary: string
   createdAt: string
   actionDigest?: string
   toolRequestId?: string
+  approvalScope?: 'plan' | 'tool'
+  resumePhase?: RunPhase
+  verificationCheckId?: string
 }
 
 export interface JsonSchema {
@@ -241,8 +244,34 @@ export interface ModelRequest {
   maxOutputTokens: number
 }
 
+export interface ProposedAcceptanceEvidence {
+  criterionId: string
+  summary: string
+  refs: string[]
+}
+
+export interface ProposedDiffSnapshot {
+  toolRequestId: string
+  changedFiles: string[]
+  summary: string
+}
+
+export type AgentTurnAction =
+  | { kind: 'inspect'; request: ToolRequest }
+  | { kind: 'plan'; id: string; summary: string; rationale: string; actionDigest: string }
+  | { kind: 'tool'; request: ToolRequest }
+  | { kind: 'verify'; checkId: string; request: ToolRequest }
+  | {
+    kind: 'finish'
+    summary: string
+    acceptanceEvidence: ProposedAcceptanceEvidence[]
+    diff?: ProposedDiffSnapshot
+  }
+  | { kind: 'blocked'; summary: string; reason: string }
+
 export type ModelStreamEvent =
   | { type: 'text_delta'; text: string }
+  | { type: 'action'; action: AgentTurnAction }
   | { type: 'tool_request'; request: ToolRequest }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
   | { type: 'completed'; finishReason: 'stop' | 'tool_calls' | 'length' }
@@ -251,6 +280,10 @@ export type ModelStreamEvent =
 export interface ModelProvider {
   readonly profile: ModelCapabilityProfile
   stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent>
+}
+
+export interface PermissionPolicy {
+  decide(request: ToolRequest, tool: ToolDefinition, ledger: RunLedger): PermissionDecision | Promise<PermissionDecision>
 }
 
 export type AgentEventType =
