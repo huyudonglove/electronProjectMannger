@@ -66,7 +66,10 @@ try {
   assert(brief.projectRoot === root, 'brief should point to project root')
   assert(Array.isArray(brief.instructions), 'brief instructions should exist')
   assert(brief.instructions.some((instruction) => instruction.includes('Txxx/Ixxx/Dxxx/Wxxx/Kxxx/Lxxx/Cxxx')), 'brief should describe descending record write order')
-  assert(brief.instructions.some((instruction) => instruction.includes('breadth') && instruction.includes('depth')), 'brief should describe both research modes')
+  assert(brief.instructions.some((instruction) => instruction.includes('work_level:: light | standard | deep')), 'brief should require task work levels')
+  assert(brief.instructions.some((instruction) => instruction.includes('depth_reason')), 'brief should distinguish deep work with an explicit reason')
+  assert(brief.instructions.some((instruction) => instruction.includes('连续 light 修改可以合并')), 'brief should allow bounded light-task merging')
+  assert(!brief.instructions.some((instruction) => instruction.includes('工作记录必须包含 ### 用户目标、### 需求理解')), 'brief should not override light logs with full standard sections')
 
   const taskFile = await readFile(taskPath, 'utf8')
   const thoughtFile = await readFile(thoughtPath, 'utf8')
@@ -78,14 +81,28 @@ try {
   assert(dialogueFile.includes('D036') && dialogueFile.includes('D012'), 'research file should describe descending research write order')
   assert(constraintsFile.includes('C036') && constraintsFile.includes('C001'), 'constraints file should describe descending constraint write order')
   assert(initialLogFile.includes('L036') && initialLogFile.includes('L001'), 'work log file should describe descending log write order')
-  assert(initialLogFile.includes('record_level:: deep'), 'initial setup log should use deep record level')
+  assert(taskFile.includes('work_level:: light'), 'initial setup task should declare a light work level')
+  assert(taskFile.includes('### 执行定义') && !taskFile.includes('### Agent 理解') && !taskFile.includes('### 执行范围'), 'new tasks should use one combined execution definition')
+  assert(initialLogFile.includes('record_level:: light'), 'routine initial setup log should use light record level')
+  assert(initialLogFile.includes('### 结果') && !initialLogFile.includes('### 产出') && !initialLogFile.includes('### 验收结果'), 'new logs should keep compact execution evidence')
+  assert(dashboard.tasks[0]?.workLevel === 'light', 'initial task work level should be parsed')
 
   const skill = await readFile(skillPath, 'utf8')
   assert(skill.includes('Project Collaboration Skill'), 'local skill should exist')
-  assert(skill.includes('record_level:: light | standard | deep'), 'local skill should define record levels')
-  assert(skill.includes('small file changes'), 'local skill should define light file-change logs')
-  assert(skill.includes('### 验收结果'), 'local skill should require explicit acceptance results')
-  assert(skill.includes('before execution and verification'), 'local skill should put acceptance criteria before execution')
+  assert(skill.startsWith('---\nname: project-collaboration'), 'local skill should include valid skill frontmatter')
+  assert(skill.includes('work_level:: light | standard | deep'), 'local skill should define task work levels')
+  assert(skill.includes("related log's `record_level` must match"), 'local skill should bind task and log levels')
+  assert(skill.includes('Consecutive light changes may share one task and one log'), 'local skill should define bounded light-task merging')
+  assert(skill.includes('Never merge unrelated goals'), 'local skill should forbid unrelated task merging')
+  assert(skill.includes('task_short_id:: T000'), 'local skill should allow immediate light work without a task card')
+  assert(skill.includes('Priority is urgency only'), 'local skill should separate priority from work level')
+  assert(skill.includes('### 结果') && skill.includes('### 修改文件') && skill.includes('### 验证'), 'local skill should define compact work logs')
+  assert(skill.includes('### 关键约束') && skill.includes('### 方案与回退'), 'local skill should define deep-only task sections')
+  assert(skill.includes('depth_reason` is one primary trigger'), 'local skill should define one primary deep reason')
+  assert(skill.includes('IPC change that ships atomically without old/new peers coexisting is standard'), 'local skill should distinguish internal IPC from protocol migration')
+  assert(skill.includes('## Record Formats') && skill.includes('short_id:: T001') && skill.includes('log_short_id:: L001'), 'local skill should contain complete task and log metadata')
+  assert(skill.includes('short_id:: R001') && skill.includes('type:: risk-record'), 'local skill should contain the independent risk record format')
+  assert(!skill.includes('A standard log adds'), 'local skill should not duplicate task intent in standard logs')
   assert(skill.includes('descending record ID'), 'local skill should require descending record write order')
   assert(skill.includes('log_short_id:: Lxxx'), 'local skill should require explicit log short ids')
   assert(skill.includes('currentDataPaths'), 'local skill should resolve current version paths from the brief')
@@ -112,6 +129,10 @@ try {
   assert(!dashboard.documents.some((note) => note.path.startsWith('knowledge/')), 'project documents should not include global knowledge')
 
   await assertRejects(() => appendTask(managerRoot, root, { title: '   ' }), '任务标题不能为空')
+  await assertRejects(
+    () => appendTask(managerRoot, root, { title: 'Invalid deep task', workLevel: 'deep' }),
+    '深度任务必须说明深度原因',
+  )
   await assertRejects(() => appendThought(managerRoot, root, '   '), '输入内容不能为空')
   await assertRejects(() => appendDialogue(managerRoot, root, { content: '   ' }), '研究内容不能为空')
   await assertRejects(() => appendConstraint(managerRoot, root, { title: '', content: 'Smoke' }), '约束标题不能为空')
@@ -217,29 +238,33 @@ summary:: 第二条知识。
   assert(guidanceDashboard.config.dataRoot === dataRoot, 'guidance update should keep data root')
   const updatedSkill = await readFile(skillPath, 'utf8')
   const updatedDataSpec = await readFile(path.join(dataRoot, 'collaboration/数据层规范.md'), 'utf8')
-  assert(updatedSkill.includes('record_level:: light | standard | deep'), 'guidance update should refresh record levels')
+  assert(updatedSkill.includes('work_level:: light | standard | deep'), 'guidance update should refresh task work levels')
+  assert(updatedSkill.includes('Consecutive light changes may share one task and one log'), 'guidance update should refresh light-task merging')
+  assert(updatedSkill.includes('Never merge unrelated goals'), 'guidance update should preserve merge boundaries')
+  assert(updatedSkill.includes('Priority is urgency only'), 'guidance update should separate urgency from complexity')
+  assert(updatedSkill.includes('depth_reason:: architecture'), 'guidance update should preserve deep task reasons')
   assert(updatedSkill.includes('Dxxx'), 'guidance update should refresh research rules')
   assert(updatedSkill.includes('Wxxx'), 'guidance update should refresh document rules')
   assert(updatedSkill.includes('Kxxx'), 'guidance update should refresh knowledge rules')
   assert(updatedSkill.includes('Cxxx'), 'guidance update should refresh constraint rules')
   assert(updatedSkill.includes('descending record ID'), 'guidance update should refresh record ordering writing rule')
   assert(updatedSkill.includes('questions append-only'), 'guidance update should refresh collaboration thread rules')
-  assert(updatedSkill.includes('### 验收结果'), 'guidance update should refresh acceptance-result rules')
-  assert(updatedSkill.includes('before execution and verification'), 'guidance update should refresh acceptance ordering rules')
+  assert(updatedSkill.includes('### 结果') && updatedSkill.includes('### 修改文件') && updatedSkill.includes('### 验证'), 'guidance update should refresh compact log rules')
+  assert(updatedSkill.includes('per task and acceptance cycle, not per changed file'), 'guidance update should define log counting units')
+  assert(updatedSkill.includes('### 关键约束') && updatedSkill.includes('### 方案与回退'), 'guidance update should refresh deep task sections')
   assert(updatedSkill.includes('mode:: breadth') && updatedSkill.includes('mode:: depth'), 'guidance update should refresh both research modes')
   assert(updatedSkill.includes('one L log'), 'guidance update should avoid duplicate research logs')
   assert(updatedDataSpec.includes('## Agent 工作记录格式'), 'guidance update should refresh data spec log format')
   const logFormatStart = updatedDataSpec.indexOf('## Agent 工作记录格式')
-  const acceptanceIndex = updatedDataSpec.indexOf('### 验收标准', logFormatStart)
-  const outputIndex = updatedDataSpec.indexOf('### 产出', logFormatStart)
+  const resultIndex = updatedDataSpec.indexOf('### 结果', logFormatStart)
+  const changedFilesIndex = updatedDataSpec.indexOf('### 修改文件', logFormatStart)
   const verificationIndex = updatedDataSpec.indexOf('### 验证', logFormatStart)
-  const acceptanceResultIndex = updatedDataSpec.indexOf('### 验收结果', logFormatStart)
   assert(
     logFormatStart >= 0
-      && acceptanceIndex > logFormatStart
-      && acceptanceIndex < outputIndex
-      && verificationIndex < acceptanceResultIndex,
-    'data spec should define acceptance before execution and acceptance results after verification',
+      && resultIndex > logFormatStart
+      && resultIndex < changedFilesIndex
+      && changedFilesIndex < verificationIndex,
+    'data spec should define compact result, files, and verification ordering',
   )
   assert(updatedDataSpec.includes('## 知识条目格式'), 'guidance update should refresh knowledge format')
   assert(updatedDataSpec.includes('## 研究格式'), 'guidance update should refresh research format')
@@ -250,7 +275,12 @@ summary:: 第二条知识。
   assert(updatedDataSpec.includes('short_id:: C001'), 'data spec should describe constraint short ids')
   assert(updatedDataSpec.includes('log_short_id:: L001'), 'data spec should describe explicit log short ids')
   assert(updatedDataSpec.includes('record_level:: standard'), 'data spec should describe log record levels')
-  assert(updatedDataSpec.includes('light 文件修改记录只需保留'), 'data spec should describe lightweight logs')
+  assert(updatedDataSpec.includes('task_short_id:: T000'), 'data spec should describe goal retention for taskless light logs')
+  assert(updatedDataSpec.includes('work_level:: light | standard | deep'), 'data spec should describe task work levels')
+  assert(updatedDataSpec.includes('depth_reason:: architecture'), 'data spec should distinguish deep task reasons')
+  assert(updatedDataSpec.includes('连续 light 修改允许合并'), 'data spec should allow bounded light-task merging')
+  assert(updatedDataSpec.includes('不得仅因为改动都很小就合并无关目标'), 'data spec should forbid unrelated task merging')
+  assert(updatedDataSpec.includes('priority 不得用于推断 work_level'), 'data spec should separate urgency from complexity')
   assert(updatedDataSpec.includes('待确认事项.md'), 'data spec should describe independent questions')
   assert(updatedDataSpec.includes('风险与后续.md'), 'data spec should separate risks and follow-ups')
   assert(updatedDataSpec.includes('version:: V001'), 'data spec should require version fields')
@@ -291,7 +321,7 @@ summary:: 第二条知识。
 
   const nextDashboard = await getDashboard(managerRoot, root)
   assert(nextDashboard.activeTasks.length === 0, 'initial done task should not be active')
-  assert(nextDashboard.logs.some((log) => log.content.includes('初始化项目协作数据')), 'dashboard should expose log detail content')
+  assert(nextDashboard.logs.some((log) => log.result.includes('Electron Manager 管理数据目录')), 'dashboard should expose compact log result content')
 
   const currentLog = await readFile(logPath, 'utf8')
   await writeFile(logPath, `${currentLog.trimEnd()}
@@ -323,33 +353,17 @@ task_short_id:: T001
 version:: V001
 record_level:: standard
 
-### 用户目标
+### 结果
 
-Smoke log should remain an audit record.
+部分通过：Smoke result.
 
-### 需求理解
+### 修改文件
 
-Smoke understanding.
+- smoke.js
 
-### 产出
+### 验证
 
-- Smoke output.
-
-### 关键步骤
-
-- Smoke key step.
-
-### 验收标准
-
-- Smoke acceptance.
-
-### 验收结果
-
-部分通过：Smoke acceptance result.
-
-### 已知风险
-
-- Smoke risk.
+- Smoke verification.
 
 ### 未确认事项
 
@@ -359,19 +373,31 @@ Smoke understanding.
   const logQuestionDashboard = await getDashboard(managerRoot, root)
   assert(logQuestionDashboard.openQuestions.length === 0, 'legacy inline questions should not surface in dashboard')
   const smokeLog = logQuestionDashboard.logs.find((log) => log.title.includes('Smoke work log'))
-  assert(smokeLog?.outputs.includes('Smoke output.'), 'log outputs should be parsed')
-  assert(smokeLog?.keySteps.includes('Smoke key step.'), 'log key steps should be parsed')
-  assert(smokeLog?.acceptance.includes('Smoke acceptance.'), 'legacy acceptance ordering should remain parseable')
-  assert(smokeLog?.acceptanceResult.includes('Smoke acceptance result.'), 'log acceptance results should be parsed')
-  assert(smokeLog?.risks.includes('Smoke risk.'), 'log risks should be parsed')
+  assert(smokeLog?.result.includes('Smoke result.'), 'log result should be parsed')
+  assert(smokeLog?.changedFiles.includes('smoke.js'), 'log changed files should be parsed')
+  assert(smokeLog?.verification.includes('Smoke verification.'), 'log verification should be parsed')
   assert(smokeLog?.recordLevel === 'standard', 'log record level should be parsed')
   assert(smokeLog?.relatedTasks.length === 1 && smokeLog.relatedTasks[0].shortId === 'T001', 'log should expose explicit task_short_id relation')
 
   const taskDashboard = await appendTask(managerRoot, root, {
     title: 'Smoke Task',
     status: 'todo',
+    workLevel: 'deep',
+    depthReason: 'migration',
+    executionDefinition: 'Change the smoke schema.',
+    acceptance: 'The migration and rollback are verified.',
+    constraints: 'Preserve existing smoke data.',
+    planRollback: 'Migrate atomically and restore the previous file on failure.',
   })
   const smokeTask = taskDashboard.tasks.find((task) => task.title === 'Smoke Task')
+  assert(smokeTask?.workLevel === 'deep', 'task work level should be persisted and parsed')
+  assert(smokeTask?.depthReason === 'migration', 'deep task reason should be persisted and parsed')
+  assert(smokeTask?.detail === 'Change the smoke schema.', 'task execution definition should be persisted and parsed')
+  assert(smokeTask?.constraints.includes('Preserve existing smoke data.'), 'deep task constraints should be parsed')
+  assert(smokeTask?.planRollback.includes('restore the previous file'), 'deep task plan and rollback should be parsed')
+  const deepTaskFile = await readFile(taskPath, 'utf8')
+  assert(deepTaskFile.includes('depth_reason:: migration'), 'deep task reason should be written to Markdown')
+  assert(deepTaskFile.includes('### 关键约束') && deepTaskFile.includes('### 方案与回退'), 'deep task-only sections should be written to Markdown')
   assert(smokeTask, 'new task should be appended')
   assert(smokeTask.version === 'V001', 'new task should inherit the current version')
   assert(taskDashboard.activeTasks.length === 1, 'todo task should be active')
@@ -499,6 +525,14 @@ Run the smoke verification.
 `, 'utf8')
   const openRiskDashboard = await getDashboard(managerRoot, root)
   assert(openRiskDashboard.agentBrief.activeRisks.some((risk) => risk.id === 'risk-smoke'), 'open risks should enter the current brief')
+  const briefRisk = openRiskDashboard.agentBrief.activeRisks.find((risk) => risk.id === 'risk-smoke')
+  assert(briefRisk && !('content' in briefRisk) && !('handling' in briefRisk), 'brief risks should stay as compact indexes')
+  await refreshAgentBrief(managerRoot, root)
+  const refreshedRiskBrief = await readFile(briefPath, 'utf8')
+  const refreshedRiskBaseline = await readFile(baselinePath, 'utf8')
+  assert(!refreshedRiskBrief.includes('Smoke verification details.'), 'brief should not duplicate full risk content')
+  assert(refreshedRiskBaseline.includes('Smoke verification risk'), 'baseline should retain the risk title')
+  assert(!refreshedRiskBaseline.includes('Smoke verification details.'), 'baseline should not duplicate full risk content')
   const resolvedRiskDashboard = await updateRiskStatus(managerRoot, root, 'risk-smoke', 'resolved')
   assert(resolvedRiskDashboard.risks.some((risk) => risk.id === 'risk-smoke' && risk.status === 'resolved'), 'risk status should be updateable')
   assert(!resolvedRiskDashboard.agentBrief.activeRisks.some((risk) => risk.id === 'risk-smoke'), 'resolved risks should leave the current brief')
@@ -534,6 +568,7 @@ Run the smoke verification.
   const v2TaskDashboard = await appendTask(managerRoot, root, { title: 'V2 Smoke Task', status: 'todo' })
   const v2Task = v2TaskDashboard.tasks.find((task) => task.title === 'V2 Smoke Task')
   assert(v2Task?.version === 'V002', 'records created after version change should inherit V002')
+  assert(v2Task?.workLevel === 'light', 'new tasks should default to light work')
   assert(v2TaskDashboard.activeTasks.length === 1 && v2TaskDashboard.activeTasks[0].id === v2Task.id, 'default active tasks should only include current version')
   const refreshedV2Brief = await refreshAgentBrief(managerRoot, root)
   assert(refreshedV2Brief.currentVersion?.shortId === 'V002', 'refreshed brief should expose current version')

@@ -8,17 +8,25 @@ export type ProjectConfig = {
   currentVersionId: string
 }
 
+export type ProjectWorkLevel = 'light' | 'standard' | 'deep'
+export type ProjectDepthReason = 'architecture' | 'migration' | 'cross_system' | 'security' | 'irreversible' | 'decision'
+
 export type ProjectTask = {
   id: string
   shortId: string
   title: string
   status: string
   priority: string
+  workLevel: ProjectWorkLevel
+  depthReason: ProjectDepthReason | ''
   area: string
   updated: string
   version: string
+  userOriginal: string
   detail: string
   acceptance: string
+  constraints: string
+  planRollback: string
 }
 
 export type ProjectThought = {
@@ -32,7 +40,7 @@ export type ProjectThought = {
   answer: string
 }
 
-export type ProjectLogLevel = 'light' | 'standard' | 'deep'
+export type ProjectLogLevel = ProjectWorkLevel
 
 export type ProjectLog = {
   shortId: string
@@ -43,20 +51,10 @@ export type ProjectLog = {
   recordLevel: ProjectLogLevel
   version: string
   userGoal: string
-  userOriginal: string
-  understanding: string
-  answer: string
-  executionScope: string
-  acceptance: string
-  outputs: string[]
-  keySteps: string[]
+  result: string
   decisions: string[]
-  actions: string[]
   changedFiles: string[]
   verification: string[]
-  acceptanceResult: string
-  risks: string[]
-  followUps: string[]
   relatedTasks: Array<{ shortId: string; id: string; title: string; status: string }>
   content: string
 }
@@ -164,6 +162,11 @@ export type ProjectRisk = {
   relations: string[]
 }
 
+export type ProjectRiskSummary = Pick<
+  ProjectRisk,
+  'id' | 'shortId' | 'title' | 'kind' | 'status' | 'version' | 'updated' | 'relations'
+>
+
 export type ProjectVersion = {
   id: string
   shortId: string
@@ -199,7 +202,7 @@ export type AgentBrief = {
   activeResearch: ProjectDialogue[]
   openQuestions: ProjectOpenQuestion[]
   pendingDecisions: ProjectOpenQuestion[]
-  activeRisks: ProjectRisk[]
+  activeRisks: ProjectRiskSummary[]
   latestLogs: string[]
   instructions: string[]
 }
@@ -245,11 +248,14 @@ export type NewTaskInput = {
   title: string
   status?: string
   priority?: string
+  workLevel?: ProjectWorkLevel
+  depthReason?: ProjectDepthReason
   area?: string
   userOriginal?: string
-  agentUnderstanding?: string
-  executionScope?: string
+  executionDefinition?: string
   acceptance?: string
+  constraints?: string
+  planRollback?: string
 }
 
 export type NewDialogueInput = {

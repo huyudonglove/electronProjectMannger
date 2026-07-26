@@ -3,6 +3,7 @@ import {
   CONSTRAINTS_PATH,
 } from './paths.js'
 import type {
+  ProjectDepthReason,
   ProjectConstraint,
   ProjectDialogue,
   ProjectLog,
@@ -13,6 +14,7 @@ import type {
   ProjectTask,
   ProjectThought,
   ProjectVersion,
+  ProjectWorkLevel,
   ResearchMode,
   ResearchStatus,
 } from './types.js'
@@ -27,6 +29,20 @@ export function normalizeResearchStatus(value?: string): ResearchStatus {
   return ['pending', 'doing', 'done', 'archived'].includes(String(value))
     ? value as ResearchStatus
     : 'pending'
+}
+
+export function normalizeWorkLevel(value: string | undefined, fallback: ProjectWorkLevel = 'standard'): ProjectWorkLevel {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['light', 'standard', 'deep'].includes(normalized)
+    ? normalized as ProjectWorkLevel
+    : fallback
+}
+
+export function normalizeDepthReason(value: string | undefined): ProjectDepthReason | '' {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['architecture', 'migration', 'cross_system', 'security', 'irreversible', 'decision'].includes(normalized)
+    ? normalized as ProjectDepthReason
+    : ''
 }
 
 export function normalizeQuestionShortId(value: string | undefined) {
@@ -235,11 +251,16 @@ export function parseProjectTasks(content: string): ProjectTask[] {
         title: block.match(/^##\s+(.+)$/m)?.[1]?.trim() || '未命名任务',
         status: fields.status || 'todo',
         priority: fields.priority || 'medium',
+        workLevel: normalizeWorkLevel(fields.work_level),
+        depthReason: normalizeDepthReason(fields.depth_reason),
         area: fields.area || 'tool',
         updated: fields.updated || fields.created || '',
         version: normalizeVersionId(fields.version),
-        detail: readSection(block, ['执行范围']),
+        userOriginal: readSection(block, ['用户原话']),
+        detail: readSection(block, ['执行定义']),
         acceptance: readSection(block, ['验收']),
+        constraints: readSection(block, ['关键约束']),
+        planRollback: readSection(block, ['方案与回退']),
       }
     })
 }
@@ -347,20 +368,10 @@ export function parseProjectLogs(content: string, tasks: ProjectTask[] = []): Pr
         recordLevel: normalizeLogLevel(fields.record_level),
         version: normalizeVersionId(fields.version),
         userGoal: readSection(block, ['用户目标']),
-        userOriginal: readSection(block, ['用户原话']),
-        understanding: readSection(block, ['需求理解']),
-        answer: readSection(block, ['回答']),
-        executionScope: readSection(block, ['执行范围']),
-        acceptance: readSection(block, ['验收标准']),
-        outputs: readListSection(block, ['产出']),
-        keySteps: readListSection(block, ['关键步骤']),
+        result: readSection(block, ['结果']),
         decisions: readListSection(block, ['关键判断']),
-        actions: readListSection(block, ['执行动作']),
         changedFiles: readListSection(block, ['修改文件']),
         verification: readListSection(block, ['验证']),
-        acceptanceResult: readSection(block, ['验收结果']),
-        risks: readListSection(block, ['已知风险']),
-        followUps: readListSection(block, ['后续事项']),
         relatedTasks,
         content: block.trim(),
         sortKey: projectLogSortKey(block, fields.created, index),

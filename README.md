@@ -180,13 +180,16 @@ The generated brief exposes `currentVersionRoot` and `currentDataPaths`. Agents 
 
 Electron Manager intentionally keeps data rules explicit so humans and agents can both understand the project state.
 
-- Tasks keep user wording, agent understanding, execution scope, and acceptance criteria.
+- Tasks keep user wording, one combined execution definition, acceptance, and `work_level:: light | standard | deep`.
 - Version-scoped records are physically grouped under `versions/Vxxx/`. Completed versions are historical context; new records go only to the active version.
 - Work logs are split by month under the owning version so no single log file grows forever.
 - Record writes are serialized and atomically replaced. Persistent counters prevent IDs from being reused after deletion.
 - Record Markdown is maintained in descending ID order as a writing rule: larger `Txxx`/`Ixxx`/`Dxxx`/`Wxxx`/`Kxxx`/`Lxxx` entries should appear above smaller IDs, not be fixed by UI sorting.
 - Thoughts are inbox items. Triage a thought by writing an answer and optionally creating or linking a task.
-- Any change to project deliverables—source, configuration, tests, project documents, knowledge notes, or collaboration rules—requires one work log. Use `record_level:: light` for small changes, `standard` for normal multi-step work, and `deep` for research, architecture, or long-lived rule changes. Ordinary answers, thought triage, collaboration metadata updates, and generated `agent-brief.json`, `index.json`, or baseline caches do not create separate logs.
+- Any change to project deliverables—source, configuration, tests, project documents, knowledge notes, or collaboration rules—requires one work log. The log's `record_level` must match the task's final `work_level`. Ordinary answers, thought triage, collaboration metadata updates, and generated `agent-brief.json`, `index.json`, or baseline caches do not create separate logs.
+- `light` means one local, reversible goal. `standard` means an understood normal feature or fix. `deep` is reserved for architecture, migration, cross-system contracts, security boundaries, irreversible work, or high-impact decisions. Deep tasks require one primary `depth_reason`, constraints, and a plan with rollback; size or duration alone does not make work deep. An internal IPC change that ships atomically without old/new peers coexisting remains standard.
+- Consecutive light changes may share one task and log only when they belong to the same user goal, version, functional area, and acceptance cycle. Unrelated goals or work requiring separate scheduling, rollout, acceptance, or risk tracking stay separate. Immediate light work with no tracking need may use `task_short_id:: T000`.
+- Priority is urgency, not complexity: `high` is reserved for current blockers, security/data-loss issues, and release-critical work.
 - Questions are independent `Qxxx` items with `open`, `decided`, `resolved`, or `expired` status. Task, thought, and log IDs are relation labels.
 - Verification limits, risks, and follow-ups are independent `Rxxx` items and never enter the pending-user-decision list.
 - Research records use an explicit `breadth` or `depth` mode and a `pending`, `doing`, `done`, or `archived` status. Capturing research creates only a D record. Short results stay in D; substantial results create a linked `Wxxx` only when completed, followed by exactly one work log.
@@ -195,37 +198,15 @@ Electron Manager intentionally keeps data rules explicit so humans and agents ca
 - The Documents view only shows Markdown files under the project-local `documents/` folder; it does not aggregate task, thought, research, collaboration, or work-log files. Documents are not automatically added to the knowledge base.
 - Research records, documents, and knowledge notes can be deleted independently. Deletion does not cascade. `related_documents` and similar fields express references only; they do not imply automatic deletion or reference rewriting. Deleting a `Kxxx` knowledge note removes that global Markdown note for all projects.
 
-Standard and deep Agent work logs should keep these sections:
+Linked light and standard logs keep only execution evidence:
 
 ```markdown
-record_level:: standard | deep
-
-### 用户目标
-### 需求理解
-### 验收标准
-### 产出
-### 关键步骤
-### 执行动作
-### 验证
-### 验收结果
-### 已知风险
-### 后续事项
-```
-
-Acceptance criteria are defined before execution. Verification records the checks performed; acceptance results state whether those criteria passed, partially passed, or failed.
-
-Light file-change logs only need:
-
-```markdown
-### 用户目标
-### 产出
+### 结果
 ### 修改文件
 ### 验证
-### 验收结果
-### 已知风险
 ```
 
-Every project-file change still gets a log; only the amount of detail changes.
+Deep logs add `### 关键判断` only when execution creates or changes a high-impact decision. `T000` light logs additionally require `### 用户目标` because no task card exists. Continuing risks and follow-ups go to `Rxxx`. Every project-file change still gets one log per task and acceptance cycle, not per file.
 
 Research records use:
 
@@ -464,13 +445,16 @@ macOS 下通常是：
 
 Electron Manager 会尽量把数据规则写清楚，让人和 Agent 都能理解项目状态。
 
-- 任务保留用户原话、Agent 理解、执行范围和验收标准。
+- 任务保留用户原话、合并后的执行定义、验收标准和 `work_level:: light | standard | deep`。
 - 任务、想法、研究、协作问题、风险和工作记录按版本物理归档到 `versions/Vxxx/`；已完成版本作为历史，新记录只进入当前版本。
 - 工作记录在版本内按月份分片，避免单个文件无限增长。
 - Markdown 修改采用串行队列和原子替换；记录 ID 使用持久计数器，删除后不会复用。
 - 所有记录型 Markdown 都按 ID 倒序维护：更大的 `Txxx`/`Ixxx`/`Dxxx`/`Wxxx`/`Kxxx`/`Lxxx` 应该在更小 ID 上方，这是写入准则，不靠界面排序修正。
 - 想法是收集入口。整理想法时，应写入回答，并在需要时创建或关联任务。
-- 只要修改源码、配置、测试、项目文档、知识条目或协作规则等交付文件，就必须写一条工作记录；小改动使用 `record_level:: light`，正常开发使用 `standard`，研究、架构和长期规则变更使用 `deep`。普通想法整理、协作元数据更新和自动生成的 brief/index/基线缓存不单独写工作记录。
+- 只要修改源码、配置、测试、项目文档、知识条目或协作规则等交付文件，就必须写一条工作记录；日志的 `record_level` 必须与任务最终的 `work_level` 一致。普通想法整理、协作元数据更新和自动生成的 brief/index/基线缓存不单独写工作记录。
+- `light` 是单一、局部、易回退的修改；`standard` 是方案明确的常规功能或修复；`deep` 只用于架构、迁移、跨系统契约、权限安全边界、不可逆操作或高影响方案取舍。deep 必须写一个主 `depth_reason`、关键约束和方案与回退；文件多、步骤多或耗时长本身不构成 deep。同一应用内可原子升级且无需新旧端共存的普通 IPC 调整仍是 standard。
+- 同一用户目标、版本、功能区域和验收轮次内的连续 light 修改可共用一张任务和一条日志；无关目标或需要独立排期、发布、验收、风险跟踪的工作必须分开。无需跟踪的即时 light 修改可使用 `task_short_id:: T000`。
+- priority 只表示紧急程度，不表示复杂度；`high` 仅用于当前阻塞、安全或数据损坏、发布关键问题。
 - 协作线程以独立 `Qxxx` 展示，`open` 表示待用户回复，`decided` 表示待 Agent 跟进，完成后进入历史；每次回复追加保存，历史线程也能继续讨论。归档由 Agent 或系统处理，不作为用户日常操作。任务 ID、想法 ID、工作记录 ID 只是关联标签。
 - 验证限制、技术风险和后续事项使用独立 `Rxxx`，不会混入需要用户决定的列表。
 - 研究记录明确使用 `breadth` 广度或 `depth` 深度模式，以及 `pending / doing / done / archived` 状态。保存研究时只创建 D；短结果留在 D，较长结果完成后才创建关联 `Wxxx`，最后只写一条完成工作记录。
@@ -479,35 +463,15 @@ Electron Manager 会尽量把数据规则写清楚，让人和 Agent 都能理�
 - 文档页只展示项目本地 `documents/` 文件夹里的 Markdown，不再汇总任务、想法、研究、协作或工作记录文件。文档不会自动进入知识库。
 - 研究、文档、知识条目都可以独立删除，删除操作不级联。`related_documents` 等字段只表达引用关系，不代表自动删除或自动改写引用。删除 `Kxxx` 知识条目会删除全局知识库中的 Markdown，对所有项目生效。
 
-标准和深度 Agent 工作记录建议保留这些段落：
+关联任务的 light/standard 工作记录只保留执行证据：
 
 ```markdown
-record_level:: standard | deep
-
-### 用户目标
-### 需求理解
-### 验收标准
-### 产出
-### 关键步骤
-### 执行动作
-### 验证
-### 验收结果
-### 已知风险
-### 后续事项
-```
-
-验收标准在执行前定义；验证记录实际检查过程，验收结果在验证后明确写为通过、部分通过或未通过。
-
-轻量文件修改记录只需保留：
-
-```markdown
-### 用户目标
-### 产出
+### 结果
 ### 修改文件
 ### 验证
-### 验收结果
-### 已知风险
 ```
+
+deep 日志只在执行中形成或改变高影响取舍时增加“关键判断”；没有任务卡的 `T000` light 日志额外保留“用户目标”。持续风险和后续工作写入 `Rxxx`。所有文件修改仍必须记录，但计数单位是同一任务和验收轮次，不是每个文件一条。
 
 研究记录使用：
 

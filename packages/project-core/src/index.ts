@@ -14,6 +14,7 @@ import type {
   OpenQuestionReplyInput,
   ProjectConfig,
   ProjectConstraint,
+  ProjectDepthReason,
   ProjectDialogue,
   ProjectDocumentNote,
   ProjectKnowledgeNote,
@@ -22,10 +23,12 @@ import type {
   ProjectOpenQuestion,
   ProjectQuestionMessage,
   ProjectRisk,
+  ProjectRiskSummary,
   ProjectTask,
   ProjectThought,
   ProjectVersion,
   ProjectGuidanceSyncResult,
+  ProjectWorkLevel,
   ResearchMode,
   ResearchStatus,
 } from './types.js'
@@ -41,6 +44,7 @@ export type {
   OpenQuestionReplyInput,
   ProjectConfig,
   ProjectConstraint,
+  ProjectDepthReason,
   ProjectDialogue,
   ProjectDocumentNote,
   ProjectKnowledgeNote,
@@ -49,10 +53,12 @@ export type {
   ProjectOpenQuestion,
   ProjectQuestionMessage,
   ProjectRisk,
+  ProjectRiskSummary,
   ProjectTask,
   ProjectThought,
   ProjectVersion,
   ProjectGuidanceSyncResult,
+  ProjectWorkLevel,
   ResearchMode,
   ResearchStatus,
 } from './types.js'
@@ -77,6 +83,7 @@ import {
   VERSION_LOGS_DIR,
 } from './paths.js'
 import {
+  agentBriefWorkInstructions,
   agentLogTemplate,
   changeIndexTemplate,
   constraintsTemplate,
@@ -108,7 +115,9 @@ import {
   readSection,
   recordInVersion,
   splitRefs,
+  normalizeDepthReason,
   normalizeDialogueShortId,
+  normalizeWorkLevel,
   normalizeVersionId,
   parseDialogues,
   parseProjectLogs,
@@ -258,9 +267,18 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     question.status === 'decided'
     && (question.scope === 'project' || recordInVersion(question.version, currentVersionId)),
   )
-  const activeRisks = risks.filter((risk) =>
-    risk.status === 'open' && recordInVersion(risk.version, currentVersionId),
-  )
+  const activeRisks = risks
+    .filter((risk) => risk.status === 'open' && recordInVersion(risk.version, currentVersionId))
+    .map(({ id, shortId, title, kind, status, version, updated, relations }) => ({
+      id,
+      shortId,
+      title,
+      kind,
+      status,
+      version,
+      updated,
+      relations,
+    }))
   const currentVersionRoot = path.join(dataRoot, 'versions', currentVersionId)
   const currentDataPaths = {
     tasks: path.join(currentVersionRoot, VERSION_TASKS_FILE),
@@ -288,23 +306,17 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     activeRisks,
     latestLogs,
     instructions: [
-      `先读取 ${path.join(dataRoot, 'agent-brief.json')} 建立最新上下文。`,
-      `然后读取 ${path.join(dataRoot, BASELINE_PATH)} 获取当前项目基线与版本范围。`,
-      `然后读取 ${path.join(dataRoot, SKILL_PATH)}，按其中规则写任务和工作记录。`,
-      '研究使用 mode:: breadth | depth；新研究先进入 pending，完成后再写入结果。',
+      `先读取 ${path.join(dataRoot, 'agent-brief.json')} 获取当前版本、活动记录和精确路径。`,
+      `然后读取 ${path.join(dataRoot, SKILL_PATH)}；它是任务等级、合并和日志格式的唯一完整规则来源。`,
+      `需要人类可读的项目概览时再读取 ${path.join(dataRoot, BASELINE_PATH)}，不要默认重复读取相同内容。`,
+      ...agentBriefWorkInstructions(),
       `真正需要用户决定的问题只写入 ${currentDataPaths.questions}；验证限制、风险和后续事项写入 ${currentDataPaths.risks}。`,
       `读取 ${path.join(dataRoot, CONSTRAINTS_PATH)} 获取当前项目全局约束；约束记录使用 Cxxx。`,
-      `需要完整任务时读取 ${currentDataPaths.tasks}。`,
+      `需要执行或修改任务时读取 ${currentDataPaths.tasks}；只在当前工作相关时读取完整风险、研究或历史记录。`,
       '所有记录型 Markdown 都必须按 ID 倒序维护：较大的 Txxx/Ixxx/Dxxx/Wxxx/Kxxx/Lxxx/Cxxx 写在较小 ID 上方，例如 T036 在 T001 上面。',
-      `处理 Dxxx 研究时读取 ${currentDataPaths.research}，同时读取关联 Wxxx 文档；默认按 Tree-of-Thought 至少 3 条路径、优缺点、适用条件和建议结论组织研究。`,
-      `Dxxx 研究、Wxxx 文档和 Kxxx 知识可独立删除；删除操作不级联，引用关系只由 related_documents 等字段表达。`,
-      `长期知识库是全局共享的，读取 ${resolveGlobalKnowledgeRoot(managerDataRoot)} 中的 Kxxx 条目。`,
-      `工作记录必须包含 ### 用户目标、### 需求理解、### 产出、### 关键步骤、### 验证、### 验收标准、### 已知风险、### 后续事项。`,
       `所有项目记录必须写入 version:: ${currentVersionId}；项目文档和项目约束仅用版本号追溯来源，不参与版本过滤。`,
-      '工作流顺序：想法/输入 -> 整理回答 -> 必要时产生任务 -> 任务进入 todo/doing/done -> 任务执行并验收后写 Agent 工作记录。',
-      '整理想法只更新想法回答和必要任务卡；未执行工程任务时不要写 Agent 工作记录。',
       '执行任务前将任务状态改为 doing，完成验收后改为 done。',
-      `完成后按月份写入 ${currentDataPaths.workLogs}。`,
+      `完成文件修改后按月份写入 ${currentDataPaths.workLogs}；协作元数据和派生缓存更新不递归生成日志。`,
       '不要回滚或覆盖用户、其他 Agent 的无关改动。',
     ],
   }
@@ -389,6 +401,11 @@ export async function appendTask(managerDataRoot: string, projectRoot: string, i
   if (!input) throw new Error('任务内容不能为空')
   const title = normalizeTitle(input.title || '')
   if (!title) throw new Error('任务标题不能为空')
+  const workLevel = normalizeWorkLevel(input.workLevel, 'light')
+  const depthReason = normalizeDepthReason(input.depthReason)
+  if (workLevel === 'deep' && !depthReason) throw new Error('深度任务必须说明深度原因')
+  if (workLevel === 'deep' && !String(input.constraints || '').trim()) throw new Error('深度任务必须填写关键约束')
+  if (workLevel === 'deep' && !String(input.planRollback || '').trim()) throw new Error('深度任务必须填写方案与回退')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
@@ -402,15 +419,19 @@ export async function appendTask(managerDataRoot: string, projectRoot: string, i
       title,
       status: normalizeStatus(input.status || 'todo'),
       priority: input.priority || 'medium',
+      workLevel,
+      depthReason,
       area: input.area || 'tool',
       updated: now,
       version: config.currentVersionId,
-      detail: input.executionScope || '待补充。',
+      userOriginal: input.userOriginal || title,
+      detail: input.executionDefinition || '待补充。',
       acceptance: input.acceptance || '待补充。',
+      constraints: input.constraints || '待补充。',
+      planRollback: input.planRollback || '待补充。',
     }, {
       created: now,
       userOriginal: input.userOriginal || title,
-      agentUnderstanding: input.agentUnderstanding || '待补充。',
     })
     return { content: insertMarkdownEntry(current, task), value: undefined }
   })
@@ -990,7 +1011,7 @@ function baselineMarkdown(dashboard: Dashboard) {
     .map((question) => `- ${question.shortId} ${question.conclusion || question.question || question.title}`)
   const risks = dashboard.risks
     .filter((risk) => risk.status === 'open' && recordInVersion(risk.version, currentVersionId))
-    .map((risk) => `- ${risk.shortId} [${risk.kind}] ${risk.content || risk.title}`)
+    .map((risk) => `- ${risk.shortId} [${risk.kind}] ${risk.title}`)
 
   return `# 当前项目基线
 
@@ -1535,11 +1556,12 @@ Project constraints:
 
 ## Agent Start
 
-1. Read the agent brief and current baseline first.
-2. Read the local skill before writing records.
-3. Work in the current active version by default.
-4. Read project constraints for project-wide rules.
-5. Read decisions, risks, and historical versions only when relevant.
+1. Read the agent brief first.
+2. Read the local skill as the single complete source for task levels, merging, and log structure.
+3. Read the baseline only when a human-readable overview is needed.
+4. Work in the current active version by default.
+5. Read project constraints for project-wide rules.
+6. Read decisions, risks, research, knowledge, and historical versions only when relevant.
 `
   await atomicWriteFile(path.join(projectRoot, COLLABORATION_ENTRY), content)
 }

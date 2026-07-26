@@ -31,6 +31,27 @@ function priorityTone(priority: string): 'neutral' | 'warning' | 'danger' {
 function priorityIcon(priority: string) {
   return priority === 'high' ? 'alertTriangle' : 'circleDot'
 }
+
+function workLevelLabel(task: TaskItem) {
+  if (task.workLevel === 'deep') {
+    const reason = {
+      architecture: '架构',
+      migration: '迁移',
+      cross_system: '跨系统',
+      security: '权限安全',
+      irreversible: '不可逆',
+      decision: '方案取舍',
+    }[task.depthReason] || '未说明'
+    return `深度 · ${reason}`
+  }
+  return task.workLevel === 'standard' ? '标准' : '轻量'
+}
+
+function workLevelIcon(level: string) {
+  if (level === 'deep') return 'search'
+  if (level === 'standard') return 'layers'
+  return 'circleDot'
+}
 </script>
 
 <template>
@@ -66,7 +87,7 @@ function priorityIcon(priority: string) {
                 :tone="priorityTone(task.priority)"
                 :icon-svg="props.icon(priorityIcon(task.priority))"
               />
-              <UiTag :label="task.area || 'tool'" :icon-svg="props.icon('tag')" />
+              <UiTag :label="workLevelLabel(task)" :icon-svg="props.icon(workLevelIcon(task.workLevel))" />
             </div>
             <p v-if="task.detail">{{ String(task.detail).slice(0, 180) }}{{ String(task.detail).length > 180 ? '...' : '' }}</p>
           </article>

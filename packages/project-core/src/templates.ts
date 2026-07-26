@@ -9,6 +9,63 @@ import {
   VERSIONS_PATH,
 } from './paths.js'
 
+const WORK_LEVEL_BOUNDARIES = {
+  light: {
+    zh: '目标单一、改动局部且可快速回退，不改变架构、数据结构、公开接口、权限或安全边界；通常在同一功能区域内完成，并可用直接检查或既有测试验证。',
+    en: 'Use for one bounded goal with local, easily reversible changes. It must not change architecture, data schemas, public contracts, permissions, or security boundaries, and should be verifiable with focused checks or existing tests.',
+  },
+  standard: {
+    zh: '一个完整的常规功能或缺陷修复，包含多个相关步骤或组件，会改变可见行为或内部协作，但方案明确、风险可控，不涉及架构、数据或协议迁移、跨系统契约或信任边界变化。',
+    en: 'Use for one normal feature or fix spanning related steps or components. It may change observable behavior or internal collaboration, but it does not change architecture, data or protocol migration, cross-system contracts, or trust boundaries.',
+  },
+  deep: {
+    zh: '仅用于架构、数据或协议迁移、跨系统契约、权限与安全边界、不可逆操作，或存在多个高影响方案必须记录取舍的工作。',
+    en: 'Reserve for architecture, data or protocol migration, cross-system contracts, permission or security boundaries, irreversible work, or high-impact alternatives that require an explicit decision.',
+  },
+} as const
+
+function workLevelRulesZh() {
+  return `## 工作等级与合并规则
+
+- 每张执行任务必须写 \`work_level:: light | standard | deep\`；它表示工作复杂度，与 \`priority:: low | medium | high\` 的紧急程度相互独立。
+- \`light\`：${WORK_LEVEL_BOUNDARIES.light.zh}
+- \`standard\`：${WORK_LEVEL_BOUNDARIES.standard.zh}
+- \`deep\`：${WORK_LEVEL_BOUNDARIES.deep.zh}
+- deep 任务必须写 \`depth_reason:: architecture | migration | cross_system | security | irreversible | decision\`，并补充“关键约束”和“方案与回退”。文件多、步骤多或耗时长本身不构成 deep。
+- \`depth_reason\` 是单值主原因；优先选择直接决定验收与回退方式的原因：权限/信任边界用 security，数据或版本化协议兼容用 migration，不可逆操作用 irreversible，其次才是 architecture、cross_system、decision；其余条件写入关键约束。跨系统指独立部署、独立版本或独立责任边界的系统契约。同一应用内可随同一版本原子升级、无需新旧端共存的普通模块或 IPC 调整仍是 standard；需要新旧端并存或独立升级时才属于协议迁移。
+- 命中更高等级的任一条件就使用更高等级。任务执行中范围扩大时，先更新 \`work_level\` 再继续；对应工作记录的 \`record_level\` 必须与任务最终等级一致。
+- 同一用户目标、同一版本、同一功能区域、同一轮验收中的连续 light 修改允许合并为一张任务和一条工作记录。必须列全修改文件、实际动作和验证结果。
+- 不得仅因为改动都很小就合并无关目标；需要独立排期、独立验收、独立发布或具有独立风险的改动必须分开。
+- 当 light 修改立即执行、无需排期或后续跟踪时，可以不创建任务卡，使用 \`task_short_id:: T000\`；同一用户目标在本轮验收关闭前的小修合并为一条日志，验收关闭后的新修改必须新建 Lxxx。
+- priority 只表示紧急程度：\`high\` 仅用于阻塞当前工作、安全或数据损坏、发布关键问题；普通计划工作使用 \`medium\`；非紧急优化使用 \`low\`。priority 不得用于推断 work_level。`
+}
+
+function workLevelRulesEn() {
+  return `## Work levels and merging
+
+- Every executable task must declare \`work_level:: light | standard | deep\`. Work level describes complexity; \`priority:: low | medium | high\` describes urgency. They are independent.
+- \`light\`: ${WORK_LEVEL_BOUNDARIES.light.en}
+- \`standard\`: ${WORK_LEVEL_BOUNDARIES.standard.en}
+- \`deep\`: ${WORK_LEVEL_BOUNDARIES.deep.en}
+- A deep task must declare \`depth_reason:: architecture | migration | cross_system | security | irreversible | decision\` and include \`### 关键约束\` plus \`### 方案与回退\`. File count, step count, or duration alone never makes work deep.
+- \`depth_reason\` is one primary trigger. Choose the reason that directly controls acceptance and rollback: use security for trust boundaries, migration for data or versioned-protocol compatibility, irreversible for irreversible operations, then architecture, cross_system, or decision. Put other triggers in \`### 关键约束\`. Cross-system means independently deployed, versioned, or owned systems. An internal module or IPC change that ships atomically without old/new peers coexisting is standard; independently upgraded or coexisting peers make it a protocol migration.
+- Use the highest level whose boundary is triggered. If scope grows during execution, update \`work_level\` before continuing. The related log's \`record_level\` must match the task's final work level.
+- Consecutive light changes may share one task and one log only when they belong to the same user goal, active version, functional area, and acceptance cycle. List every changed file, action, and verification result.
+- Never merge unrelated goals merely because each change is small. Work requiring separate scheduling, acceptance, rollout, or risk tracking stays separate.
+- An immediately executed light change that needs no scheduling or follow-up may skip a task card and use \`task_short_id:: T000\`. Consolidate related tweaks before the current acceptance cycle closes; changes after closure require a new Lxxx.
+- Priority is urgency only: use \`high\` for current blockers, security or data-loss issues, and release-critical work; \`medium\` for normal planned work; and \`low\` for non-urgent improvements. Priority never determines work level.`
+}
+
+export function agentBriefWorkInstructions() {
+  return [
+    '执行前先确定 work_level:: light | standard | deep；对应工作记录的 record_level 必须与任务最终等级一致。',
+    'light 用于单一、局部、易回退的修改；standard 用于方案明确且不涉及架构、数据/协议迁移、跨系统契约或信任边界的常规功能或修复；deep 仅用于这些高影响边界和不可逆取舍。',
+    'deep 任务必须写 depth_reason，并记录关键约束、方案与回退；文件多、步骤多或耗时长本身不构成 deep。',
+    '同一目标、版本、功能区域和验收轮次中的连续 light 修改可以合并为一张任务和一条日志，并列全文件与验证；无关目标、独立排期、独立发布或独立风险不得合并。',
+    '无需排期和后续跟踪的即时 light 修改可以不建任务，使用 task_short_id:: T000 写 light 日志；priority 只表示紧急程度，不决定 work_level。',
+  ]
+}
+
 export function tasksTemplate(projectName: string) {
   const now = localTime()
   return `${taskRecordsTemplate()}
@@ -19,22 +76,18 @@ id:: task-${Date.now()}-init-agent-hub
 short_id:: T001
 type:: task
 status:: done
-priority:: high
+priority:: medium
+work_level:: light
 area:: tool
 created:: ${now}
 updated:: ${now}
 version:: V001
-question_refs:: 无
 
 ### 用户原话
 
 初始化项目协作数据。
 
-### Agent 理解
-
-已为项目创建 Electron Manager 管理数据、agent brief 和本地协作 skill。
-
-### 执行范围
+### 执行定义
 
 - 创建任务、输入、研究、工作记录、文档目录和协作规则文件。
 - 生成 agent-brief.json。
@@ -53,6 +106,7 @@ export function taskRecordsTemplate() {
 
 > 当前版本的任务数据源。每个带任务元数据的二级标题是一张任务卡。
 > 写入时必须按 short_id 倒序维护：较大的 Txxx 写在较小的 Txxx 上方，例如 T036 在 T001 上面。
+> 执行任务必须标注 work_level；同一目标和验收轮次内的连续 light 小修改允许合并，不得把无关事项混在一起。
 `
 }
 
@@ -67,12 +121,12 @@ export function dataSpecTemplate() {
 - 已完成版本默认只读；新记录只写入 \`agent-brief.json.currentDataPaths\` 指向的当前版本文件。
 - 所有项目记录必须写入 \`version:: Vxxx\`，用于标识产生或主要维护阶段，避免后续检索遗漏版本上下文。
 - 任务、想法、研究、问题、风险和工作记录按版本进入默认展示和检索范围；文档和项目约束是项目级资料，版本号只用于追溯，不决定是否可见。
-- 任务卡必须保留用户原话、Agent 理解、执行范围和验收。
+- 任务卡必须保留用户原话、执行定义和验收，并在执行前标注 \`work_level:: light | standard | deep\`。执行定义合并 Agent 对需求的理解与本次执行范围，避免重复段落。
 - 所有记录型 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面、\`D036\` 在 \`D012\` 上面。这是写入准则，不依赖界面排序或解析层重排。
 - 只要修改了项目交付文件（源码、配置、测试、项目文档、知识条目或协作规则），就必须写一条 Lxxx 工作记录；普通问答、想法整理、协作元数据更新和自动生成的 agent-brief/index/基线缓存不单独写日志。
-- 工作记录使用 \`record_level:: light | standard | deep\`。light 只要求用户目标、产出、修改文件、验证、验收结果和已知风险；standard 增加需求理解、验收标准、关键步骤、执行动作和后续事项；deep 保留完整记录，并补充关键判断。
+- 工作记录使用 \`record_level:: light | standard | deep\`，并与关联任务最终的 \`work_level\` 保持一致。关联任务的日志只记录结果、修改文件和验证；deep 仅在执行中实际形成或改变高影响取舍时增加关键判断。只有使用 \`task_short_id:: T000\` 的即时 light 日志额外保留用户目标。
 - 工作记录本身是交付记录，不因为写入任务状态、问题回复、研究状态或派生缓存而递归生成新的工作记录。
-- 验收标准必须在执行前定义和读取，用来约束产出、实现和验证；验证记录实际检查了什么，验收结果在验证后明确写为通过、部分通过或未通过。
+- 验收必须在任务中提前定义和读取；日志的结果直接说明完成情况，验证记录实际检查了什么，不再复制任务中的需求和验收内容。
 - 研究使用 \`Dxxx\` 作为工作队列和引用 ID，保存状态、模式、概要、研究标准、结果摘要和可选详细文档引用。
 - 处理 \`Dxxx\` 研究时，必须同时读取 \`mode:: breadth | depth\`、\`### 内容\` 和 \`### 验收标准\`；模式决定研究方法，验收标准决定完成口径，都不是仅供 UI 展示的备注。
 - \`breadth\` 是广度研究：至少覆盖 3 条实质不同的路径、方案或视角，比较依据、优缺点、适用条件和未知项，最后排序并指出值得转入深度研究的方向。
@@ -95,6 +149,8 @@ export function dataSpecTemplate() {
 - 整理输入/想法时，只更新当前版本 \`想法与问题.md\` 的 \`### 回答\` 和必要任务卡；不要为单纯想法整理写 Agent 工作记录。
 - 只有执行工程任务、修改代码、配置、测试、文档、知识或协作规则，或完成研究验收后，才写入 Agent 工作记录；其中真实文件修改必须至少使用 \`record_level:: light\`，单纯想法整理和协作元数据维护不写工作记录。
 
+${workLevelRulesZh()}
+
 ## 详细规则
 
 完整的数据规则和日志模板见同一数据目录下的 数据层规范.md。
@@ -104,6 +160,36 @@ export function dataSpecTemplate() {
 - 任务是执行单位，必须有明确状态：\`todo\`、\`doing\`、\`done\` 或 \`abandoned\`。
 - Agent 开始执行任务前，把任务改为 \`doing\`；验收通过后改为 \`done\`。
 - Agent 工作记录只记录任务执行、代码/文档/规则修改和验收过程，不记录单纯想法整理。
+
+## 工程任务格式
+
+\`\`\`markdown
+## 任务标题
+
+id:: task-...
+short_id:: T001
+type:: task
+status:: todo | doing | done | abandoned
+priority:: low | medium | high
+work_level:: light | standard | deep
+depth_reason:: architecture | migration | cross_system | security | irreversible | decision
+area:: tool
+created:: YYYY-MM-DD HH:mm
+updated:: YYYY-MM-DD HH:mm
+version:: V001
+
+### 用户原话
+
+### 执行定义
+
+### 验收
+
+### 关键约束
+
+### 方案与回退
+\`\`\`
+
+\`depth_reason\`、关键约束和方案与回退只属于 deep 任务，light/standard 不生成这些字段。执行定义合并 Agent 理解和本次执行范围；任务保存意图与完成口径，工作记录不再重复这些内容。
 
 ## 输入/想法记录格式
 
@@ -271,37 +357,9 @@ task_short_id:: T001
 version:: V001
 record_level:: standard
 
-### 用户目标
+### 结果
 
-用户希望达成什么。
-
-### 用户原话
-
-用户原始输入。若没有单独原话，可省略。
-
-### 需求理解
-
-Agent 对目标、边界、风险和上下文的理解。
-
-### 验收标准
-
-- 判断任务完成的标准，必须在执行前明确。
-
-### 产出
-
-- 已完成的可见结果。
-
-### 关键步骤
-
-- 最关键的实现或判断步骤。
-
-### 关键判断
-
-- 重要取舍和原因。
-
-### 执行动作
-
-- 实际执行的代码、文档或数据修改。
+完成情况及可见结果。
 
 ### 修改文件
 
@@ -310,32 +368,18 @@ Agent 对目标、边界、风险和上下文的理解。
 ### 验证
 
 - 使用过的验证命令和结果。
-
-### 验收结果
-
-通过：逐项说明验收标准是否满足；未完全满足时写为部分通过或未通过，并说明原因。
-
-### 已知风险
-
-无。
-
-### 后续事项
-
-无。
 ~~~
 
-light 文件修改记录只需保留以下章节，并标注 \`record_level:: light\`：
+使用 \`task_short_id:: T000\` 的即时 light 日志因为没有任务卡可回查，额外保留用户目标：
 
 ~~~markdown
 ### 用户目标
-### 产出
+### 结果
 ### 修改文件
 ### 验证
-### 验收结果
-### 已知风险
 ~~~
 
-标准记录使用 \`record_level:: standard\`；研究、架构、协作规则或长期知识变更使用 \`record_level:: deep\`。自动生成的 \`agent-brief.json\`、\`index.json\` 和当前基线属于派生缓存，不作为独立文件修改触发日志。
+deep 日志只在执行中实际形成或改变高影响取舍时，在结果之后增加 \`### 关键判断\`；完全按任务既定方案执行时省略。任务原话、执行定义、验收、关键约束和原定回退方案都留在任务卡，不复制到日志。持续风险、验证缺口和后续工作写入独立 \`Rxxx\`，日志只在结果中引用编号，不重复正文。自动生成的 \`agent-brief.json\`、\`index.json\` 和当前基线属于派生缓存，不作为独立文件修改触发日志。
 `
 }
 
@@ -344,18 +388,16 @@ export function handoffTemplate(projectRoot: string) {
 
 ## 启动顺序
 
-1. 先读取 Electron Manager 管理数据目录中的 \`agent-brief.json\` 和 \`${BASELINE_PATH}\`。
-2. 再读取 \`skills/project-collaboration/SKILL.md\`，写任务和工作记录时必须遵守其中规则。
-3. 从 \`agent-brief.json.currentDataPaths\` 获取当前版本的实际文件路径；默认只检索这些文件。
-4. 信息不足或用户指定历史版本时，再读取 \`${VERSIONS_PATH}\` 和对应 \`versions/Vxxx/\` 目录。
-5. 所有项目记录都必须写入当前 \`version:: Vxxx\`；文档和项目约束的版本号只用于来源追溯，不参与版本过滤。
-6. 写入或整理记录时，任务、想法、研究、文档、知识、工作记录和项目约束 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面。
-7. 从 \`agent-brief.json.activeResearch\` 领取待研究项；处理 \`Dxxx\` 前改为 doing，同时使用 \`mode:: breadth | depth\`、\`### 内容\` 和 \`### 验收标准\`。完成后写回回答、可选 W 文档和 done 状态，最后只写一条 L 工作记录。
-8. 需要长期知识时读取全局共享知识库 \`${GLOBAL_KNOWLEDGE_DIR}/\` 中的 \`Kxxx\` 条目；知识库不属于单个项目。
-9. 需要当前项目全局约束时读取 \`${CONSTRAINTS_PATH}\` 中的 \`Cxxx\` 条目；系统生成的数据规范、交接说明和本地 SKILL 是只读系统约束。
-10. 执行任务前设为 doing，验收后设为 done；只要修改源码、配置、测试、文档、知识或协作规则，就按 record_level 写一条 Lxxx。
-11. light 只写目标、产出、修改文件、验证、验收结果、风险；standard/deep 的完整模板和字段以 数据层规范.md 为准。
-12. 任务状态、问题回复、研究状态和 brief/index/基线等派生缓存不单独触发日志；想法整理只补 ### 回答。
+1. 先读取 Electron Manager 管理数据目录中的 \`agent-brief.json\`。
+2. 再读取 \`skills/project-collaboration/SKILL.md\`；任务等级、合并和日志格式以该文件为唯一完整规则来源。
+3. 只有需要人类可读的项目概览时才读取 \`${BASELINE_PATH}\`，不要默认与 agent brief 重复加载。
+4. 从 \`agent-brief.json.currentDataPaths\` 获取当前版本的实际文件路径；默认只检索当前工作相关文件。
+5. 信息不足或用户指定历史版本时，再读取 \`${VERSIONS_PATH}\` 和对应 \`versions/Vxxx/\` 目录。
+6. 执行前标注 \`work_level:: light | standard | deep\`；工作记录的 \`record_level\` 必须与任务最终等级一致。
+7. 同一目标和验收轮次中的连续 light 修改允许合并；无关目标、独立排期、独立发布或独立风险不得合并。
+8. 无需排期和后续跟踪的即时 light 修改可不创建任务卡，使用 \`task_short_id:: T000\` 写一条 light 日志。
+9. 执行任务前设为 doing，验收后设为 done；所有文件修改仍必须列入对应 Lxxx 的修改文件和验证结果。
+10. 任务状态、问题回复、研究状态和 brief/index/基线等派生缓存不单独触发日志；想法整理只补 ### 回答。
 
 ## 工作流顺序
 
@@ -396,58 +438,23 @@ log_short_id:: L001
 created:: ${localTime()}
 task_short_id:: T001
 version:: V001
-record_level:: deep
-question_refs:: 无
+record_level:: light
 
-### 用户目标
-
-初始化项目协作数据。
-
-### 需求理解
-
-为当前项目创建可供 Electron Manager 和其他 Agent 共同读取的本地协作数据。
-
-### 验收标准
-
-- Electron Manager 管理数据目录存在。
-- agent-brief.json 存在。
-- 本地协作 skill 存在。
-
-### 产出
+### 结果
 
 - Electron Manager 管理数据目录。
 - agent-brief.json。
 - 本地协作 skill。
 
-### 关键步骤
+### 修改文件
 
-- 创建 Markdown 主数据文件。
-- 写入项目协作入口。
-- 生成 Agent 同步说明。
-
-### 执行动作
-
-- 创建 Electron Manager 管理数据目录。
-- 生成 agent-brief.json。
-- 生成本地协作 skill。
+- 项目协作入口和 Electron Manager 管理数据文件。
 
 ### 验证
 
 - Electron Manager 管理数据目录存在。
 - agent-brief.json 存在。
 - 本地协作 skill 存在。
-
-### 验收结果
-
-通过：项目协作数据、Agent brief 和本地协作 skill 均已生成。
-
-### 已知风险
-
-无。
-
-### 后续事项
-
-无。
 `
 }
 
@@ -524,7 +531,12 @@ completed:: 无
 }
 
 export function skillTemplate(projectRoot: string, dataRoot: string) {
-  return `# Project Collaboration Skill
+  return `---
+name: project-collaboration
+description: Manage tasks, work logs, research, questions, risks, documents, knowledge, and constraints for an Electron Manager initialized project. Use whenever an Agent reads or changes project collaboration data.
+---
+
+# Project Collaboration Skill
 
 Use this skill when working on this project with Electron Manager initialized data.
 
@@ -535,13 +547,12 @@ Use this skill when working on this project with Electron Manager initialized da
 ## Start Here
 
 1. Read \`${path.join(dataRoot, 'agent-brief.json')}\`.
-2. Read the current project baseline: \`${path.join(dataRoot, BASELINE_PATH)}\`.
-3. Read this skill file before writing records: \`${path.join(dataRoot, SKILL_PATH)}\`.
+2. Use this skill as the single complete source for task levels, merging, and log structure: \`${path.join(dataRoot, SKILL_PATH)}\`.
+3. Read the current baseline only when a human-readable overview is needed: \`${path.join(dataRoot, BASELINE_PATH)}\`.
 4. Work within the current version from \`${path.join(dataRoot, VERSIONS_PATH)}\` by default.
-5. Resolve the exact current task, thought, research, question, risk, and work-log paths from \`agent-brief.json.currentDataPaths\`.
-6. Read current question threads for conversations waiting on the user or Agent; read current risks for verification limits and follow-up work.
-7. Read historical \`versions/Vxxx/\` directories only when the current context is insufficient or the user explicitly requests history.
-8. Read \`${path.join(dataRoot, CONSTRAINTS_PATH)}\` for project-wide constraints.
+5. Resolve exact current paths from \`agent-brief.json.currentDataPaths\`.
+6. Read question, risk, research, knowledge, and historical records only when relevant to the current work.
+7. Read \`${path.join(dataRoot, CONSTRAINTS_PATH)}\` for project-wide constraints.
 
 ## Rules
 
@@ -549,13 +560,13 @@ Use this skill when working on this project with Electron Manager initialized da
 - Before executing a task, set its status to \`doing\`.
 - After verification, set its status to \`done\`.
 - Keep all record Markdown physically ordered by descending record ID: larger \`Txxx\`, \`Ixxx\`, \`Dxxx\`, \`Wxxx\`, \`Kxxx\`, \`Lxxx\`, and \`Cxxx\` entries must appear above smaller IDs, for example \`T036\` above \`T001\` and \`D036\` above \`D012\`. This is a writing rule; do not rely on UI sorting or parser reordering to fix record order.
-- Keep user wording, Agent understanding, execution scope, and acceptance explicit in tasks.
-- Any change to source, configuration, tests, project documents, knowledge notes, or collaboration rules requires one agent log with \`log_short_id:: Lxxx\` and \`record_level:: light | standard | deep\`. Use \`task_short_id:: Txxx\` for real task execution and \`T000\` for a general log. Ordinary answers, thought triage, collaboration metadata updates, and generated brief/index/baseline caches do not create a separate log.
-- Use \`light\` for small file changes. It requires only \`### 用户目标\`, \`### 产出\`, \`### 修改文件\`, \`### 验证\`, \`### 验收结果\`, and \`### 已知风险\`.
-- Use \`standard\` for normal multi-step development and add \`### 需求理解\`, \`### 验收标准\`, \`### 关键步骤\`, \`### 执行动作\`, and \`### 后续事项\`. Use \`deep\` for research, architecture, or long-lived rule changes and keep the full log including \`### 关键判断\`.
-- Define and read acceptance criteria before execution and verification when using standard or deep. Use \`### 验证\` for the checks performed, then use \`### 验收结果\` to state whether the criteria passed, partially passed, or failed.
+- Keep user wording, one combined execution definition, acceptance, and \`work_level\` explicit in tasks. Deep tasks additionally require \`depth_reason\`, \`### 关键约束\`, and \`### 方案与回退\`.
+- Any change to source, configuration, tests, project documents, knowledge notes, or collaboration rules requires one agent log with \`log_short_id:: Lxxx\` per task and acceptance cycle, not per changed file. Consolidate related tweaks before that cycle closes; after it closes, a new change gets a new log.
+- A linked light or standard log contains only \`### 结果\`, \`### 修改文件\`, and \`### 验证\`. A deep log adds \`### 关键判断\` only when execution creates or changes a high-impact decision. A \`T000\` light log also contains \`### 用户目标\` because no task card exists.
+- Define and read acceptance in the task before execution. State completion in \`### 结果\` and record checks in \`### 验证\`; do not copy task intent, scope, or acceptance into the log.
 - Keep questions append-only in the current version's 待确认事项.md: open waits for the user, decided waits for the Agent, resolved is complete. Use Qxxx only for a genuine decision, clarification, blocker, or follow-up.
 - Put technical risks and non-conversational follow-ups in 风险与后续.md. Do not create inline 未确认事项 sections.
+- Store continuing risks, verification gaps, and follow-up work in one \`Rxxx\`; mention its ID in the log result instead of copying the risk text.
 - Use Wxxx for project documents, Kxxx for shared stable knowledge, and Cxxx for project constraints. These records are independently deletable; references do not cascade.
 - Shared knowledge root: \`${path.join(path.dirname(path.dirname(dataRoot)), GLOBAL_KNOWLEDGE_DIR)}\`.
 - Treat agent-brief.json.activeResearch as the queue. New research creates pending D only; use mode:: breadth or mode:: depth, then write the answer, optional W document, done status, and one L log.
@@ -563,6 +574,75 @@ Use this skill when working on this project with Electron Manager initialized da
 - Generated brief/index/baseline files are derived caches and do not independently trigger logs.
 - Runtime reads do not migrate or repair old Markdown. Initialize new projects directly; handle old-project migration separately before copying data into the current structure.
 - Do not revert unrelated user or agent changes.
+
+${workLevelRulesEn()}
+
+## Record Formats
+
+\`\`\`markdown
+## Task title
+
+id:: task-...
+short_id:: T001
+type:: task
+status:: todo | doing | done | abandoned
+priority:: low | medium | high
+work_level:: light | standard | deep
+depth_reason:: architecture | migration | cross_system | security | irreversible | decision
+area:: tool
+created:: YYYY-MM-DD HH:mm
+updated:: YYYY-MM-DD HH:mm
+version:: V001
+
+### 用户原话
+### 执行定义
+### 验收
+### 关键约束
+### 方案与回退
+\`\`\`
+
+Only deep tasks include \`depth_reason\`, \`### 关键约束\`, and \`### 方案与回退\`.
+
+\`\`\`markdown
+## Work title
+
+type:: agent-log
+log_short_id:: L001
+created:: YYYY-MM-DD HH:mm
+task_short_id:: T001
+version:: V001
+record_level:: light | standard | deep
+
+### 结果
+### 修改文件
+### 验证
+\`\`\`
+
+Only deep logs with a new or changed decision insert this after \`### 结果\`:
+
+\`\`\`markdown
+### 关键判断
+\`\`\`
+
+A \`T000\` log inserts \`### 用户目标\` before \`### 结果\`.
+
+\`\`\`markdown
+## Risk or follow-up title
+
+id:: risk-...
+short_id:: R001
+type:: risk-record
+kind:: risk | verification | follow-up
+status:: open | resolved | expired
+version:: V001
+created:: YYYY-MM-DD HH:mm
+updated:: YYYY-MM-DD HH:mm
+source_refs:: T001,L001
+
+### 内容
+
+### 处理建议
+\`\`\`
 
 ## Copyable Sync Prompt
 

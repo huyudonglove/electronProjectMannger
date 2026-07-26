@@ -163,9 +163,9 @@ const state = reactive({
   highlightedLog: -1,
 })
 
-const taskForm = reactive({ title: '', priority: 'medium', detail: '', acceptance: '', status: '' })
+const taskForm = reactive({ title: '', priority: 'medium', workLevel: 'light', depthReason: 'decision', detail: '', acceptance: '', constraints: '', planRollback: '', status: '' })
 const thoughtForm = reactive({ content: '', status: '' })
-const quickTaskForm = reactive({ title: '', priority: 'medium', detail: '', acceptance: '', status: '' })
+const quickTaskForm = reactive({ title: '', priority: 'medium', workLevel: 'light', depthReason: 'decision', detail: '', acceptance: '', constraints: '', planRollback: '', status: '' })
 const quickThoughtForm = reactive({ content: '', status: '' })
 const quickDialogueForm = reactive({
   content: '',
@@ -228,9 +228,8 @@ const logs = computed(() => {
       log.shortId,
       log.title,
       log.userGoal,
-      log.userOriginal,
-      log.understanding,
-      ...(log.outputs || []),
+      log.result,
+      ...(log.decisions || []),
       ...(log.relatedTasks || []).flatMap((task: AnyRecord) => [task.shortId, task.title]),
     ].some((value) => String(value || '').toLocaleLowerCase().includes(query)))
 })
@@ -485,21 +484,32 @@ async function createTask(source: 'main' | 'quick') {
       form.status = '先写任务标题'
       return
     }
+    if (form.workLevel === 'deep' && (!form.constraints.trim() || !form.planRollback.trim())) {
+      form.status = '深度任务需填写关键约束和方案与回退'
+      return
+    }
     form.status = '保存中...'
     updateDashboard(await api.addTask(state.projectRoot, {
       title: normalizedTitle,
       status: 'todo',
       priority: form.priority,
+      workLevel: form.workLevel,
+      depthReason: form.workLevel === 'deep' ? form.depthReason : undefined,
       area: 'tool',
       userOriginal: normalizedTitle,
-      agentUnderstanding: '由 Electron Manager 新增。',
-      executionScope: form.detail.trim() || '待补充。',
+      executionDefinition: form.detail.trim() || '待补充。',
       acceptance: form.acceptance.trim() || '待补充。',
+      constraints: form.workLevel === 'deep' ? form.constraints.trim() : undefined,
+      planRollback: form.workLevel === 'deep' ? form.planRollback.trim() : undefined,
     }))
     form.title = ''
     form.detail = ''
     form.acceptance = ''
     form.priority = 'medium'
+    form.workLevel = 'light'
+    form.depthReason = 'decision'
+    form.constraints = ''
+    form.planRollback = ''
     form.status = ''
     if (source === 'quick') closeQuickTask()
     showToast('已保存')
@@ -1121,7 +1131,7 @@ function resolveLogTasks(log: AnyRecord) {
 }
 
 function primaryLogPrompt(log: AnyRecord) {
-  return log.userGoal || log.userOriginal || log.answer || log.title
+  return log.userGoal || log.result || log.title
 }
 
 function knowledgeDisplayTitle(note: AnyRecord) {
@@ -1302,6 +1312,25 @@ function logLevelText(level: string) {
     standard: '标准',
     deep: '深度',
   }[level] || '标准'
+}
+
+function workLevelText(level: string) {
+  return {
+    light: '轻量',
+    standard: '标准',
+    deep: '深度',
+  }[level] || '标准'
+}
+
+function depthReasonText(reason: string) {
+  return {
+    architecture: '架构',
+    migration: '迁移',
+    cross_system: '跨系统',
+    security: '权限安全',
+    irreversible: '不可逆',
+    decision: '方案取舍',
+  }[reason] || '未说明'
 }
 
 function logLevelIcon(level: string) {
@@ -1944,19 +1973,13 @@ function escapeHtml(value: any) {
                   </div>
                   <div class="log-task-relations"><UiTag v-if="!resolveLogTasks(log).length" label="general" :icon-svg="icon('tag')" /><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></div>
                 </div>
-                <section v-if="log.userOriginal && log.userOriginal !== primaryLogPrompt(log)"><strong>用户原话</strong><div v-html="renderTextBlock(log.userOriginal)" /></section>
-                <section :class="{ 'missing-field': !log.understanding }"><strong>理解</strong><div v-if="log.understanding" v-html="renderTextBlock(log.understanding)" /><p v-else>未记录</p></section>
-                <section v-if="log.answer" class="answer"><span>回答</span><div v-html="renderTextBlock(log.answer)" /></section>
-                <section :class="{ 'missing-field': !log.acceptance }"><strong>验收标准</strong><div v-if="log.acceptance" v-html="renderListTextBlock(log.acceptance)" /><p v-else>未记录</p></section>
-                <section v-for="[title, items, required] in [['产出', log.outputs, true], ['关键步骤', log.keySteps, true], ['关键判断', log.decisions, false], ['执行动作', log.actions, false], ['修改文件', log.changedFiles, false], ['验证', log.verification, true]]" :key="title" v-show="(items && items.length) || required" :class="{ 'missing-field': required && !(items && items.length) }">
+                <section v-if="log.userGoal" class="user-goal"><strong>用户目标</strong><div v-html="renderTextBlock(log.userGoal)" /></section>
+                <section :class="{ 'missing-field': !log.result }"><strong>结果</strong><div v-if="log.result" v-html="renderListTextBlock(log.result)" /><p v-else>未记录</p></section>
+                <section v-if="log.recordLevel === 'deep' && log.decisions?.length"><strong>关键判断</strong><ul><li v-for="item in log.decisions" :key="item" v-html="renderInlineMarkdown(item)" /></ul></section>
+                <section v-for="[title, items] in [['修改文件', log.changedFiles], ['验证', log.verification]]" :key="title" :class="{ 'missing-field': !(items && items.length) }">
                   <strong>{{ title }}</strong>
                   <ul v-if="items && items.length"><li v-for="item in items" :key="item" v-html="renderInlineMarkdown(item)" /></ul>
                   <p v-else>未记录</p>
-                </section>
-                <section v-if="log.acceptanceResult"><strong>验收结果</strong><div v-html="renderListTextBlock(log.acceptanceResult)" /></section>
-                <section v-for="[title, items] in [['已知风险', log.risks], ['后续事项', log.followUps]]" :key="title" v-show="items && items.length">
-                  <strong>{{ title }}</strong>
-                  <ul><li v-for="item in items" :key="item" v-html="renderInlineMarkdown(item)" /></ul>
                 </section>
               </article>
             </div>
@@ -2059,9 +2082,19 @@ function escapeHtml(value: any) {
     <form v-if="state.quickCreateMode === 'task'" class="card quick-task-panel" aria-label="快速新建任务" @submit.prevent="createTask('quick')">
       <div class="quick-task-head"><strong>新建任务</strong><button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuickTask" v-html="icon('x')" /></div>
       <input v-model="quickTaskForm.title" type="text" placeholder="任务标题" />
-      <textarea v-model="quickTaskForm.detail" rows="3" placeholder="看到的信息、上下文或下一步。"></textarea>
-      <textarea v-model="quickTaskForm.acceptance" rows="2" placeholder="验收标准（可选）。"></textarea>
-      <div class="quick-task-grid"><select v-model="quickTaskForm.priority" aria-label="优先级"><option value="medium">Medium</option><option value="high">High</option><option value="low">Low</option></select></div>
+      <textarea v-model="quickTaskForm.detail" rows="3" placeholder="执行定义：对需求的理解、本次范围和边界。"></textarea>
+      <textarea v-model="quickTaskForm.acceptance" rows="2" placeholder="验收标准。"></textarea>
+      <div class="quick-task-grid">
+        <select v-model="quickTaskForm.priority" aria-label="优先级"><option value="medium">普通优先级</option><option value="high">高优先级</option><option value="low">低优先级</option></select>
+        <select v-model="quickTaskForm.workLevel" aria-label="工作等级"><option value="light">轻量工作</option><option value="standard">标准工作</option><option value="deep">深度工作</option></select>
+      </div>
+      <template v-if="quickTaskForm.workLevel === 'deep'">
+        <select v-model="quickTaskForm.depthReason" aria-label="深度原因">
+          <option value="architecture">架构</option><option value="migration">迁移</option><option value="cross_system">跨系统</option><option value="security">权限安全</option><option value="irreversible">不可逆</option><option value="decision">方案取舍</option>
+        </select>
+        <textarea v-model="quickTaskForm.constraints" rows="2" placeholder="关键约束。"></textarea>
+        <textarea v-model="quickTaskForm.planRollback" rows="3" placeholder="方案与回退：选定方案、主要取舍和失败后的恢复方式。"></textarea>
+      </template>
       <div class="quick-task-actions"><span>{{ quickTaskForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="保存任务" aria-label="保存任务" v-html="icon('check')" /></div>
     </form>
     <form v-if="state.quickCreateMode === 'thought'" class="card quick-task-panel" aria-label="快速保存想法" @submit.prevent="saveThought('quick')">
@@ -2098,24 +2131,39 @@ function escapeHtml(value: any) {
           <div class="task-detail-badges">
             <span v-if="state.selectedTask.shortId" class="task-short-id">{{ state.selectedTask.shortId }}</span>
             <UiTag :label="state.selectedTask.priority || 'medium'" :tone="priorityTone(state.selectedTask.priority)" :icon-svg="icon(priorityIcon(state.selectedTask.priority))" />
-            <UiTag :label="state.selectedTask.area || 'tool'" :icon-svg="icon('tag')" />
+            <UiTag :label="state.selectedTask.workLevel === 'deep' ? `深度 · ${depthReasonText(state.selectedTask.depthReason)}` : workLevelText(state.selectedTask.workLevel)" :icon-svg="icon(logLevelIcon(state.selectedTask.workLevel))" />
             <UiTag :label="statusText(state.selectedTask.status)" :tone="statusTone(state.selectedTask.status)" variant="status" :icon-svg="icon(statusIcon(state.selectedTask.status))" />
           </div>
           <h2 id="taskDetailTitle">{{ state.selectedTask.title || '未命名任务' }}</h2>
-          <p>{{ state.selectedTask.updated ? `更新于 ${formatTime(state.selectedTask.updated)}` : '未标注更新时间' }}</p>
+          <p>{{ state.selectedTask.updated ? `更新于 ${formatTime(state.selectedTask.updated)} · ${workLevelText(state.selectedTask.workLevel)}` : `未标注更新时间 · ${workLevelText(state.selectedTask.workLevel)}` }}</p>
         </div>
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeTaskDetail" v-html="icon('x')" />
       </div>
       <div class="task-detail-body">
         <section>
-          <strong>任务描述</strong>
+          <strong>用户原话</strong>
+          <div v-if="state.selectedTask.userOriginal" v-html="renderTextBlock(state.selectedTask.userOriginal)" />
+          <p v-else>暂无记录</p>
+        </section>
+        <section>
+          <strong>执行定义</strong>
           <div v-if="state.selectedTask.detail" v-html="renderTextBlock(state.selectedTask.detail)" />
-          <p v-else>暂无描述</p>
+          <p v-else>暂无执行定义</p>
         </section>
         <section>
           <strong>验收标准</strong>
           <div v-if="state.selectedTask.acceptance" v-html="renderListTextBlock(state.selectedTask.acceptance)" />
           <p v-else>暂无验收标准</p>
+        </section>
+        <section v-if="state.selectedTask.workLevel === 'deep'">
+          <strong>关键约束</strong>
+          <div v-if="state.selectedTask.constraints" v-html="renderTextBlock(state.selectedTask.constraints)" />
+          <p v-else>暂无关键约束</p>
+        </section>
+        <section v-if="state.selectedTask.workLevel === 'deep'">
+          <strong>方案与回退</strong>
+          <div v-if="state.selectedTask.planRollback" v-html="renderTextBlock(state.selectedTask.planRollback)" />
+          <p v-else>暂无方案与回退</p>
         </section>
       </div>
     </section>

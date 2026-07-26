@@ -2,8 +2,22 @@ import type { ProjectTask } from './types.js'
 
 export function taskRecordTemplate(
   task: ProjectTask,
-  meta: { created: string; userOriginal: string; agentUnderstanding: string },
+  meta: { created: string; userOriginal: string },
 ) {
+  const deepMetadata = task.workLevel === 'deep'
+    ? `depth_reason:: ${task.depthReason || 'decision'}\n`
+    : ''
+  const deepSections = task.workLevel === 'deep'
+    ? `
+### 关键约束
+
+${task.constraints}
+
+### 方案与回退
+
+${task.planRollback}
+`
+    : ''
   return `## ${task.title}
 
 id:: ${task.id}
@@ -11,28 +25,24 @@ short_id:: ${task.shortId}
 type:: task
 status:: ${task.status}
 priority:: ${task.priority}
-area:: ${task.area}
+work_level:: ${task.workLevel}
+${deepMetadata}area:: ${task.area}
 created:: ${meta.created}
 updated:: ${task.updated}
 version:: ${task.version}
-question_refs:: 无
 
 ### 用户原话
 
 ${meta.userOriginal}
 
-### Agent 理解
-
-${meta.agentUnderstanding}
-
-### 执行范围
+### 执行定义
 
 ${task.detail}
 
 ### 验收
 
 ${task.acceptance}
-`
+${deepSections}`
 }
 
 export function thoughtRecordTemplate(input: {

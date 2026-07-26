@@ -5,3 +5,4 @@ release
 apps/desktop/renderer-vue
 .DS_Store
 .agent-hub
+.agent-collaboration.md
