@@ -13,19 +13,23 @@ import {
 import { resolveProjectPath, resolveProjectPathCandidate } from './path-guard.js'
 import { runProcess } from './process-runner.js'
 import { readFileLines } from './read-file.js'
+import { assertActionDigest } from './action-digest.js'
+import { applyProjectPatch, createProjectFile, parsePatchOperations } from './write-tools.js'
 
 export interface LocalRuntimeOptions {
   maxOutputChars?: number
   timeoutMs?: number
+  maxWriteChars?: number
   clock?: () => string
 }
 
 type ToolHandler = (request: ToolRequest, context: RuntimeContext) => Promise<ToolResult>
 
-export class LocalReadRuntime implements AgentRuntime {
+export class LocalAgentRuntime implements AgentRuntime {
   readonly projectRoot: string
   readonly maxOutputChars: number
   readonly timeoutMs: number
+  readonly maxWriteChars: number
   readonly #clock: () => string
   readonly #handlers: Map<string, ToolHandler>
 
@@ -33,6 +37,7 @@ export class LocalReadRuntime implements AgentRuntime {
     this.projectRoot = path.resolve(projectRoot)
     this.maxOutputChars = options.maxOutputChars ?? 20_000
     this.timeoutMs = options.timeoutMs ?? 30_000
+    this.maxWriteChars = options.maxWriteChars ?? 1_000_000
     this.#clock = options.clock || (() => new Date().toISOString())
     this.#handlers = new Map([
       ['list_files', this.#listFiles.bind(this)],
@@ -40,6 +45,8 @@ export class LocalReadRuntime implements AgentRuntime {
       ['read_file', this.#readFile.bind(this)],
       ['git_status', this.#gitStatus.bind(this)],
       ['git_diff', this.#gitDiff.bind(this)],
+      ['create_file', this.#createFile.bind(this)],
+      ['apply_patch', this.#applyPatch.bind(this)],
     ])
   }
 
@@ -51,7 +58,7 @@ export class LocalReadRuntime implements AgentRuntime {
       if (context.permission.effect === 'deny') throw new AgentCoreError('PERMISSION_DENIED', context.permission.reason)
       if (context.permission.effect === 'ask') throw new AgentCoreError('APPROVAL_REQUIRED', context.permission.reason)
       const handler = this.#handlers.get(request.name)
-      if (!handler) throw new AgentCoreError('TOOL_NOT_FOUND', `Unknown local read tool: ${request.name}`)
+      if (!handler) throw new AgentCoreError('TOOL_NOT_FOUND', `Unknown local tool: ${request.name}`)
       return await handler(request, context)
     } catch (error) {
       return {
@@ -146,7 +153,44 @@ export class LocalReadRuntime implements AgentRuntime {
     })
     return processToolResult(request, startedAt, this.#clock(), result, 'Read Git diff')
   }
+
+  async #createFile(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
+    const startedAt = this.#clock()
+    assertActionDigest(request)
+    const requestedPath = requiredString(request.input.path, 'path')
+    const content = stringValue(request.input.content, 'content')
+    const created = await createProjectFile(context.projectRoot, requestedPath, content, this.maxWriteChars)
+    return {
+      requestId: request.id,
+      ok: true,
+      summary: `Created ${created.path}`,
+      changedPaths: [created.path],
+      startedAt,
+      completedAt: this.#clock(),
+      metadata: { path: created.path, operation: 'create', afterHash: created.afterHash },
+    }
+  }
+
+  async #applyPatch(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
+    const startedAt = this.#clock()
+    assertActionDigest(request)
+    const operations = parsePatchOperations(request.input.operations)
+    const changes = await applyProjectPatch(context.projectRoot, operations, this.maxWriteChars)
+    return {
+      requestId: request.id,
+      ok: true,
+      summary: `Patched ${changes.length} file(s)`,
+      changedPaths: changes.map((change) => change.path),
+      startedAt,
+      completedAt: this.#clock(),
+      metadata: {
+        files: changes.map((change) => ({ path: change.path, beforeHash: change.beforeHash, afterHash: change.afterHash })),
+      },
+    }
+  }
 }
+
+export { LocalAgentRuntime as LocalReadRuntime }
 
 function processToolResult(
   request: ToolRequest,
@@ -190,6 +234,11 @@ function requiredString(value: JsonValue | undefined, name: string) {
 function optionalString(value: JsonValue | undefined, fallback: string) {
   if (value === undefined) return fallback
   if (typeof value !== 'string') throw new AgentCoreError('INVALID_INPUT', 'Expected a string input')
+  return value
+}
+
+function stringValue(value: JsonValue | undefined, name: string) {
+  if (typeof value !== 'string') throw new AgentCoreError('INVALID_INPUT', `${name} must be a string`)
   return value
 }
 

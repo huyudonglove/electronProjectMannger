@@ -61,3 +61,49 @@ export const localReadToolDefinitions: ToolDefinition[] = [
     },
   },
 ]
+
+export const localWriteToolDefinitions: ToolDefinition[] = [
+  {
+    name: 'create_file',
+    description: 'Create a new UTF-8 text file. The target must not already exist and its parent must be inside the project.',
+    risk: 'project_write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
+      },
+      required: ['path', 'content'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'apply_patch',
+    description: 'Atomically apply exact text replacements across one or more existing UTF-8 project files.',
+    risk: 'project_write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              oldText: { type: 'string' },
+              newText: { type: 'string' },
+              expectedOccurrences: { type: 'number' },
+              expectedHash: { type: 'string', description: 'Optional SHA-256 hash of the file before any operation in this patch.' },
+            },
+            required: ['path', 'oldText', 'newText'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['operations'],
+      additionalProperties: false,
+    },
+  },
+]
+
+export const localToolDefinitions: ToolDefinition[] = [...localReadToolDefinitions, ...localWriteToolDefinitions]
