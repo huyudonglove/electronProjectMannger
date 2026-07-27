@@ -73,6 +73,31 @@ importers:
         specifier: ^24.13.2
         version: 24.13.2
 
+  packages/agent-desktop-config:
+    dependencies:
+      '@electron-manager/agent-config':
+        specifier: workspace:*
+        version: link:../agent-config
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@electron-manager/agent-provider-openai':
+        specifier: workspace:*
+        version: link:../agent-provider-openai
+      '@electron-manager/agent-runner':
+        specifier: workspace:*
+        version: link:../agent-runner
+      '@electron-manager/project-core':
+        specifier: workspace:*
+        version: link:../project-core
+    devDependencies:
+      '@electron-manager/agent-desktop-coordinator':
+        specifier: workspace:*
+        version: link:../agent-desktop-coordinator
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/agent-desktop-coordinator:
     dependencies:
       '@electron-manager/agent-core':
