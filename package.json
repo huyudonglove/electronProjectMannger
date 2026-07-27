@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "pnpm --filter @electron-manager/desktop dev",
     "start": "pnpm --filter @electron-manager/desktop start",
-    "build": "pnpm --filter @electron-manager/agent-core build && pnpm --filter @electron-manager/agent-config build && pnpm --filter @electron-manager/agent-context build && pnpm --filter @electron-manager/agent-memory build && pnpm --filter @electron-manager/agent-model-router build && pnpm --filter @electron-manager/agent-checkpoint-sqlite build && pnpm --filter @electron-manager/agent-runtime-local build && pnpm --filter @electron-manager/agent-provider-openai build && pnpm --filter @electron-manager/project-core build && pnpm --filter @electron-manager/desktop build",
+    "build:agent": "pnpm --filter @electron-manager/agent-core build && pnpm --filter @electron-manager/agent-config build && pnpm --filter @electron-manager/agent-context build && pnpm --filter @electron-manager/agent-memory build && pnpm --filter @electron-manager/agent-model-router build && pnpm --filter @electron-manager/agent-checkpoint-sqlite build && pnpm --filter @electron-manager/agent-runtime-local build && pnpm --filter @electron-manager/agent-provider-openai build && pnpm --filter @electron-manager/agent-runner build",
+    "build": "pnpm build:agent && pnpm --filter @electron-manager/project-core build && pnpm --filter @electron-manager/desktop build",
     "prepare:mac": "pnpm build && node scripts/prepare-mac-app.mjs",
     "pack:mac": "pnpm prepare:mac && electron-builder --mac --dir && node scripts/sign-mac-app.mjs",
     "dist:mac": "pnpm pack:mac && node scripts/create-mac-zip.mjs",
     "dmg:mac": "pnpm pack:mac && node scripts/create-mac-dmg.mjs",
-    "test": "pnpm --filter @electron-manager/agent-core test && pnpm --filter @electron-manager/agent-config test && pnpm --filter @electron-manager/agent-context test && pnpm --filter @electron-manager/agent-memory test && pnpm --filter @electron-manager/agent-model-router test && pnpm --filter @electron-manager/agent-checkpoint-sqlite test && pnpm --filter @electron-manager/agent-runtime-local test && pnpm --filter @electron-manager/agent-provider-openai test && pnpm --filter @electron-manager/project-core build && node scripts/smoke-test.mjs"
+    "test:agent": "pnpm --filter @electron-manager/agent-core test && pnpm --filter @electron-manager/agent-config test && pnpm --filter @electron-manager/agent-context test && pnpm --filter @electron-manager/agent-memory test && pnpm --filter @electron-manager/agent-model-router test && pnpm --filter @electron-manager/agent-checkpoint-sqlite test && pnpm --filter @electron-manager/agent-runtime-local test && pnpm --filter @electron-manager/agent-provider-openai test && pnpm --filter @electron-manager/agent-runner test",
+    "test": "pnpm test:agent && pnpm --filter @electron-manager/project-core build && node scripts/smoke-test.mjs"
   },
   "devDependencies": {
     "electron-builder": "^26.15.3",

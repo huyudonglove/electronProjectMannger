@@ -13,6 +13,7 @@ import {
   recordContextEnvelope,
   recordDecision,
   recordDiffSnapshot,
+  recordInspection,
   recordModelAttempt,
   recordToolRequest,
   recordToolResult,
@@ -518,6 +519,16 @@ export class AgentStepper {
     verificationCheckId?: string,
   ): AgentStepResult {
     state.ledger = recordToolResult(state.ledger, result)
+    const inspectedPath = result.metadata?.path
+    const inspectedHash = result.metadata?.contentHash
+    if (result.ok && request.name === 'read_file' && typeof inspectedPath === 'string' && typeof inspectedHash === 'string') {
+      state.ledger = recordInspection(state.ledger, {
+        path: inspectedPath,
+        hash: inspectedHash,
+        reason: result.summary,
+        inspectedAt: result.completedAt,
+      })
+    }
     state.event('tool.completed', result.summary, result.completedAt, {
       requestId: request.id,
       tool: request.name,

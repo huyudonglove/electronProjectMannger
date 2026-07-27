@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
+import { createHash } from 'node:crypto'
 
 import { AgentCoreError } from '@electron-manager/agent-core'
 import { limitText } from './output.js'
@@ -48,6 +49,16 @@ export async function readFileLines(filePath: string, options: ReadFileOptions) 
     startLine,
     endLine: Math.min(lineNumber, endLine),
   }
+}
+
+export async function hashFileContent(filePath: string) {
+  const hash = createHash('sha256')
+  try {
+    for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+  } catch (error) {
+    throw new AgentCoreError('TOOL_EXECUTION_FAILED', `Failed to hash file: ${filePath}`, { retryable: true, cause: error })
+  }
+  return hash.digest('hex')
 }
 
 function positiveInteger(value: number, name: string) {

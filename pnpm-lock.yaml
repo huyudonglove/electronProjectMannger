@@ -112,6 +112,34 @@ importers:
         specifier: ^24.13.2
         version: 24.13.2
 
+  packages/agent-runner:
+    dependencies:
+      '@electron-manager/agent-checkpoint-sqlite':
+        specifier: workspace:*
+        version: link:../agent-checkpoint-sqlite
+      '@electron-manager/agent-config':
+        specifier: workspace:*
+        version: link:../agent-config
+      '@electron-manager/agent-context':
+        specifier: workspace:*
+        version: link:../agent-context
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@electron-manager/agent-memory':
+        specifier: workspace:*
+        version: link:../agent-memory
+      '@electron-manager/agent-model-router':
+        specifier: workspace:*
+        version: link:../agent-model-router
+      '@electron-manager/agent-runtime-local':
+        specifier: workspace:*
+        version: link:../agent-runtime-local
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/agent-runtime-local:
     dependencies:
       '@electron-manager/agent-core':

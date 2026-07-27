@@ -72,6 +72,7 @@ test('list, search and ranged reads stay inside the project', async () => {
   const read = await runtime.execute(request('read', 'read_file', { path: 'src/example.ts', startLine: 2, endLine: 2 }), context(root))
   assert.equal(read.ok, true)
   assert.equal(read.output, '2:   return 42')
+  assert.equal(read.metadata.contentHash, contentHash(await readFile(path.join(root, 'src', 'example.ts'), 'utf8')))
 })
 
 test('lexical and symlink path escapes are rejected', async () => {

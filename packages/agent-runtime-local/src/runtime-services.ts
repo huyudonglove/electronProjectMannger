@@ -13,7 +13,7 @@ import {
   resolveProjectPathCandidate,
 } from './path-guard.js'
 import { runProcess, type ProcessRunResult } from './process-runner.js'
-import { readFileLines } from './read-file.js'
+import { hashFileContent, readFileLines } from './read-file.js'
 import {
   applyProjectPatch,
   createProjectFile,
@@ -77,6 +77,10 @@ export class LocalRuntimeServices {
 
   readLines(absolutePath: string, options: { startLine: number; endLine: number }) {
     return readFileLines(absolutePath, { ...options, maxOutputChars: this.maxOutputChars })
+  }
+
+  hashFile(absolutePath: string) {
+    return hashFileContent(absolutePath)
   }
 
   assertDigest(request: ToolRequest) {

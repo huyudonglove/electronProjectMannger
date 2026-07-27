@@ -1,6 +1,8 @@
 import { AgentCoreError } from './errors.js'
 import type { AgentTurnAction, JsonSchema, JsonValue, ProposedAcceptanceEvidence, ProposedDiffSnapshot, ToolRequest } from './protocol.js'
 
+export const AGENT_TURN_ACTION_SCHEMA_REVISION = '1' as const
+
 export function parseAgentTurnAction(value: unknown): AgentTurnAction {
   const action = objectValue(value, 'action')
   if (!('kind' in action)) modelError('action.kind is required')

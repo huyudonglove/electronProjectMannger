@@ -43,6 +43,7 @@ export function createReadFileTool(services: LocalRuntimeServices): ToolModule {
         startLine: optionalNumber(request.input.startLine, 1),
         endLine: optionalNumber(request.input.endLine, 400),
       })
+      const contentHash = await services.hashFile(resolved.absolutePath)
       return {
         requestId: request.id,
         ok: true,
@@ -51,7 +52,7 @@ export function createReadFileTool(services: LocalRuntimeServices): ToolModule {
         truncated: read.truncated,
         startedAt,
         completedAt: services.now(),
-        metadata: { path: resolved.relativePath, startLine: read.startLine, endLine: read.endLine },
+        metadata: { path: resolved.relativePath, startLine: read.startLine, endLine: read.endLine, contentHash },
       }
     },
   }
