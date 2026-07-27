@@ -47,7 +47,30 @@ importers:
         specifier: ^24.13.2
         version: 24.13.2
 
+  packages/agent-config:
+    dependencies:
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/agent-core:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
+  packages/agent-model-router:
+    dependencies:
+      '@electron-manager/agent-config':
+        specifier: workspace:*
+        version: link:../agent-config
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
     devDependencies:
       '@types/node':
         specifier: ^24.13.2

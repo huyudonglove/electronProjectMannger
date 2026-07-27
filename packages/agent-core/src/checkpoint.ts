@@ -1,16 +1,18 @@
 import { AgentCoreError } from './errors.js'
 import type {
   AgentEvent,
+  EffectExpectation,
   JsonValue,
   PendingAction,
   RunLedger,
   RunStatus,
+  ToolRecovery,
   ToolResult,
 } from './protocol.js'
 
 export const RUN_SNAPSHOT_SCHEMA_VERSION = 1 as const
 
-export type EffectRecovery = 'safe_replay' | 'reconcile_then_resume' | 'never_auto_replay'
+export type EffectRecovery = ToolRecovery
 export type EffectStatus = 'prepared' | 'completed' | 'failed' | 'unknown'
 
 export interface EffectRecord {
@@ -22,7 +24,8 @@ export interface EffectRecord {
   status: EffectStatus
   backend: string
   inputHash: string
-  expectedEffects: string[]
+  expectedEffects: EffectExpectation[]
+  verificationCheckId?: string
   preparedAt: string
   updatedAt: string
   result?: ToolResult
@@ -181,6 +184,7 @@ export function applyCheckpointCommit(current: LoadedCheckpoint | null, commit: 
   const previousSequence = current?.snapshot.lastEventSequence ?? 0
   validateEvents(commit.runId, previousSequence, commit.ledger.eventSequence, commit.events)
   validateEffectHistory(current?.snapshot.effects ?? [], commit.effects)
+  validateModelAttemptHistory(current?.snapshot.ledger.modelAttempts ?? [], commit.ledger.modelAttempts)
   validateComponentHistory(current?.snapshot, commit)
 
   const snapshot: RunSnapshot = {
@@ -206,6 +210,7 @@ export function validateLoadedCheckpoint(record: LoadedCheckpoint) {
   assertSupportedSnapshot(record.snapshot)
   validateEvents(record.snapshot.runId, 0, record.snapshot.lastEventSequence, record.events)
   for (const effect of record.snapshot.effects) validateEffect(record.snapshot.runId, effect)
+  validateModelAttempts(record.snapshot.runId, record.snapshot.ledger.modelAttempts)
   const keys = record.snapshot.effects.map(effectRecordKey)
   if (new Set(keys).size !== keys.length) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect journal contains duplicate idempotency keys')
@@ -235,6 +240,7 @@ function validateCommit(commit: CheckpointCommit) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Expected revision must be null or a positive integer')
   }
   for (const effect of commit.effects) validateEffect(commit.runId, effect)
+  validateModelAttempts(commit.runId, commit.ledger.modelAttempts)
   const keys = commit.effects.map(effectRecordKey)
   if (new Set(keys).size !== keys.length) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect journal contains duplicate idempotency keys')
@@ -272,6 +278,18 @@ function validateEffect(runId: string, effect: EffectRecord) {
   if (!Number.isInteger(effect.attempt) || effect.attempt < 1) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect attempt must be a positive integer')
   }
+  for (const expectation of effect.expectedEffects) {
+    if (
+      !expectation
+      || expectation.kind !== 'file'
+      || !expectation.path.trim()
+      || (expectation.operation !== 'create' && expectation.operation !== 'modify')
+      || (expectation.beforeHash !== null && !expectation.beforeHash.trim())
+      || !expectation.afterHash.trim()
+    ) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect contains invalid file recovery evidence')
+    }
+  }
   if ((effect.status === 'completed' || effect.status === 'failed') && !effect.result) {
     throw new AgentCoreError('CHECKPOINT_ERROR', `${effect.status} effect must include a tool result`)
   }
@@ -299,6 +317,7 @@ function validateEffectHistory(previous: EffectRecord[], next: EffectRecord[]) {
       || candidate.backend !== effect.backend
       || candidate.inputHash !== effect.inputHash
       || candidate.preparedAt !== effect.preparedAt
+      || candidate.verificationCheckId !== effect.verificationCheckId
       || JSON.stringify(candidate.expectedEffects) !== JSON.stringify(effect.expectedEffects)
     ) {
       throw new AgentCoreError('CHECKPOINT_ERROR', 'Prepared effect identity and recovery fields are immutable')
@@ -314,6 +333,50 @@ function validateEffectHistory(previous: EffectRecord[], next: EffectRecord[]) {
       : new Set<EffectStatus>(['unknown', 'completed', 'failed'])
     if (!allowed.has(candidate.status)) {
       throw new AgentCoreError('CHECKPOINT_ERROR', `Invalid effect transition from ${effect.status} to ${candidate.status}`)
+    }
+  }
+}
+
+function validateModelAttempts(runId: string, attempts: RunSnapshot['ledger']['modelAttempts']) {
+  const ids = new Set<string>()
+  for (const attempt of attempts) {
+    if (
+      !attempt.id.trim()
+      || !attempt.id.startsWith(`${runId}:`)
+      || !attempt.routeId.trim()
+      || !attempt.routeRevision.trim()
+      || !attempt.profileId.trim()
+      || !attempt.profileRevision.trim()
+      || !attempt.provider.trim()
+      || !attempt.model.trim()
+      || !Number.isInteger(attempt.attempt)
+      || attempt.attempt < 1
+      || !Number.isInteger(attempt.inputTokens)
+      || attempt.inputTokens < 0
+      || !Number.isInteger(attempt.outputTokens)
+      || attempt.outputTokens < 0
+    ) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Model attempt contains invalid identity or usage fields')
+    }
+    if (ids.has(attempt.id)) throw new AgentCoreError('CHECKPOINT_ERROR', 'Model attempt ids must be unique')
+    ids.add(attempt.id)
+    if (attempt.outcome === 'succeeded' && (!attempt.acceptedAction || attempt.error)) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Successful model attempt must contain an accepted action and no error')
+    }
+    if (attempt.outcome !== 'succeeded' && (attempt.acceptedAction || !attempt.error)) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Failed or cancelled model attempt must contain an error and no accepted action')
+    }
+  }
+}
+
+function validateModelAttemptHistory(
+  previous: RunSnapshot['ledger']['modelAttempts'],
+  next: RunSnapshot['ledger']['modelAttempts'],
+) {
+  if (next.length < previous.length) throw new AgentCoreError('CHECKPOINT_ERROR', 'Model attempt history is append-only')
+  for (let index = 0; index < previous.length; index += 1) {
+    if (JSON.stringify(previous[index]) !== JSON.stringify(next[index])) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Persisted model attempts are immutable')
     }
   }
 }

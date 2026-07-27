@@ -7,6 +7,7 @@ import {
   RUN_SNAPSHOT_SCHEMA_VERSION,
   createRunLedger,
   decideResume,
+  recordModelAttempt,
   sequenceAgentEvent,
   setPendingAction,
 } from '../dist/index.js'
@@ -43,7 +44,13 @@ function preparedEffect(recovery = 'reconcile_then_resume') {
     status: 'prepared',
     backend: 'native',
     inputHash: 'input-hash',
-    expectedEffects: ['src/example.ts'],
+    expectedEffects: [{
+      kind: 'file',
+      path: 'src/example.ts',
+      operation: 'modify',
+      beforeHash: 'before-hash',
+      afterHash: 'after-hash',
+    }],
     preparedAt: at(2),
     updatedAt: at(2),
   }
@@ -150,6 +157,46 @@ test('effect journal is append-only and completed effects are immutable', async 
       committedAt: at(4),
       effects: [{ ...completed, backend: 'changed-after-completion' }],
     })),
+    (error) => error instanceof AgentCoreError && /immutable/.test(error.message),
+  )
+})
+
+test('model attempt history is append-only and persisted attempts are immutable', async () => {
+  const store = new InMemoryCheckpointStore()
+  let ledger = createRunLedger(input(), at(0))
+  ledger = recordModelAttempt(ledger, {
+    id: 'run-checkpoint:step:1:route.coding:attempt:1',
+    routeId: 'route.coding',
+    routeRevision: '1',
+    attempt: 1,
+    profileId: 'model.primary',
+    profileRevision: '2',
+    provider: 'fixture',
+    model: 'fixture-coder',
+    startedAt: at(1),
+    completedAt: at(2),
+    outcome: 'failed',
+    acceptedAction: false,
+    inputTokens: 100,
+    outputTokens: 10,
+    error: {
+      category: 'rate_limit',
+      message: 'Retry later',
+      retryable: true,
+      sourceCode: 'MODEL_ERROR',
+    },
+  })
+  await store.commit(commit(ledger))
+
+  await assert.rejects(
+    store.commit(commit({ ...ledger, modelAttempts: [] }, { expectedRevision: 1 })),
+    (error) => error instanceof AgentCoreError && /append-only/.test(error.message),
+  )
+  await assert.rejects(
+    store.commit(commit({
+      ...ledger,
+      modelAttempts: [{ ...ledger.modelAttempts[0], outputTokens: 11 }],
+    }, { expectedRevision: 1 })),
     (error) => error instanceof AgentCoreError && /immutable/.test(error.message),
   )
 })

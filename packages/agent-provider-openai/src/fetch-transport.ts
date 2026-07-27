@@ -1,4 +1,4 @@
-import { AgentCoreError } from '@electron-manager/agent-core'
+import { AgentCoreError, type NormalizedModelErrorCode } from '@electron-manager/agent-core'
 
 import { parseServerSentEvents } from './sse.js'
 import type { OpenAIResponsesRequest, OpenAIResponsesStreamEvent, OpenAIResponsesTransport } from './types.js'
@@ -43,10 +43,19 @@ export class FetchOpenAIResponsesTransport implements OpenAIResponsesTransport {
       const body = (await response.text()).slice(0, 4_000)
       throw new AgentCoreError('MODEL_ERROR', `OpenAI Responses API failed with HTTP ${response.status}`, {
         retryable: response.status === 408 || response.status === 409 || response.status === 429 || response.status >= 500,
-        details: { status: response.status, body },
+        details: { status: response.status, body, modelErrorCategory: categoryForStatus(response.status) },
       })
     }
     if (!response.body) throw new AgentCoreError('MODEL_ERROR', 'OpenAI Responses API returned an empty stream')
     yield* parseServerSentEvents(response.body as unknown as AsyncIterable<Uint8Array>)
   }
+}
+
+function categoryForStatus(status: number): NormalizedModelErrorCode {
+  if (status === 401) return 'authentication'
+  if (status === 403) return 'permission'
+  if (status === 408) return 'timeout'
+  if (status === 429) return 'rate_limit'
+  if (status >= 500) return 'service_unavailable'
+  return 'invalid_request'
 }

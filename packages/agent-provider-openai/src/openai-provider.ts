@@ -3,6 +3,7 @@ import {
   toAgentError,
   type ModelCapabilityProfile,
   type ModelMessage,
+  type NormalizedModelErrorCode,
   type ModelProvider,
   type ModelRequest,
   type ModelStreamEvent,
@@ -133,7 +134,7 @@ function toolCatalogMessage(tools: ToolDefinition[]): OpenAIResponseInputMessage
       'Return exactly one action matching the supplied JSON schema.',
       'Request ids must be unique and stable because later evidence refers to them.',
       'Null in an optional tool field means omit that field. Never claim a tool result before it appears in the ledger.',
-      `Available tools: ${JSON.stringify(tools.map(({ name, description, risk }) => ({ name, description, risk })))}`,
+      `Available tools: ${JSON.stringify(tools.map(({ name, description, risk, riskCategory, baseRiskLevel }) => ({ name, description, riskCategory: riskCategory || risk, baseRiskLevel })))}`,
     ].join('\n'),
   }
 }
@@ -187,7 +188,29 @@ function responseError(event: OpenAIResponsesStreamEvent): SerializedAgentError 
   const response = objectValue(event.response)
   const error = objectValue(response?.error) || objectValue(event.error)
   const message = typeof error?.message === 'string' ? error.message : 'OpenAI model request failed'
-  return { code: 'MODEL_ERROR', message, retryable: true }
+  const providerCode = typeof error?.code === 'string' ? error.code : typeof error?.type === 'string' ? error.type : undefined
+  const category = openAIErrorCategory(providerCode, message)
+  return {
+    code: 'MODEL_ERROR',
+    message,
+    retryable: ['rate_limit', 'timeout', 'service_unavailable', 'transport'].includes(category),
+    details: {
+      modelErrorCategory: category,
+      ...(providerCode ? { providerCode } : {}),
+    },
+  }
+}
+
+function openAIErrorCategory(code: string | undefined, message: string): NormalizedModelErrorCode {
+  const value = `${code || ''} ${message}`.toLowerCase()
+  if (/rate.?limit|too many requests/.test(value)) return 'rate_limit'
+  if (/timeout|timed out|deadline/.test(value)) return 'timeout'
+  if (/server|service unavailable|overloaded/.test(value)) return 'service_unavailable'
+  if (/api.?key|authentication|unauthorized|invalid credential/.test(value)) return 'authentication'
+  if (/permission|forbidden/.test(value)) return 'permission'
+  if (/invalid|request|unsupported/.test(value)) return 'invalid_request'
+  if (/connection|network|transport|socket/.test(value)) return 'transport'
+  return 'unknown'
 }
 
 function cancelledError(reason: unknown): SerializedAgentError {

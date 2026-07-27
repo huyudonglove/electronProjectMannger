@@ -56,6 +56,7 @@ function completed(action, usage = { input_tokens: 120, output_tokens: 40 }) {
 function modelRequest(overrides = {}) {
   return {
     runId: 'run-provider',
+    turnId: 'run-provider:step:1',
     messages: [
       { role: 'system', content: 'Select one action.' },
       { role: 'tool', toolRequestId: 'previous-1', content: '{"ok":true}' },
@@ -145,6 +146,16 @@ test('transport failures, missing terminal events and cancellation remain distin
   const cancelled = await collect(new OpenAIResponsesProvider({ transport: cancelledTransport }).stream(modelRequest(), controller.signal))
   assert.equal(cancelled[0].error.code, 'CANCELLED')
   assert.equal(cancelledTransport.requests.length, 0)
+
+  const authentication = new MockTransport([[
+    {
+      type: 'response.failed',
+      response: { error: { code: 'invalid_api_key', message: 'Invalid API key' } },
+    },
+  ]])
+  const authenticationEvents = await collect(new OpenAIResponsesProvider({ transport: authentication }).stream(modelRequest()))
+  assert.equal(authenticationEvents[0].error.retryable, false)
+  assert.equal(authenticationEvents[0].error.details.modelErrorCategory, 'authentication')
 })
 
 test('SSE and fetch transport parse chunk boundaries and surface bounded HTTP errors', async () => {
@@ -173,7 +184,10 @@ test('SSE and fetch transport parse chunk boundaries and surface bounded HTTP er
   })
   await assert.rejects(
     () => collect(errorTransport.stream({ model: 'gpt-test', input: [], max_output_tokens: 10, stream: true, store: false, text: { verbosity: 'low', format: { type: 'json_schema', name: 'x', strict: true, schema: { type: 'object' } } } })),
-    (error) => error.code === 'MODEL_ERROR' && error.retryable === true && error.details.status === 429,
+    (error) => error.code === 'MODEL_ERROR'
+      && error.retryable === true
+      && error.details.status === 429
+      && error.details.modelErrorCategory === 'rate_limit',
   )
 })
 

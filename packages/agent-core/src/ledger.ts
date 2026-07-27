@@ -10,6 +10,7 @@ import type {
   FailureRecord,
   InspectionRecord,
   JsonValue,
+  ModelAttemptRecord,
   PendingAction,
   RunLedger,
   RunPhase,
@@ -25,10 +26,10 @@ const terminalPhases = new Set<RunPhase>(['completed', 'blocked', 'failed', 'can
 const allowedTransitions: Record<RunPhase, RunPhase[]> = {
   created: ['loading_context', 'failed', 'cancelled'],
   loading_context: ['inspecting', 'blocked', 'failed', 'cancelled'],
-  inspecting: ['planning', 'acting', 'blocked', 'failed', 'cancelled'],
+  inspecting: ['planning', 'acting', 'awaiting_approval', 'blocked', 'failed', 'cancelled'],
   planning: ['acting', 'awaiting_approval', 'blocked', 'failed', 'cancelled'],
   acting: ['awaiting_approval', 'verifying', 'repairing', 'blocked', 'failed', 'cancelled'],
-  awaiting_approval: ['planning', 'acting', 'blocked', 'failed', 'cancelled'],
+  awaiting_approval: ['inspecting', 'planning', 'acting', 'verifying', 'repairing', 'blocked', 'failed', 'cancelled'],
   verifying: ['repairing', 'finalizing', 'blocked', 'failed', 'cancelled'],
   repairing: ['acting', 'awaiting_approval', 'verifying', 'blocked', 'failed', 'cancelled'],
   finalizing: ['completed', 'repairing', 'blocked', 'failed', 'cancelled'],
@@ -67,6 +68,7 @@ export function createRunLedger(input: AgentRunInput, at: string): RunLedger {
     verifications: [],
     approvals: [],
     failures: [],
+    modelAttempts: [],
     ...(input.metadata ? { metadata: { ...input.metadata } } : {}),
   }
 }
@@ -125,6 +127,15 @@ export function recordAgentStep(ledger: RunLedger, at: string): RunLedger {
     })
   }
   return update(ledger, at, { stepCount: ledger.stepCount + 1 })
+}
+
+export function recordModelAttempt(ledger: RunLedger, attempt: ModelAttemptRecord): RunLedger {
+  if (ledger.modelAttempts.some((item) => item.id === attempt.id)) {
+    throw new AgentCoreError('INVALID_INPUT', `Duplicate model attempt id: ${attempt.id}`)
+  }
+  return update(ledger, attempt.completedAt, {
+    modelAttempts: [...ledger.modelAttempts, structuredClone(attempt)],
+  })
 }
 
 export function recordToolResult(ledger: RunLedger, result: ToolResult): RunLedger {

@@ -17,6 +17,7 @@ const provider = new OpenAIResponsesProvider({
 let action
 for await (const event of provider.stream({
   runId: 'live-smoke',
+  turnId: 'live-smoke:step:1',
   messages: [
     { role: 'system', content: 'Return exactly one structured action.' },
     { role: 'user', content: 'Return blocked because this smoke test intentionally provides no tools.' },

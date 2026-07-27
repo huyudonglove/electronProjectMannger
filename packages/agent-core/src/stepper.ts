@@ -11,6 +11,7 @@ import {
   recordChange,
   recordDecision,
   recordDiffSnapshot,
+  recordModelAttempt,
   recordToolRequest,
   recordToolResult,
   recordVerification,
@@ -55,6 +56,19 @@ export interface AgentStepperOptions {
   clock?: () => string
 }
 
+export interface PreparedToolExecution {
+  ledger: RunLedger
+  events: AgentEvent[]
+  request: ToolRequest
+  tool: ToolDefinition
+  permission: PermissionDecision
+  verificationCheckId?: string
+}
+
+export interface AgentStepHooks {
+  beforeToolExecution?(execution: PreparedToolExecution): Promise<ToolResult | void>
+}
+
 export interface ApprovalResolution {
   decision: 'approved' | 'denied'
   decidedAt: string
@@ -79,12 +93,12 @@ export class AgentStepper {
     this.#clock = options.clock || (() => new Date().toISOString())
   }
 
-  async runUntilPause(initialLedger: RunLedger, signal?: AbortSignal): Promise<AgentStepResult> {
+  async runUntilPause(initialLedger: RunLedger, signal?: AbortSignal, hooks?: AgentStepHooks): Promise<AgentStepResult> {
     let ledger = initialLedger
     const events: AgentEvent[] = []
     let summary = 'Run is ready'
     while (!isTerminalLedger(ledger) && ledger.phase !== 'awaiting_approval') {
-      const result = await this.step(ledger, signal)
+      const result = await this.step(ledger, signal, hooks)
       ledger = result.ledger
       events.push(...result.events)
       summary = result.summary
@@ -98,7 +112,7 @@ export class AgentStepper {
     }
   }
 
-  async step(initialLedger: RunLedger, signal?: AbortSignal): Promise<AgentStepResult> {
+  async step(initialLedger: RunLedger, signal?: AbortSignal, hooks?: AgentStepHooks): Promise<AgentStepResult> {
     const state = new StepState(initialLedger)
     try {
       if (signal?.aborted) throw new AgentCoreError('CANCELLED', 'Agent run was cancelled')
@@ -113,10 +127,11 @@ export class AgentStepper {
 
       state.ledger = recordAgentStep(state.ledger, this.#clock())
       state.event('model.started', 'Model turn started', this.#clock())
-      const action = await this.#requestAction(state.ledger, signal)
+      const action = await this.#requestAction(state, signal)
       state.event('model.completed', `Model selected ${action.kind}`, this.#clock(), { action: action.kind })
-      return await this.#applyAction(state, action, signal)
+      return await this.#applyAction(state, action, signal, hooks)
     } catch (error) {
+      if (error instanceof AgentCoreError && error.code === 'CHECKPOINT_ERROR') throw error
       const serialized = toAgentError(error, 'INTERNAL_ERROR')
       if (serialized.code === 'CANCELLED') {
         this.#terminalTransition(state, 'cancelled', 'run.cancelled', serialized.message)
@@ -130,7 +145,7 @@ export class AgentStepper {
     }
   }
 
-  async resolveApproval(initialLedger: RunLedger, resolution: ApprovalResolution, signal?: AbortSignal): Promise<AgentStepResult> {
+  async resolveApproval(initialLedger: RunLedger, resolution: ApprovalResolution, signal?: AbortSignal, hooks?: AgentStepHooks): Promise<AgentStepResult> {
     const state = new StepState(initialLedger)
     try {
       const pending = state.ledger.pendingAction
@@ -172,12 +187,67 @@ export class AgentStepper {
         { effect: 'allow', reason: resolution.reason || 'User approved the exact action' },
         pending.verificationCheckId,
         signal,
+        hooks,
       )
     } catch (error) {
+      if (error instanceof AgentCoreError && error.code === 'CHECKPOINT_ERROR') throw error
       const serialized = toAgentError(error, 'INTERNAL_ERROR')
       this.#terminalTransition(state, serialized.code === 'CANCELLED' ? 'cancelled' : 'failed', serialized.code === 'CANCELLED' ? 'run.cancelled' : 'run.failed', serialized.message)
       return state.result(serialized.code === 'CANCELLED' ? 'cancelled' : 'failed', serialized.message)
     }
+  }
+
+  async replayPreparedTool(
+    initialLedger: RunLedger,
+    toolRequestId: string,
+    verificationCheckId?: string,
+    signal?: AbortSignal,
+  ): Promise<AgentStepResult> {
+    const state = new StepState(initialLedger)
+    try {
+      const execution = state.ledger.toolExecutions.find((item) => item.request.id === toolRequestId)
+      if (!execution || execution.result) {
+        throw new AgentCoreError('CHECKPOINT_ERROR', 'Prepared tool request is missing or already completed')
+      }
+      const tool = this.#tool(execution.request.name)
+      if (tool.risk !== 'read') {
+        throw new AgentCoreError('CHECKPOINT_ERROR', 'Only read tools can be replayed without reconciliation')
+      }
+      return await this.#executeRecordedTool(
+        state,
+        execution.request,
+        { effect: 'allow', reason: 'Checkpoint recovery declared this read safe to replay' },
+        verificationCheckId,
+        signal,
+      )
+    } catch (error) {
+      if (error instanceof AgentCoreError && error.code === 'CHECKPOINT_ERROR') throw error
+      const serialized = toAgentError(error, 'CHECKPOINT_ERROR')
+      this.#terminalTransition(
+        state,
+        serialized.code === 'CANCELLED' ? 'cancelled' : 'failed',
+        serialized.code === 'CANCELLED' ? 'run.cancelled' : 'run.failed',
+        serialized.message,
+      )
+      return state.result(serialized.code === 'CANCELLED' ? 'cancelled' : 'failed', serialized.message)
+    }
+  }
+
+  completePreparedTool(
+    initialLedger: RunLedger,
+    toolRequestId: string,
+    result: ToolResult,
+    verificationCheckId?: string,
+  ): AgentStepResult {
+    const state = new StepState(initialLedger)
+    const execution = state.ledger.toolExecutions.find((item) => item.request.id === toolRequestId)
+    if (!execution || execution.result) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Prepared tool request is missing or already completed')
+    }
+    if (result.requestId !== toolRequestId) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Reconciled result does not match the prepared tool request')
+    }
+    return this.#completeTool(state, execution.request, result, verificationCheckId)
   }
 
   #bootstrap(state: StepState) {
@@ -187,19 +257,32 @@ export class AgentStepper {
     this.#phase(state, 'inspecting')
   }
 
-  async #requestAction(ledger: RunLedger, signal?: AbortSignal): Promise<AgentTurnAction> {
+  async #requestAction(state: StepState, signal?: AbortSignal): Promise<AgentTurnAction> {
     let action: AgentTurnAction | undefined
     let completed = false
     const request = {
-      runId: ledger.runId,
-      messages: projectLedgerMessages(ledger),
+      runId: state.ledger.runId,
+      turnId: `${state.ledger.runId}:step:${state.ledger.stepCount}`,
+      messages: projectLedgerMessages(state.ledger),
       tools: this.tools.map((tool) => structuredClone(tool)),
-      maxOutputTokens: Math.min(ledger.limits.maxOutputTokens, this.provider.profile.maxOutputTokens),
+      maxOutputTokens: Math.min(state.ledger.limits.maxOutputTokens, this.provider.profile.maxOutputTokens),
     }
     for await (const event of this.provider.stream(request, signal)) {
       if (event.type === 'action') {
         if (action) throw new AgentCoreError('MODEL_ERROR', 'Model returned more than one action in a single turn')
         action = parseAgentTurnAction(event.action)
+      } else if (event.type === 'model_attempt') {
+        state.ledger = recordModelAttempt(state.ledger, event.attempt)
+        state.event('model.attempted', `${event.attempt.profileId} ${event.attempt.outcome}`, event.attempt.completedAt, {
+          attemptId: event.attempt.id,
+          attempt: event.attempt.attempt,
+          profileId: event.attempt.profileId,
+          outcome: event.attempt.outcome,
+          acceptedAction: event.attempt.acceptedAction,
+          inputTokens: event.attempt.inputTokens,
+          outputTokens: event.attempt.outputTokens,
+          ...(event.attempt.error ? { errorCategory: event.attempt.error.category } : {}),
+        })
       } else if (event.type === 'tool_request') {
         throw new AgentCoreError('MODEL_ERROR', 'Provider returned a legacy tool_request instead of a structured action')
       } else if (event.type === 'error') {
@@ -213,7 +296,7 @@ export class AgentStepper {
     return action
   }
 
-  async #applyAction(state: StepState, action: AgentTurnAction, signal?: AbortSignal): Promise<AgentStepResult> {
+  async #applyAction(state: StepState, action: AgentTurnAction, signal?: AbortSignal, hooks?: AgentStepHooks): Promise<AgentStepResult> {
     if (action.kind === 'blocked') {
       this.#terminalTransition(state, 'blocked', 'run.blocked', action.summary, { reason: action.reason })
       return state.result('blocked', action.summary)
@@ -224,7 +307,7 @@ export class AgentStepper {
       if (state.ledger.phase !== 'inspecting') throw new AgentCoreError('INVALID_TRANSITION', 'Inspect actions are only valid during inspection')
       const tool = this.#tool(action.request.name)
       if (tool.risk !== 'read') throw new AgentCoreError('PERMISSION_DENIED', 'Inspect actions can only use read tools')
-      return await this.#prepareTool(state, action.request, undefined, signal)
+      return await this.#prepareTool(state, action.request, undefined, signal, hooks)
     }
     if (action.kind === 'verify') {
       const check = state.ledger.verificationPlan.checks.find((item) => item.id === action.checkId)
@@ -234,7 +317,7 @@ export class AgentStepper {
       assertVerificationRequest(check.command, action.request)
       if (state.ledger.phase === 'acting' || state.ledger.phase === 'repairing') this.#phase(state, 'verifying')
       else if (state.ledger.phase !== 'verifying') throw new AgentCoreError('INVALID_TRANSITION', 'Verification is not valid in the current phase')
-      return await this.#prepareTool(state, action.request, action.checkId, signal)
+      return await this.#prepareTool(state, action.request, action.checkId, signal, hooks)
     }
 
     if (state.ledger.phase === 'inspecting') {
@@ -247,7 +330,7 @@ export class AgentStepper {
     } else if (state.ledger.phase !== 'acting' && state.ledger.phase !== 'repairing') {
       throw new AgentCoreError('INVALID_TRANSITION', 'Tool action is not valid in the current phase')
     }
-    return await this.#prepareTool(state, action.request, undefined, signal)
+    return await this.#prepareTool(state, action.request, undefined, signal, hooks)
   }
 
   #applyPlan(state: StepState, action: Extract<AgentTurnAction, { kind: 'plan' }>): AgentStepResult {
@@ -283,6 +366,7 @@ export class AgentStepper {
     request: ToolRequest,
     verificationCheckId: string | undefined,
     signal?: AbortSignal,
+    hooks?: AgentStepHooks,
   ): Promise<AgentStepResult> {
     const normalizedRequest = { ...request, input: structuredClone(request.input), requestedAt: this.#clock() }
     const tool = this.#tool(normalizedRequest.name)
@@ -292,7 +376,8 @@ export class AgentStepper {
     state.event('tool.requested', `Requested ${normalizedRequest.name}`, normalizedRequest.requestedAt, {
       requestId: normalizedRequest.id,
       tool: normalizedRequest.name,
-      risk: tool.risk,
+      risk: tool.riskCategory || tool.risk,
+      ...(tool.baseRiskLevel ? { riskLevel: tool.baseRiskLevel } : {}),
       permission: permission.effect,
     })
     if (permission.effect === 'ask') {
@@ -316,7 +401,7 @@ export class AgentStepper {
     if (permission.effect === 'deny') {
       return this.#completeTool(state, normalizedRequest, deniedToolResult(normalizedRequest, this.#clock(), permission.reason), verificationCheckId)
     }
-    return await this.#executeRecordedTool(state, normalizedRequest, permission, verificationCheckId, signal)
+    return await this.#executeRecordedTool(state, normalizedRequest, permission, verificationCheckId, signal, hooks)
   }
 
   async #executeRecordedTool(
@@ -325,8 +410,20 @@ export class AgentStepper {
     permission: PermissionDecision,
     verificationCheckId: string | undefined,
     signal?: AbortSignal,
+    hooks?: AgentStepHooks,
   ): Promise<AgentStepResult> {
     if (signal?.aborted) throw new AgentCoreError('CANCELLED', 'Agent run was cancelled')
+    if (hooks?.beforeToolExecution) {
+      const intercepted = await hooks.beforeToolExecution({
+        ledger: structuredClone(state.ledger),
+        events: structuredClone(state.events),
+        request: structuredClone(request),
+        tool: structuredClone(this.#tool(request.name)),
+        permission: structuredClone(permission),
+        ...(verificationCheckId ? { verificationCheckId } : {}),
+      })
+      if (intercepted) return this.#completeTool(state, request, intercepted, verificationCheckId)
+    }
     let result: ToolResult
     try {
       result = await this.runtime.execute(request, {
@@ -517,6 +614,7 @@ export function projectLedgerMessages(ledger: RunLedger): ModelMessage[] {
     changes: ledger.changes,
     verifications: ledger.verifications,
     failures: ledger.failures,
+    modelAttempts: ledger.modelAttempts.slice(-8),
     nextAction: ledger.nextAction,
   }
   const messages: ModelMessage[] = [

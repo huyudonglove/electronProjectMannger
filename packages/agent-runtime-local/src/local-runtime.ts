@@ -4,18 +4,20 @@ import {
   AgentCoreError,
   toAgentError,
   type AgentRuntime,
-  type JsonValue,
+  type EffectExpectation,
+  type EffectReconcileResult,
+  type RuntimeToolSnapshot,
   type RuntimeContext,
+  type ToolDefinition,
+  type ToolEffectPlan,
   type ToolRequest,
   type ToolResult,
 } from '@electron-manager/agent-core'
 
-import { resolveProjectDirectory, resolveProjectPath, resolveProjectPathCandidate } from './path-guard.js'
-import { runProcess } from './process-runner.js'
-import { readFileLines } from './read-file.js'
-import { assertActionDigest } from './action-digest.js'
-import { applyProjectPatch, createProjectFile, parsePatchOperations } from './write-tools.js'
-import { parseRestrictedCommand } from './command-policy.js'
+import { createLocalToolModules } from './local-tools.js'
+import { resolveProjectPath } from './path-guard.js'
+import { LocalRuntimeServices } from './runtime-services.js'
+import { ToolRegistry, type ToolModule, type ToolRegistrySnapshot } from './tool-registry.js'
 
 export interface LocalRuntimeOptions {
   maxOutputChars?: number
@@ -23,9 +25,8 @@ export interface LocalRuntimeOptions {
   maxWriteChars?: number
   allowedPackageScripts?: string[]
   clock?: () => string
+  modules?: ToolModule[]
 }
-
-type ToolHandler = (request: ToolRequest, context: RuntimeContext) => Promise<ToolResult>
 
 export class LocalAgentRuntime implements AgentRuntime {
   readonly projectRoot: string
@@ -33,8 +34,9 @@ export class LocalAgentRuntime implements AgentRuntime {
   readonly timeoutMs: number
   readonly maxWriteChars: number
   readonly allowedPackageScripts?: string[]
+  readonly services: LocalRuntimeServices
+  readonly registry: ToolRegistry
   readonly #clock: () => string
-  readonly #handlers: Map<string, ToolHandler>
 
   constructor(projectRoot: string, options: LocalRuntimeOptions = {}) {
     this.projectRoot = path.resolve(projectRoot)
@@ -43,28 +45,53 @@ export class LocalAgentRuntime implements AgentRuntime {
     this.maxWriteChars = options.maxWriteChars ?? 1_000_000
     this.allowedPackageScripts = options.allowedPackageScripts
     this.#clock = options.clock || (() => new Date().toISOString())
-    this.#handlers = new Map([
-      ['list_files', this.#listFiles.bind(this)],
-      ['search_text', this.#searchText.bind(this)],
-      ['read_file', this.#readFile.bind(this)],
-      ['git_status', this.#gitStatus.bind(this)],
-      ['git_diff', this.#gitDiff.bind(this)],
-      ['create_file', this.#createFile.bind(this)],
-      ['apply_patch', this.#applyPatch.bind(this)],
-      ['exec_command', this.#execCommand.bind(this)],
-    ])
+    this.services = new LocalRuntimeServices(this.projectRoot, {
+      maxOutputChars: this.maxOutputChars,
+      timeoutMs: this.timeoutMs,
+      maxWriteChars: this.maxWriteChars,
+      ...(this.allowedPackageScripts ? { allowedPackageScripts: this.allowedPackageScripts } : {}),
+      clock: this.#clock,
+    })
+    this.registry = new ToolRegistry(options.modules || createLocalToolModules(this.services))
+  }
+
+  toolDefinitions(): ToolDefinition[] {
+    return this.registry.definitions()
+  }
+
+  probeTools(): Promise<ToolRegistrySnapshot> {
+    return this.registry.probe()
+  }
+
+  async snapshotTools(): Promise<RuntimeToolSnapshot> {
+    const snapshot = await this.probeTools()
+    return {
+      schemaVersion: snapshot.schemaVersion,
+      revision: snapshot.revision,
+      data: JSON.parse(JSON.stringify({ tools: snapshot.tools })) as RuntimeToolSnapshot['data'],
+    }
+  }
+
+  async prepareEffect(request: ToolRequest, context: RuntimeContext): Promise<ToolEffectPlan> {
+    await this.#assertAllowedContext(context)
+    return await this.registry.prepareEffect(request)
+  }
+
+  async reconcileEffect(
+    request: ToolRequest,
+    expectedEffects: EffectExpectation[],
+    context: RuntimeContext,
+  ): Promise<EffectReconcileResult> {
+    await this.#assertAllowedContext(context)
+    return await this.registry.reconcileEffect(request, expectedEffects)
   }
 
   async execute(request: ToolRequest, context: RuntimeContext, signal?: AbortSignal): Promise<ToolResult> {
     const startedAt = this.#clock()
     try {
       if (signal?.aborted) throw new AgentCoreError('CANCELLED', 'Tool request was cancelled')
-      await this.#assertContext(context)
-      if (context.permission.effect === 'deny') throw new AgentCoreError('PERMISSION_DENIED', context.permission.reason)
-      if (context.permission.effect === 'ask') throw new AgentCoreError('APPROVAL_REQUIRED', context.permission.reason)
-      const handler = this.#handlers.get(request.name)
-      if (!handler) throw new AgentCoreError('TOOL_NOT_FOUND', `Unknown local tool: ${request.name}`)
-      return await handler(request, context)
+      await this.#assertAllowedContext(context)
+      return await this.registry.execute(request, context, signal)
     } catch (error) {
       return {
         requestId: request.id,
@@ -85,218 +112,11 @@ export class LocalAgentRuntime implements AgentRuntime {
     }
   }
 
-  async #listFiles(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    const requestedPath = optionalString(request.input.path, '.')
-    const resolved = await resolveProjectPath(context.projectRoot, requestedPath)
-    const args = ['--files']
-    if (request.input.includeHidden === true) args.push('--hidden', '--glob', '!.git')
-    if (resolved.relativePath !== '.') args.push(resolved.relativePath)
-    const result = await runProcess('rg', args, { cwd: resolved.projectRoot, timeoutMs: this.timeoutMs, maxOutputChars: this.maxOutputChars })
-    return processToolResult(request, startedAt, this.#clock(), result, 'Listed project files')
-  }
-
-  async #searchText(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    const query = requiredString(request.input.query, 'query')
-    const requestedPath = optionalString(request.input.path, '.')
-    const resolved = await resolveProjectPath(context.projectRoot, requestedPath)
-    const args = ['--line-number', '--column', '--no-heading', '--color', 'never']
-    for (const glob of optionalStringArray(request.input.globs, 'globs')) args.push('--glob', glob)
-    args.push('--', query, resolved.relativePath)
-    const result = await runProcess('rg', args, { cwd: resolved.projectRoot, timeoutMs: this.timeoutMs, maxOutputChars: this.maxOutputChars })
-    const noMatches = result.exitCode === 1
-    if (noMatches) result.exitCode = 0
-    return processToolResult(request, startedAt, this.#clock(), result, noMatches ? 'No matches found' : 'Search completed')
-  }
-
-  async #readFile(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    const requestedPath = requiredString(request.input.path, 'path')
-    const resolved = await resolveProjectPath(context.projectRoot, requestedPath)
-    const read = await readFileLines(resolved.absolutePath, {
-      startLine: optionalNumber(request.input.startLine, 1),
-      endLine: optionalNumber(request.input.endLine, 400),
-      maxOutputChars: this.maxOutputChars,
-    })
-    return {
-      requestId: request.id,
-      ok: true,
-      summary: `Read ${resolved.relativePath} lines ${read.startLine}-${read.endLine}`,
-      output: read.output,
-      truncated: read.truncated,
-      startedAt,
-      completedAt: this.#clock(),
-      metadata: { path: resolved.relativePath, startLine: read.startLine, endLine: read.endLine },
-    }
-  }
-
-  async #gitStatus(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    const resolved = await resolveProjectPath(context.projectRoot)
-    const result = await runProcess('git', ['status', '--short', '--branch'], {
-      cwd: resolved.projectRoot,
-      timeoutMs: this.timeoutMs,
-      maxOutputChars: this.maxOutputChars,
-    })
-    return processToolResult(request, startedAt, this.#clock(), result, 'Read Git status')
-  }
-
-  async #gitDiff(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    const resolved = await resolveProjectPath(context.projectRoot)
-    const relativePaths: string[] = []
-    for (const requestedPath of optionalStringArray(request.input.paths, 'paths')) {
-      relativePaths.push((await resolveProjectPathCandidate(resolved.projectRoot, requestedPath)).relativePath)
-    }
-    const args = ['diff', '--no-ext-diff', '--unified=3']
-    if (relativePaths.length) args.push('--', ...relativePaths)
-    const result = await runProcess('git', args, {
-      cwd: resolved.projectRoot,
-      timeoutMs: this.timeoutMs,
-      maxOutputChars: this.maxOutputChars,
-    })
-    return processToolResult(request, startedAt, this.#clock(), result, 'Read Git diff')
-  }
-
-  async #createFile(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    assertActionDigest(request)
-    const requestedPath = requiredString(request.input.path, 'path')
-    const content = stringValue(request.input.content, 'content')
-    const created = await createProjectFile(context.projectRoot, requestedPath, content, this.maxWriteChars)
-    return {
-      requestId: request.id,
-      ok: true,
-      summary: `Created ${created.path}`,
-      changedPaths: [created.path],
-      startedAt,
-      completedAt: this.#clock(),
-      metadata: { path: created.path, operation: 'create', afterHash: created.afterHash },
-    }
-  }
-
-  async #applyPatch(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    assertActionDigest(request)
-    const operations = parsePatchOperations(request.input.operations)
-    const changes = await applyProjectPatch(context.projectRoot, operations, this.maxWriteChars)
-    return {
-      requestId: request.id,
-      ok: true,
-      summary: `Patched ${changes.length} file(s)`,
-      changedPaths: changes.map((change) => change.path),
-      startedAt,
-      completedAt: this.#clock(),
-      metadata: {
-        files: changes.map((change) => ({ path: change.path, beforeHash: change.beforeHash, afterHash: change.afterHash })),
-      },
-    }
-  }
-
-  async #execCommand(request: ToolRequest, context: RuntimeContext): Promise<ToolResult> {
-    const startedAt = this.#clock()
-    assertActionDigest(request)
-    const command = parseRestrictedCommand(request.input, {
-      defaultTimeoutMs: this.timeoutMs,
-      maxTimeoutMs: this.timeoutMs,
-      allowedPackageScripts: this.allowedPackageScripts,
-    })
-    const cwd = await resolveProjectDirectory(context.projectRoot, command.cwd)
-    const result = await runProcess(command.command, command.args, {
-      cwd: cwd.absolutePath,
-      timeoutMs: command.timeoutMs,
-      maxOutputChars: this.maxOutputChars,
-      env: commandEnvironment(),
-    })
-    const toolResult = processToolResult(request, startedAt, this.#clock(), result, `Ran ${command.command} ${command.packageScript}`)
-    toolResult.metadata = {
-      command: command.command,
-      args: command.args,
-      cwd: cwd.relativePath,
-      packageScript: command.packageScript,
-      timeoutMs: command.timeoutMs,
-      signal: result.signal,
-      stdoutChars: result.stdoutChars,
-      stderrChars: result.stderrChars,
-    }
-    return toolResult
+  async #assertAllowedContext(context: RuntimeContext) {
+    await this.#assertContext(context)
+    if (context.permission.effect === 'deny') throw new AgentCoreError('PERMISSION_DENIED', context.permission.reason)
+    if (context.permission.effect === 'ask') throw new AgentCoreError('APPROVAL_REQUIRED', context.permission.reason)
   }
 }
 
 export { LocalAgentRuntime as LocalReadRuntime }
-
-function processToolResult(
-  request: ToolRequest,
-  startedAt: string,
-  completedAt: string,
-  processResult: Awaited<ReturnType<typeof runProcess>>,
-  summary: string,
-): ToolResult {
-  if (processResult.timedOut) {
-    return {
-      requestId: request.id,
-      ok: false,
-      summary: `${summary} timed out`,
-      output: processResult.output,
-      truncated: processResult.truncated,
-      exitCode: processResult.exitCode ?? undefined,
-      startedAt,
-      completedAt,
-      error: { code: 'TOOL_TIMEOUT', message: `${request.name} timed out`, retryable: true },
-    }
-  }
-  const ok = processResult.exitCode === 0
-  return {
-    requestId: request.id,
-    ok,
-    summary: ok ? summary : `${summary} failed with exit code ${processResult.exitCode}`,
-    output: processResult.output,
-    truncated: processResult.truncated,
-    exitCode: processResult.exitCode ?? undefined,
-    startedAt,
-    completedAt,
-    ...(!ok ? { error: { code: 'TOOL_EXECUTION_FAILED' as const, message: processResult.stderr || processResult.output || summary, retryable: true } } : {}),
-  }
-}
-
-function requiredString(value: JsonValue | undefined, name: string) {
-  if (typeof value !== 'string' || !value.trim()) throw new AgentCoreError('INVALID_INPUT', `${name} must be a non-empty string`)
-  return value
-}
-
-function optionalString(value: JsonValue | undefined, fallback: string) {
-  if (value === undefined) return fallback
-  if (typeof value !== 'string') throw new AgentCoreError('INVALID_INPUT', 'Expected a string input')
-  return value
-}
-
-function stringValue(value: JsonValue | undefined, name: string) {
-  if (typeof value !== 'string') throw new AgentCoreError('INVALID_INPUT', `${name} must be a string`)
-  return value
-}
-
-function optionalNumber(value: JsonValue | undefined, fallback: number) {
-  if (value === undefined) return fallback
-  if (typeof value !== 'number') throw new AgentCoreError('INVALID_INPUT', 'Expected a numeric input')
-  return value
-}
-
-function optionalStringArray(value: JsonValue | undefined, name: string) {
-  if (value === undefined) return []
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-    throw new AgentCoreError('INVALID_INPUT', `${name} must be an array of strings`)
-  }
-  return value as string[]
-}
-
-function commandEnvironment(): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    CI: '1',
-    NO_COLOR: '1',
-    FORCE_COLOR: '0',
-    COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
-    npm_config_update_notifier: 'false',
-  }
-}

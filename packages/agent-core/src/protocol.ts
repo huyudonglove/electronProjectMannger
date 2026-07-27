@@ -139,6 +139,8 @@ export interface DecisionRecord {
 
 export type PermissionEffect = 'allow' | 'ask' | 'deny'
 export type ToolRisk = 'read' | 'project_write' | 'process' | 'network' | 'external_write' | 'git_remote' | 'destructive'
+export type ToolRiskLevel = 'low' | 'medium' | 'high' | 'critical'
+export type ToolRecovery = 'safe_replay' | 'reconcile_then_resume' | 'never_auto_replay'
 
 export interface PermissionDecision {
   effect: PermissionEffect
@@ -182,6 +184,9 @@ export interface ToolDefinition {
   description: string
   inputSchema: JsonSchema
   risk: ToolRisk
+  riskCategory?: ToolRisk
+  baseRiskLevel?: ToolRiskLevel
+  recovery?: ToolRecovery
 }
 
 export interface ToolRequest {
@@ -212,6 +217,34 @@ export interface ToolExecutionRecord {
   result?: ToolResult
 }
 
+export interface FileEffectExpectation {
+  kind: 'file'
+  path: string
+  operation: 'create' | 'modify'
+  beforeHash: string | null
+  afterHash: string
+}
+
+export type EffectExpectation = FileEffectExpectation
+
+export interface ToolEffectPlan {
+  backend: string
+  inputHash: string
+  expectedEffects: EffectExpectation[]
+}
+
+export interface EffectReconcileResult {
+  outcome: 'completed' | 'not_applied' | 'blocked'
+  summary: string
+  result?: ToolResult
+}
+
+export interface RuntimeToolSnapshot {
+  schemaVersion: number
+  revision: string
+  data: Record<string, JsonValue>
+}
+
 export interface RuntimeContext {
   runId: string
   projectRoot: string
@@ -220,6 +253,13 @@ export interface RuntimeContext {
 
 export interface AgentRuntime {
   execute(request: ToolRequest, context: RuntimeContext, signal?: AbortSignal): Promise<ToolResult>
+  prepareEffect?(request: ToolRequest, context: RuntimeContext): ToolEffectPlan | Promise<ToolEffectPlan>
+  reconcileEffect?(
+    request: ToolRequest,
+    expectedEffects: EffectExpectation[],
+    context: RuntimeContext,
+  ): EffectReconcileResult | Promise<EffectReconcileResult>
+  snapshotTools?(): RuntimeToolSnapshot | Promise<RuntimeToolSnapshot>
 }
 
 export interface ModelCapabilityProfile {
@@ -239,9 +279,51 @@ export interface ModelMessage {
 
 export interface ModelRequest {
   runId: string
+  turnId: string
   messages: ModelMessage[]
   tools: ToolDefinition[]
   maxOutputTokens: number
+}
+
+export type NormalizedModelErrorCode =
+  | 'rate_limit'
+  | 'timeout'
+  | 'service_unavailable'
+  | 'transport'
+  | 'invalid_output'
+  | 'authentication'
+  | 'permission'
+  | 'invalid_request'
+  | 'capability_mismatch'
+  | 'budget_exhausted'
+  | 'cancelled'
+  | 'unknown'
+
+export interface NormalizedProviderError {
+  category: NormalizedModelErrorCode
+  message: string
+  retryable: boolean
+  sourceCode?: string
+  details?: Record<string, JsonValue>
+}
+
+export interface ModelAttemptRecord {
+  id: string
+  routeId: string
+  routeRevision: string
+  attempt: number
+  profileId: string
+  profileRevision: string
+  provider: string
+  model: string
+  startedAt: string
+  completedAt: string
+  outcome: 'succeeded' | 'failed' | 'cancelled'
+  acceptedAction: boolean
+  inputTokens: number
+  outputTokens: number
+  finishReason?: 'stop' | 'tool_calls' | 'length'
+  error?: NormalizedProviderError
 }
 
 export interface ProposedAcceptanceEvidence {
@@ -274,6 +356,7 @@ export type ModelStreamEvent =
   | { type: 'action'; action: AgentTurnAction }
   | { type: 'tool_request'; request: ToolRequest }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
+  | { type: 'model_attempt'; attempt: ModelAttemptRecord }
   | { type: 'completed'; finishReason: 'stop' | 'tool_calls' | 'length' }
   | { type: 'error'; error: SerializedAgentError }
 
@@ -290,6 +373,7 @@ export type AgentEventType =
   | 'run.started'
   | 'phase.changed'
   | 'model.started'
+  | 'model.attempted'
   | 'model.completed'
   | 'tool.requested'
   | 'tool.completed'
@@ -352,6 +436,7 @@ export interface RunLedger {
   verifications: VerificationResult[]
   approvals: ApprovalRecord[]
   failures: FailureRecord[]
+  modelAttempts: ModelAttemptRecord[]
   pendingAction?: PendingAction
   nextAction?: string
   diffSnapshot?: DiffSnapshot
