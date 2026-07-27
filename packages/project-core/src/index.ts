@@ -24,7 +24,10 @@ import type {
   ProjectQuestionMessage,
   ProjectRisk,
   ProjectRiskSummary,
+  ProjectRunCompletionUpdateInput,
+  ProjectRunUpdateResult,
   ProjectTask,
+  ProjectTaskStatusUpdateInput,
   ProjectThought,
   ProjectVersion,
   ProjectGuidanceSyncResult,
@@ -54,7 +57,11 @@ export type {
   ProjectQuestionMessage,
   ProjectRisk,
   ProjectRiskSummary,
+  ProjectRunCompletionUpdateInput,
+  ProjectRunLogInput,
+  ProjectRunUpdateResult,
   ProjectTask,
+  ProjectTaskStatusUpdateInput,
   ProjectThought,
   ProjectVersion,
   ProjectGuidanceSyncResult,
@@ -85,6 +92,7 @@ import {
 import {
   agentBriefWorkInstructions,
   agentLogTemplate,
+  agentLogRecordsTemplate,
   changeIndexTemplate,
   constraintsTemplate,
   dataSpecTemplate,
@@ -103,6 +111,7 @@ import {
   constraintRecordTemplate,
   dialogueRecordTemplate,
   questionRecordTemplate,
+  projectRunLogRecordTemplate,
   taskRecordTemplate,
   thoughtRecordTemplate,
   versionRecordTemplate,
@@ -465,6 +474,58 @@ export async function updateTaskStatus(managerDataRoot: string, projectRoot: str
   })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function applyProjectTaskStatusUpdate(
+  managerDataRoot: string,
+  projectRoot: string,
+  input: ProjectTaskStatusUpdateInput,
+): Promise<ProjectRunUpdateResult> {
+  validateProjectTaskStatusUpdate(input)
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const taskUpdated = await withFileMutation(path.join(dataRoot, '.agent-project-update'), async () =>
+    applyTaskStatusUpdate(dataRoot, input))
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return {
+    applied: taskUpdated,
+    taskUpdated,
+    logCreated: false,
+    dashboard: await getDashboard(managerDataRoot, projectRoot),
+  }
+}
+
+export async function applyProjectRunCompletionUpdate(
+  managerDataRoot: string,
+  projectRoot: string,
+  input: ProjectRunCompletionUpdateInput,
+): Promise<ProjectRunUpdateResult> {
+  validateProjectRunCompletionInput(input)
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const result = await withFileMutation(path.join(dataRoot, '.agent-project-update'), async () => {
+    const existing = await findRunLog(dataRoot, input.log.source)
+    if (existing && existing.idempotencyKey !== input.log.idempotencyKey) {
+      throw new Error(`Agent Run 日志幂等键冲突：${input.log.source}`)
+    }
+    const taskUpdated = input.taskUpdate ? await applyTaskStatusUpdate(dataRoot, input.taskUpdate) : false
+    if (existing) {
+      return { applied: taskUpdated, taskUpdated, logCreated: false, logShortId: existing.shortId }
+    }
+
+    const allLogs = parseProjectLogs(await readVersionLogs(dataRoot))
+    const shortId = await allocateShortId(dataRoot, 'L', allLogs.map((log) => log.shortId))
+    const created = localTime()
+    const logPath = versionLogPath(input.log.version, created)
+    await mutateProjectFile(dataRoot, logPath, (current) => ({
+      content: insertMarkdownEntry(
+        current || agentLogRecordsTemplate(),
+        projectRunLogRecordTemplate({ ...input.log, shortId, created }),
+      ),
+      value: undefined,
+    }))
+    return { applied: true, taskUpdated, logCreated: true, logShortId: shortId }
+  })
+  await refreshAgentBrief(managerDataRoot, projectRoot)
+  return { ...result, dashboard: await getDashboard(managerDataRoot, projectRoot) }
 }
 
 export async function deleteTask(managerDataRoot: string, projectRoot: string, taskId: string) {
@@ -964,12 +1025,99 @@ async function findVersionRecordPath(
   return ''
 }
 
+async function applyTaskStatusUpdate(dataRoot: string, input: ProjectTaskStatusUpdateInput) {
+  validateProjectTaskStatusUpdate(input)
+  const taskPath = await findVersionRecordPath(dataRoot, VERSION_TASKS_FILE, input.taskId)
+  if (!taskPath) throw new Error(`未找到任务记录：${input.taskId}`)
+
+  return mutateProjectFile(dataRoot, taskPath, (current) => {
+    let matched = false
+    let changed = false
+    const next = splitMarkdownBlocks(current)
+      .map((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return block
+        const fields = parseFields(block)
+        if (fields.id !== input.taskId) return block
+        matched = true
+        if (input.taskShortId && fields.short_id !== input.taskShortId) {
+          throw new Error(`任务引用不一致：${input.taskId} 不对应 ${input.taskShortId}`)
+        }
+
+        const currentStatus = String(fields.status || '').trim()
+        if (currentStatus === input.nextStatus) return block
+        if (currentStatus !== input.expectedStatus || String(fields.updated || '').trim() !== input.expectedUpdated) {
+          throw new Error(
+            `任务已被其他操作更新：${fields.short_id || input.taskId}，预期 ${input.expectedStatus}@${input.expectedUpdated}，实际 ${currentStatus}@${fields.updated || ''}`,
+          )
+        }
+        changed = true
+        return block
+          .replace(/^status::\s*.+$/m, `status:: ${input.nextStatus}`)
+          .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`)
+      })
+      .join('\n')
+    if (!matched) throw new Error(`未找到任务记录：${input.taskId}`)
+    return {
+      content: changed && !next.endsWith('\n') ? `${next}\n` : next,
+      value: changed,
+    }
+  })
+}
+
+function validateProjectTaskStatusUpdate(input: ProjectTaskStatusUpdateInput) {
+  if (!String(input.taskId || '').trim()) throw new Error('任务 ID 不能为空')
+  if (!String(input.expectedStatus || '').trim()) throw new Error('任务预期状态不能为空')
+  if (!String(input.expectedUpdated || '').trim()) throw new Error('任务预期更新时间不能为空')
+  if (!['doing', 'done'].includes(input.nextStatus)) throw new Error(`Agent Run 不支持目标任务状态：${input.nextStatus}`)
+}
+
 async function readVersionLogs(dataRoot: string) {
   const files = (await listMarkdownFiles(dataRoot, 'versions'))
     .filter((relativePath) => /^versions\/V\d+\/工作记录\/\d{4}-\d{2}\.md$/.test(relativePath.replaceAll('\\', '/')))
     .sort()
   const contents = await Promise.all(files.map((relativePath) => readProjectFile(dataRoot, relativePath)))
   return contents.join('\n\n')
+}
+
+async function findRunLog(dataRoot: string, source: string) {
+  const block = splitMarkdownBlocks(await readVersionLogs(dataRoot))
+    .find((candidate) => parseFields(candidate).source === source)
+  if (!block) return undefined
+  const fields = parseFields(block)
+  return {
+    shortId: fields.log_short_id || '',
+    idempotencyKey: fields.idempotency_key || '',
+  }
+}
+
+function validateProjectRunCompletionInput(input: ProjectRunCompletionUpdateInput) {
+  if (!input?.log) throw new Error('Agent Run 工作记录不能为空')
+  if (!/^agent-run:[A-Za-z0-9._:-]+$/.test(input.log.source)) {
+    throw new Error(`Agent Run 日志来源不合法：${input.log.source || '空'}`)
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.log.idempotencyKey)) throw new Error('Agent Run 日志幂等键不合法')
+  if (!String(input.log.title || '').trim()) throw new Error('Agent Run 工作记录标题不能为空')
+  if (!String(input.log.taskId || '').trim()) throw new Error('Agent Run 任务 ID 不能为空')
+  if (!/^T\d{3,4}$/i.test(input.log.taskShortId)) throw new Error(`Agent Run 任务短 ID 不合法：${input.log.taskShortId}`)
+  if (!/^V\d+$/i.test(input.log.version)) throw new Error(`Agent Run 版本 ID 不合法：${input.log.version}`)
+  if (!['light', 'standard', 'deep'].includes(input.log.recordLevel)) {
+    throw new Error(`Agent Run 记录等级不合法：${input.log.recordLevel}`)
+  }
+  if (input.taskUpdate && (
+    input.taskUpdate.taskId !== input.log.taskId
+    || (input.taskUpdate.taskShortId && input.taskUpdate.taskShortId !== input.log.taskShortId)
+  )) throw new Error('Agent Run 任务状态更新与工作记录引用不一致')
+  for (const [field, values] of Object.entries({
+    result: input.log.result,
+    changedFiles: input.log.changedFiles,
+    verification: input.log.verification,
+    decisions: input.log.decisions,
+  })) {
+    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string')) {
+      throw new Error(`Agent Run 工作记录字段不合法：${field}`)
+    }
+  }
+  if (input.taskUpdate) validateProjectTaskStatusUpdate(input.taskUpdate)
 }
 
 function escapeRegExp(value: string) {

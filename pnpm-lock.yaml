@@ -73,6 +73,34 @@ importers:
         specifier: ^24.13.2
         version: 24.13.2
 
+  packages/agent-desktop-coordinator:
+    dependencies:
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@electron-manager/agent-output':
+        specifier: workspace:*
+        version: link:../agent-output
+      '@electron-manager/agent-project-adapter':
+        specifier: workspace:*
+        version: link:../agent-project-adapter
+      '@electron-manager/agent-runner':
+        specifier: workspace:*
+        version: link:../agent-runner
+      '@electron-manager/project-core':
+        specifier: workspace:*
+        version: link:../project-core
+    devDependencies:
+      '@electron-manager/agent-config':
+        specifier: workspace:*
+        version: link:../agent-config
+      '@electron-manager/agent-runtime-local':
+        specifier: workspace:*
+        version: link:../agent-runtime-local
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/agent-memory:
     dependencies:
       '@electron-manager/agent-context':
@@ -99,6 +127,29 @@ importers:
         specifier: ^24.13.2
         version: 24.13.2
 
+  packages/agent-output:
+    dependencies:
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
+  packages/agent-project-adapter:
+    dependencies:
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@electron-manager/project-core':
+        specifier: workspace:*
+        version: link:../project-core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/agent-provider-openai:
     dependencies:
       '@electron-manager/agent-core':
@@ -108,6 +159,19 @@ importers:
       '@electron-manager/agent-runtime-local':
         specifier: workspace:*
         version: link:../agent-runtime-local
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
+  packages/agent-repo-map:
+    dependencies:
+      '@electron-manager/agent-context':
+        specifier: workspace:*
+        version: link:../agent-context
+      '@electron-manager/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+    devDependencies:
       '@types/node':
         specifier: ^24.13.2
         version: 24.13.2
@@ -132,6 +196,12 @@ importers:
       '@electron-manager/agent-model-router':
         specifier: workspace:*
         version: link:../agent-model-router
+      '@electron-manager/agent-output':
+        specifier: workspace:*
+        version: link:../agent-output
+      '@electron-manager/agent-repo-map':
+        specifier: workspace:*
+        version: link:../agent-repo-map
       '@electron-manager/agent-runtime-local':
         specifier: workspace:*
         version: link:../agent-runtime-local

@@ -28,6 +28,19 @@ import {
 import { DeterministicSessionCompactor, sessionCompactionPolicyFromProfile } from '@electron-manager/agent-memory'
 import { ModelProviderRegistry, ModelRouter } from '@electron-manager/agent-model-router'
 import {
+  DEFAULT_MAX_OUTPUT_ARTIFACT_BYTES,
+  DEFAULT_OUTPUT_PREVIEW_CHARACTERS,
+  LocalContentAddressedOutputStore,
+  OutputExternalizingRuntime,
+} from '@electron-manager/agent-output'
+import {
+  buildRepoMap,
+  createRepoMapContextSource,
+  resolveRepoMapOptions,
+  type RepoMapOptions,
+  type ResolvedRepoMapOptions,
+} from '@electron-manager/agent-repo-map'
+import {
   LocalAgentRuntime,
   type ToolRegistrySnapshot,
 } from '@electron-manager/agent-runtime-local'
@@ -37,11 +50,11 @@ import type { HeadlessAgentRunnerOptions } from './types.js'
 export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) {
   const projectRoot = path.resolve(options.projectRoot)
   const clock = options.clock || (() => new Date().toISOString())
-  const runtime = new LocalAgentRuntime(projectRoot, {
+  const localRuntime = new LocalAgentRuntime(projectRoot, {
     ...options.runtimeOptions,
     clock,
   })
-  const registrySnapshot = await runtime.probeTools()
+  const registrySnapshot = await localRuntime.probeTools()
   const toolInventory = toolInventoryFromRegistrySnapshot(registrySnapshot)
   const resolved = resolveAgentConfig({
     workLevel: options.workLevel,
@@ -54,8 +67,24 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
       details: { issues: toJson(resolved.issues) },
     })
   }
+  const maxOutputArtifactBytes = options.maxOutputArtifactBytes ?? DEFAULT_MAX_OUTPUT_ARTIFACT_BYTES
+  const outputPreviewCharacters = options.outputPreviewCharacters ?? DEFAULT_OUTPUT_PREVIEW_CHARACTERS
+  const outputStore = new LocalContentAddressedOutputStore(
+    options.outputDirectory || `${path.resolve(options.checkpointPath)}.outputs`,
+    { maxArtifactBytes: maxOutputArtifactBytes, clock },
+  )
+  const repoMapConfig = resolveRunnerRepoMapConfig(
+    resolved.config.memory.mode,
+    resolved.config.memory.sourceBudgets.project,
+    maxOutputArtifactBytes,
+    options.repoMapOptions,
+  )
+  const repoMap = repoMapConfig.enabled
+    ? await buildRepoMap(projectRoot, repoMapConfig.options)
+    : undefined
+  const repoMapArtifact = repoMap ? await outputStore.put(repoMap.content) : undefined
 
-  const toolsByName = new Map(runtime.toolDefinitions().map((tool) => [tool.name, tool]))
+  const toolsByName = new Map(localRuntime.toolDefinitions().map((tool) => [tool.name, tool]))
   const tools = resolved.config.tools.enabledToolNames.map((name) => {
     const tool = toolsByName.get(name)
     if (!tool) throw new AgentCoreError('INVALID_INPUT', `Resolved tool is not registered in the local runtime: ${name}`)
@@ -83,6 +112,11 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
   const sources = [
     configuredPromptSource(resolved.config),
     ...createLedgerContextSources().map((source) => applySourceBudget(source, resolved.config)),
+    ...(repoMap && repoMapConfig.enabled ? [createRepoMapContextSource(
+      repoMap,
+      repoMapConfig.maxTokens,
+      repoMapArtifact ? [repoMapArtifact.ref] : [],
+    )] : []),
     ...(options.extraContextSources ?? []),
   ]
   const contextAssembler = new ContextAssembler({
@@ -103,18 +137,32 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
     projectRulesRevision,
     privacyScopeRevision,
   })
+  const runtime = new OutputExternalizingRuntime(localRuntime, outputStore, {
+    previewCharacters: outputPreviewCharacters,
+  })
+  const configSnapshot = withCompositionConfigSnapshot(resolved.snapshot, {
+    output: {
+      maxArtifactBytes: maxOutputArtifactBytes,
+      previewCharacters: outputPreviewCharacters,
+    },
+    repoMap: repoMapConfig,
+  })
 
   return {
     projectRoot,
     clock,
     runtime,
+    localRuntime,
+    outputStore,
+    repoMap,
+    repoMapOutputRef: repoMapArtifact?.ref,
     tools,
     router,
     contextAssembler,
     promptCachePolicy,
     config: resolved.config,
     snapshots: {
-      configSnapshot: resolved.snapshot,
+      configSnapshot,
       modelRouteSnapshot: router.snapshot(),
       toolRegistrySnapshot,
       memorySnapshot: memorySnapshot(resolved.config),
@@ -220,6 +268,63 @@ function memorySnapshot(config: ResolvedAgentConfig): VersionedRunComponentSnaps
     schemaVersion: 1,
     revision: hash(canonicalJson(data)),
     data,
+  }
+}
+
+function withCompositionConfigSnapshot(
+  snapshot: AgentConfigSnapshot,
+  composition: {
+    output: { maxArtifactBytes: number; previewCharacters: number }
+    repoMap: RunnerRepoMapConfig
+  },
+): AgentConfigSnapshot {
+  const data = {
+    ...snapshot.data,
+    output: {
+      store: 'local-content-addressed',
+      schemaVersion: 1,
+      maxArtifactBytes: composition.output.maxArtifactBytes,
+      previewCharacters: composition.output.previewCharacters,
+    },
+    repoMap: toJson(composition.repoMap),
+  }
+  return {
+    schemaVersion: snapshot.schemaVersion,
+    revision: hash(canonicalJson(data)),
+    data,
+  }
+}
+
+type RunnerRepoMapConfig =
+  | { enabled: false }
+  | { enabled: true; maxTokens: number; options: ResolvedRepoMapOptions }
+
+function resolveRunnerRepoMapConfig(
+  mode: ResolvedAgentConfig['memory']['mode'],
+  projectTokens: number,
+  maxArtifactBytes: number,
+  overrides: RepoMapOptions | undefined,
+): RunnerRepoMapConfig {
+  if (mode === 'minimal' || projectTokens <= 0) return { enabled: false }
+  const maxTokens = Math.min(projectTokens, mode === 'extended' ? 12_000 : 8_000)
+  const defaultOutputBytes = mode === 'extended' ? 48_000 : 32_000
+  const maxOutputBytes = Math.min(
+    overrides?.maxOutputBytes ?? defaultOutputBytes,
+    maxTokens * 4,
+    maxArtifactBytes,
+  )
+  if (maxOutputBytes < 256) {
+    throw new AgentCoreError('INVALID_INPUT', 'Repo map requires at least 256 bytes of output artifact capacity')
+  }
+  return {
+    enabled: true,
+    maxTokens,
+    options: resolveRepoMapOptions({
+      maxFiles: mode === 'extended' ? 10_000 : 5_000,
+      maxDepth: mode === 'extended' ? 6 : 4,
+      ...overrides,
+      maxOutputBytes,
+    }),
   }
 }
 

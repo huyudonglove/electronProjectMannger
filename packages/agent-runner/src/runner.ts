@@ -17,6 +17,10 @@ export class HeadlessAgentRunner {
   readonly projectRoot: string
   readonly config: HeadlessComposition['config']
   readonly runtime: HeadlessComposition['runtime']
+  readonly localRuntime: HeadlessComposition['localRuntime']
+  readonly outputStore: HeadlessComposition['outputStore']
+  readonly repoMap: HeadlessComposition['repoMap']
+  readonly repoMapOutputRef: HeadlessComposition['repoMapOutputRef']
   readonly router: HeadlessComposition['router']
   readonly snapshots: HeadlessComposition['snapshots']
   readonly #store: SqliteCheckpointStore
@@ -27,6 +31,10 @@ export class HeadlessAgentRunner {
     this.projectRoot = composition.projectRoot
     this.config = structuredClone(composition.config)
     this.runtime = composition.runtime
+    this.localRuntime = composition.localRuntime
+    this.outputStore = composition.outputStore
+    this.repoMap = composition.repoMap ? structuredClone(composition.repoMap) : undefined
+    this.repoMapOutputRef = composition.repoMapOutputRef
     this.router = composition.router
     this.snapshots = structuredClone(composition.snapshots)
     this.#store = new SqliteCheckpointStore(options.checkpointPath)
@@ -43,6 +51,8 @@ export class HeadlessAgentRunner {
       stepper,
       store: this.#store,
       clock: composition.clock,
+      onCommitted: options.onCommitted,
+      onPublishError: options.onPublishError,
     })
   }
 
@@ -89,6 +99,11 @@ export class HeadlessAgentRunner {
     return await this.#store.list()
   }
 
+  async readOutput(ref: string) {
+    this.#assertOpen()
+    return await this.outputStore.read(ref)
+  }
+
   close() {
     if (this.#closed) return
     this.#closed = true
@@ -115,6 +130,9 @@ export class HeadlessAgentRunner {
 function validateOptions(options: HeadlessAgentRunnerOptions) {
   if (!options.projectRoot.trim()) throw new AgentCoreError('INVALID_INPUT', 'Project root is required')
   if (!options.checkpointPath.trim()) throw new AgentCoreError('INVALID_INPUT', 'Checkpoint path is required')
+  if (options.outputDirectory !== undefined && !options.outputDirectory.trim()) {
+    throw new AgentCoreError('INVALID_INPUT', 'Output directory must not be empty')
+  }
 }
 
 function assertRevision(

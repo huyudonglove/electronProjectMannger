@@ -1,4 +1,4 @@
-import type { ProjectTask } from './types.js'
+import type { ProjectRunLogInput, ProjectTask } from './types.js'
 
 export function taskRecordTemplate(
   task: ProjectTask,
@@ -226,4 +226,43 @@ ${input.recommendation}
 
 ${input.question}
 `
+}
+
+export function projectRunLogRecordTemplate(input: ProjectRunLogInput & { shortId: string; created: string }) {
+  const decisions = input.recordLevel === 'deep' && input.decisions.length
+    ? `\n### 关键判断\n\n${markdownList(input.decisions)}\n`
+    : ''
+  return `## ${singleLine(input.title) || 'Agent Run 工作记录'}
+
+type:: agent-log
+log_short_id:: ${input.shortId}
+created:: ${input.created}
+task_short_id:: ${singleLine(input.taskShortId)}
+version:: ${singleLine(input.version)}
+record_level:: ${input.recordLevel}
+source:: ${singleLine(input.source)}
+idempotency_key:: ${singleLine(input.idempotencyKey)}
+
+### 结果
+
+${markdownList(input.result)}
+${decisions}
+
+### 修改文件
+
+${markdownList(input.changedFiles)}
+
+### 验证
+
+${markdownList(input.verification)}
+`
+}
+
+function markdownList(values: string[]) {
+  const normalized = values.map(singleLine).filter(Boolean)
+  return normalized.length ? normalized.map((value) => `- ${value}`).join('\n') : '- 无。'
+}
+
+function singleLine(value: string) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
 }

@@ -103,6 +103,7 @@ function runnerOptions(root, checkpointPath, modelProvider, extraLayers = []) {
     providers: [{ profileId: model.id, provider: modelProvider }],
     permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture scope' }),
     runtimeOptions: { timeoutMs: 45_000 },
+    outputPreviewCharacters: 80,
     projectRulesRevision: 'fixture-rules-v1',
   }
 }
@@ -132,11 +133,17 @@ test('headless runner composes config, context, router, runtime and SQLite acros
   assert.ok(created.snapshot.modelRouteSnapshot)
   assert.ok(created.snapshot.toolRegistrySnapshot)
   assert.ok(created.snapshot.memorySnapshot)
+  assert.ok(runner.repoMap.paths.includes('src/a.js'))
+  assert.ok(runner.repoMapOutputRef.startsWith('output:sha256:'))
+  assert.equal((await runner.readOutput(runner.repoMapOutputRef)).content, runner.repoMap.content)
+  const repoMapRef = runner.repoMapOutputRef
 
   const inspected = await runner.advance('run-headless')
   assert.equal(inspected.decision.kind, 'continue')
   assert.equal(inspected.checkpoint.snapshot.ledger.inspectedFiles[0].path, 'src/a.js')
   assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /requested work level: light/)
+  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /Repository map/)
+  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /a\.js/)
   assert.equal(firstProvider.requests[0].promptCacheBinding.capability, 'implicit')
   assert.ok(firstProvider.requests[0].promptCacheBinding.cacheKey)
   runner.close()
@@ -173,6 +180,7 @@ test('headless runner composes config, context, router, runtime and SQLite acros
     }),
   ])
   runner = await createHeadlessAgentRunner(runnerOptions(fixture.root, fixture.checkpointPath, remainingProvider))
+  assert.equal(runner.repoMapOutputRef, repoMapRef)
   const completed = await runner.runUntilPause('run-headless')
   assert.equal(completed.decision.kind, 'terminal')
   assert.equal(completed.checkpoint.snapshot.ledger.status, 'completed')
@@ -182,6 +190,26 @@ test('headless runner composes config, context, router, runtime and SQLite acros
   assert.match(await readFile(path.join(fixture.root, 'src', 'a.js'), 'utf8'), /value = 10/)
   assert.match(await readFile(path.join(fixture.root, 'src', 'b.js'), 'utf8'), /value = 20/)
   assert.equal((await runner.list())[0].runId, 'run-headless')
+  const diffResult = completed.checkpoint.snapshot.ledger.toolExecutions
+    .find((execution) => execution.request.id === 'diff-1').result
+  assert.ok(diffResult.outputRef.startsWith('output:sha256:'))
+  assert.equal(diffResult.output.length, 80)
+  assert.equal(diffResult.metadata.outputPreviewTruncated, true)
+  const fullDiff = await runner.readOutput(diffResult.outputRef)
+  assert.ok(fullDiff.content.length > diffResult.output.length)
+  assert.match(fullDiff.content, /value = 10/)
+  const finishContext = remainingProvider.requests.at(-1).messages.map((message) => message.content).join('\n')
+  assert.match(finishContext, /output preview shortened/)
+  const diffRef = diffResult.outputRef
+  runner.close()
+
+  runner = await createHeadlessAgentRunner(runnerOptions(fixture.root, fixture.checkpointPath, provider([])))
+  const reloaded = await runner.load('run-headless')
+  const reloadedDiff = reloaded.snapshot.ledger.toolExecutions
+    .find((execution) => execution.request.id === 'diff-1').result
+  assert.equal(reloadedDiff.outputRef, diffRef)
+  assert.equal(reloadedDiff.output, diffResult.output)
+  assert.equal((await runner.readOutput(diffRef)).content, fullDiff.content)
   runner.close()
 })
 
@@ -193,6 +221,24 @@ test('headless runner refuses to resume with a different resolved component snap
   await runner.createRun(runInput('run-drift'))
   runner.close()
 
+  const outputDriftOptions = runnerOptions(fixture.root, fixture.checkpointPath, provider([]))
+  outputDriftOptions.outputPreviewCharacters = 40
+  runner = await createHeadlessAgentRunner(outputDriftOptions)
+  await assert.rejects(
+    () => runner.advance('run-drift'),
+    (error) => error.code === 'CHECKPOINT_ERROR' && /config does not match/.test(error.message),
+  )
+  runner.close()
+
+  const repoMapDriftOptions = runnerOptions(fixture.root, fixture.checkpointPath, provider([]))
+  repoMapDriftOptions.repoMapOptions = { maxDepth: 2 }
+  runner = await createHeadlessAgentRunner(repoMapDriftOptions)
+  await assert.rejects(
+    () => runner.advance('run-drift'),
+    (error) => error.code === 'CHECKPOINT_ERROR' && /config does not match/.test(error.message),
+  )
+  runner.close()
+
   runner = await createHeadlessAgentRunner(runnerOptions(fixture.root, fixture.checkpointPath, provider([]), [{
     scope: 'project',
     revision: 'project-config-v2',
@@ -202,6 +248,28 @@ test('headless runner refuses to resume with a different resolved component snap
     () => runner.advance('run-drift'),
     (error) => error.code === 'CHECKPOINT_ERROR' && /config does not match/.test(error.message),
   )
+  runner.close()
+})
+
+test('minimal memory mode does not collect or persist a repo map', async (t) => {
+  const fixture = await createFixture(t)
+  const options = runnerOptions(fixture.root, fixture.checkpointPath, provider([]))
+  const minimalMemory = {
+    ...DEFAULT_MEMORY_PROFILE,
+    id: 'memory.fixture.minimal',
+    revision: '1',
+    mode: 'minimal',
+  }
+  options.catalog.memoryProfiles = [minimalMemory]
+  options.layers.push({
+    scope: 'run',
+    revision: 'minimal-memory-v1',
+    selections: { memoryProfileId: minimalMemory.id },
+  })
+
+  const runner = await createHeadlessAgentRunner(options)
+  assert.equal(runner.repoMap, undefined)
+  assert.equal(runner.repoMapOutputRef, undefined)
   runner.close()
 })
 

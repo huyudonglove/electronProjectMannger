@@ -294,3 +294,38 @@ export type NewQuestionInput = {
   relations?: string[]
   origin?: 'user' | 'agent'
 }
+
+export type ProjectTaskStatusUpdateInput = {
+  taskId: string
+  taskShortId?: string
+  expectedStatus: string
+  expectedUpdated: string
+  nextStatus: 'doing' | 'done'
+}
+
+export type ProjectRunLogInput = {
+  source: string
+  idempotencyKey: string
+  title: string
+  taskId: string
+  taskShortId: string
+  version: string
+  recordLevel: ProjectLogLevel
+  result: string[]
+  changedFiles: string[]
+  verification: string[]
+  decisions: string[]
+}
+
+export type ProjectRunCompletionUpdateInput = {
+  taskUpdate?: ProjectTaskStatusUpdateInput
+  log: ProjectRunLogInput
+}
+
+export type ProjectRunUpdateResult = {
+  applied: boolean
+  taskUpdated: boolean
+  logCreated: boolean
+  logShortId?: string
+  dashboard: Dashboard
+}
