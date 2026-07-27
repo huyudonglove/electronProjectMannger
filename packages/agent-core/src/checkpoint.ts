@@ -185,6 +185,7 @@ export function applyCheckpointCommit(current: LoadedCheckpoint | null, commit: 
   validateEvents(commit.runId, previousSequence, commit.ledger.eventSequence, commit.events)
   validateEffectHistory(current?.snapshot.effects ?? [], commit.effects)
   validateModelAttemptHistory(current?.snapshot.ledger.modelAttempts ?? [], commit.ledger.modelAttempts)
+  validateContextEnvelopeHistory(current?.snapshot.ledger.contextEnvelopes ?? [], commit.ledger.contextEnvelopes)
   validateComponentHistory(current?.snapshot, commit)
 
   const snapshot: RunSnapshot = {
@@ -211,6 +212,7 @@ export function validateLoadedCheckpoint(record: LoadedCheckpoint) {
   validateEvents(record.snapshot.runId, 0, record.snapshot.lastEventSequence, record.events)
   for (const effect of record.snapshot.effects) validateEffect(record.snapshot.runId, effect)
   validateModelAttempts(record.snapshot.runId, record.snapshot.ledger.modelAttempts)
+  validateContextEnvelopes(record.snapshot.ledger.contextEnvelopes)
   const keys = record.snapshot.effects.map(effectRecordKey)
   if (new Set(keys).size !== keys.length) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect journal contains duplicate idempotency keys')
@@ -241,6 +243,7 @@ function validateCommit(commit: CheckpointCommit) {
   }
   for (const effect of commit.effects) validateEffect(commit.runId, effect)
   validateModelAttempts(commit.runId, commit.ledger.modelAttempts)
+  validateContextEnvelopes(commit.ledger.contextEnvelopes)
   const keys = commit.effects.map(effectRecordKey)
   if (new Set(keys).size !== keys.length) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect journal contains duplicate idempotency keys')
@@ -345,6 +348,7 @@ function validateModelAttempts(runId: string, attempts: RunSnapshot['ledger']['m
       || !attempt.id.startsWith(`${runId}:`)
       || !attempt.routeId.trim()
       || !attempt.routeRevision.trim()
+      || !attempt.contextRevision.trim()
       || !attempt.profileId.trim()
       || !attempt.profileRevision.trim()
       || !attempt.provider.trim()
@@ -377,6 +381,41 @@ function validateModelAttemptHistory(
   for (let index = 0; index < previous.length; index += 1) {
     if (JSON.stringify(previous[index]) !== JSON.stringify(next[index])) {
       throw new AgentCoreError('CHECKPOINT_ERROR', 'Persisted model attempts are immutable')
+    }
+  }
+}
+
+function validateContextEnvelopes(envelopes: RunSnapshot['ledger']['contextEnvelopes']) {
+  const revisions = new Set<string>()
+  for (const envelope of envelopes) {
+    if (
+      !Number.isInteger(envelope.schemaVersion)
+      || envelope.schemaVersion < 1
+      || !envelope.revision.trim()
+      || !envelope.stablePrefixRevision.trim()
+      || !Number.isInteger(envelope.estimatedInputTokens)
+      || envelope.estimatedInputTokens < 0
+      || !Number.isInteger(envelope.availableInputTokens)
+      || envelope.availableInputTokens <= 0
+      || envelope.estimatedInputTokens > envelope.availableInputTokens
+      || !Number.isInteger(envelope.droppedFragments)
+      || envelope.droppedFragments < 0
+    ) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Context envelope contains invalid revision or budget fields')
+    }
+    if (revisions.has(envelope.revision)) throw new AgentCoreError('CHECKPOINT_ERROR', 'Context envelope revisions must be unique')
+    revisions.add(envelope.revision)
+  }
+}
+
+function validateContextEnvelopeHistory(
+  previous: RunSnapshot['ledger']['contextEnvelopes'],
+  next: RunSnapshot['ledger']['contextEnvelopes'],
+) {
+  if (next.length < previous.length) throw new AgentCoreError('CHECKPOINT_ERROR', 'Context envelope history is append-only')
+  for (let index = 0; index < previous.length; index += 1) {
+    if (JSON.stringify(previous[index]) !== JSON.stringify(next[index])) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Persisted context envelopes are immutable')
     }
   }
 }

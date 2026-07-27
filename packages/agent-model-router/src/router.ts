@@ -44,9 +44,9 @@ export class ModelRouter implements ModelProvider {
     let outputTokens = 0
     let lastAttempt: BufferedModelAttempt | undefined
 
-    if (!request.turnId.trim() || !request.turnId.startsWith(`${request.runId}:`)) {
-      const error = normalizeProviderError(new AgentCoreError('INVALID_INPUT', 'Model turn id must be scoped to its run', {
-        details: { runId: request.runId, turnId: request.turnId },
+    if (!request.turnId.trim() || !request.turnId.startsWith(`${request.runId}:`) || !request.contextRevision.trim()) {
+      const error = normalizeProviderError(new AgentCoreError('INVALID_INPUT', 'Model turn id and context revision must be valid', {
+        details: { runId: request.runId, turnId: request.turnId, contextRevision: request.contextRevision },
       }))
       yield { type: 'error', error: toModelStreamError(error, this.#route.route.id, this.#route.primary.id, 0) }
       return
@@ -192,6 +192,7 @@ export class ModelRouter implements ModelProvider {
       id: `${request.turnId}:${this.#route.route.id}:attempt:${attempt}`,
       routeId: this.#route.route.id,
       routeRevision: this.#route.route.revision,
+      contextRevision: request.contextRevision,
       attempt,
       profileId: binding.profile.id,
       profileRevision: binding.profile.revision,

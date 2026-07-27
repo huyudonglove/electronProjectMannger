@@ -106,6 +106,7 @@ function request() {
   return {
     runId: 'run-router',
     turnId: 'run-router:step:1',
+    contextRevision: 'context-router-1',
     messages: [{ role: 'user', content: 'Choose one action' }],
     tools: [],
     maxOutputTokens: 4_000,
@@ -168,6 +169,10 @@ test('router suppresses failed partial output, records attempts and falls back i
   assert.equal(events.some((event) => event.type === 'text_delta'), false)
   assert.equal(primary.requests.length, 1)
   assert.equal(fallback.requests.length, 1)
+  assert.equal(primary.requests[0].contextRevision, 'context-router-1')
+  assert.equal(fallback.requests[0].contextRevision, primary.requests[0].contextRevision)
+  assert.equal(events[0].attempt.contextRevision, 'context-router-1')
+  assert.equal(events[1].attempt.contextRevision, 'context-router-1')
 })
 
 test('an action is not exposed until its attempt reaches a valid terminal event', async () => {

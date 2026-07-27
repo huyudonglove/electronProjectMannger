@@ -9,6 +9,7 @@ import {
   recordAgentStep,
   recordApproval,
   recordChange,
+  recordContextEnvelope,
   recordDecision,
   recordDiffSnapshot,
   recordModelAttempt,
@@ -27,6 +28,7 @@ import type {
   ApprovalRecord,
   JsonValue,
   ModelMessage,
+  ModelContextAssembler,
   ModelProvider,
   PendingAction,
   PermissionDecision,
@@ -53,6 +55,7 @@ export interface AgentStepperOptions {
   runtime: AgentRuntime
   permissionPolicy: PermissionPolicy
   tools: ToolDefinition[]
+  contextAssembler?: ModelContextAssembler
   clock?: () => string
 }
 
@@ -81,6 +84,7 @@ export class AgentStepper {
   readonly permissionPolicy: PermissionPolicy
   readonly tools: ToolDefinition[]
   readonly #toolsByName: Map<string, ToolDefinition>
+  readonly #contextAssembler?: ModelContextAssembler
   readonly #clock: () => string
 
   constructor(options: AgentStepperOptions) {
@@ -89,6 +93,7 @@ export class AgentStepper {
     this.permissionPolicy = options.permissionPolicy
     this.tools = options.tools.map((tool) => structuredClone(tool))
     this.#toolsByName = new Map(this.tools.map((tool) => [tool.name, tool]))
+    this.#contextAssembler = options.contextAssembler
     if (this.#toolsByName.size !== this.tools.length) throw new AgentCoreError('INVALID_INPUT', 'Tool names must be unique')
     this.#clock = options.clock || (() => new Date().toISOString())
   }
@@ -260,10 +265,36 @@ export class AgentStepper {
   async #requestAction(state: StepState, signal?: AbortSignal): Promise<AgentTurnAction> {
     let action: AgentTurnAction | undefined
     let completed = false
+    const turnId = `${state.ledger.runId}:step:${state.ledger.stepCount}`
+    const context = this.#contextAssembler
+      ? await this.#contextAssembler.assemble({
+        runId: state.ledger.runId,
+        ledger: structuredClone(state.ledger),
+        tools: this.tools.map((tool) => structuredClone(tool)),
+      })
+      : {
+        revision: `${turnId}:default-context`,
+        messages: projectLedgerMessages(state.ledger),
+      }
+    if (!context.revision.trim()) throw new AgentCoreError('INVALID_INPUT', 'Context revision is required')
+    if (context.snapshot) {
+      if (context.snapshot.revision !== context.revision) {
+        throw new AgentCoreError('INVALID_INPUT', 'Context snapshot revision does not match assembled messages')
+      }
+      const assembledAt = this.#clock()
+      state.ledger = recordContextEnvelope(state.ledger, { ...structuredClone(context.snapshot), assembledAt })
+      state.event('context.assembled', 'Model context assembled', assembledAt, {
+        revision: context.snapshot.revision,
+        stablePrefixRevision: context.snapshot.stablePrefixRevision,
+        estimatedInputTokens: context.snapshot.estimatedInputTokens,
+        droppedFragments: context.snapshot.droppedFragments,
+      })
+    }
     const request = {
       runId: state.ledger.runId,
-      turnId: `${state.ledger.runId}:step:${state.ledger.stepCount}`,
-      messages: projectLedgerMessages(state.ledger),
+      turnId,
+      contextRevision: context.revision,
+      messages: structuredClone(context.messages),
       tools: this.tools.map((tool) => structuredClone(tool)),
       maxOutputTokens: Math.min(state.ledger.limits.maxOutputTokens, this.provider.profile.maxOutputTokens),
     }
@@ -615,6 +646,7 @@ export function projectLedgerMessages(ledger: RunLedger): ModelMessage[] {
     verifications: ledger.verifications,
     failures: ledger.failures,
     modelAttempts: ledger.modelAttempts.slice(-8),
+    contextEnvelopes: ledger.contextEnvelopes.slice(-4),
     nextAction: ledger.nextAction,
   }
   const messages: ModelMessage[] = [

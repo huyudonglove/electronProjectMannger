@@ -222,7 +222,7 @@ test('errors, fake model and fake runtime keep adapter behavior testable', async
     { type: 'completed', finishReason: 'stop' },
   ]])
   const events = []
-  for await (const event of model.stream({ runId: 'run-1', turnId: 'run-1:step:1', messages: [], tools: [], maxOutputTokens: 100 })) events.push(event)
+  for await (const event of model.stream({ runId: 'run-1', turnId: 'run-1:step:1', contextRevision: 'context-1', messages: [], tools: [], maxOutputTokens: 100 })) events.push(event)
   assert.equal(events.length, 2)
   assert.equal(model.requests.length, 1)
 

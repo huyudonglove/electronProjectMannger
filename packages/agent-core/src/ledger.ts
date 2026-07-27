@@ -5,6 +5,7 @@ import type {
   AgentRunInput,
   ApprovalRecord,
   ChangedFileRecord,
+  ContextEnvelopeRecord,
   DecisionRecord,
   DiffSnapshot,
   FailureRecord,
@@ -69,6 +70,7 @@ export function createRunLedger(input: AgentRunInput, at: string): RunLedger {
     approvals: [],
     failures: [],
     modelAttempts: [],
+    contextEnvelopes: [],
     ...(input.metadata ? { metadata: { ...input.metadata } } : {}),
   }
 }
@@ -135,6 +137,13 @@ export function recordModelAttempt(ledger: RunLedger, attempt: ModelAttemptRecor
   }
   return update(ledger, attempt.completedAt, {
     modelAttempts: [...ledger.modelAttempts, structuredClone(attempt)],
+  })
+}
+
+export function recordContextEnvelope(ledger: RunLedger, envelope: ContextEnvelopeRecord): RunLedger {
+  if (ledger.contextEnvelopes.some((item) => item.revision === envelope.revision)) return ledger
+  return update(ledger, envelope.assembledAt, {
+    contextEnvelopes: [...ledger.contextEnvelopes, structuredClone(envelope)],
   })
 }
 

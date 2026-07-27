@@ -15,6 +15,7 @@ import {
   RUN_SNAPSHOT_SCHEMA_VERSION,
   createRunLedger,
   recordModelAttempt,
+  recordContextEnvelope,
   sequenceAgentEvent,
 } from '@electron-manager/agent-core'
 import { SqliteCheckpointStore } from '../dist/index.js'
@@ -91,10 +92,21 @@ async function fixture(t) {
 test('SQLite checkpoint survives reopen with revisions and events intact', async (t) => {
   const databasePath = await fixture(t)
   let ledger = createRunLedger(input(), at(0))
+  ledger = recordContextEnvelope(ledger, {
+    schemaVersion: 1,
+    revision: 'context-revision-1',
+    stablePrefixRevision: 'stable-prefix-1',
+    estimatedInputTokens: 900,
+    availableInputTokens: 8_000,
+    sourceRevisions: { system: '1', tools: '1' },
+    droppedFragments: 0,
+    assembledAt: at(0),
+  })
   ledger = recordModelAttempt(ledger, {
     id: 'run-sqlite:step:1:route.coding:attempt:1',
     routeId: 'route.coding',
     routeRevision: '1',
+    contextRevision: 'context-1',
     attempt: 1,
     profileId: 'model.primary',
     profileRevision: '1',
@@ -120,6 +132,7 @@ test('SQLite checkpoint survives reopen with revisions and events intact', async
   assert.equal(loaded.snapshot.revision, 2)
   assert.equal(loaded.snapshot.ledger.objective, 'Persist across process restarts')
   assert.equal(loaded.snapshot.ledger.modelAttempts[0].profileId, 'model.primary')
+  assert.equal(loaded.snapshot.ledger.contextEnvelopes[0].revision, 'context-revision-1')
   assert.deepEqual(loaded.events.map((event) => event.sequence), [1])
   assert.equal((await store.list())[0].lastEventSequence, 1)
   store.close()

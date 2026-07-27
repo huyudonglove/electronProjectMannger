@@ -109,7 +109,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
   #requestBody(request: ModelRequest): OpenAIResponsesRequest {
     return {
       model: this.profile.id.slice('openai:'.length),
-      input: [toolCatalogMessage(request.tools), ...request.messages.map(mapMessage)],
+      input: requestInput(request),
       max_output_tokens: Math.min(request.maxOutputTokens, this.profile.maxOutputTokens),
       stream: true,
       store: false,
@@ -125,6 +125,16 @@ export class OpenAIResponsesProvider implements ModelProvider {
       ...(this.#reasoningEffort ? { reasoning: { effort: this.#reasoningEffort } } : {}),
     }
   }
+}
+
+function requestInput(request: ModelRequest): OpenAIResponseInputMessage[] {
+  const prefixLength = request.messages.findIndex((message) => message.role !== 'system')
+  const stableSystemCount = prefixLength === -1 ? request.messages.length : prefixLength
+  return [
+    ...request.messages.slice(0, stableSystemCount).map(mapMessage),
+    toolCatalogMessage(request.tools),
+    ...request.messages.slice(stableSystemCount).map(mapMessage),
+  ]
 }
 
 function toolCatalogMessage(tools: ToolDefinition[]): OpenAIResponseInputMessage {

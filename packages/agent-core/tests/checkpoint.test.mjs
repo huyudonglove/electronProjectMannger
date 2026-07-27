@@ -8,6 +8,7 @@ import {
   createRunLedger,
   decideResume,
   recordModelAttempt,
+  recordContextEnvelope,
   sequenceAgentEvent,
   setPendingAction,
 } from '../dist/index.js'
@@ -168,6 +169,7 @@ test('model attempt history is append-only and persisted attempts are immutable'
     id: 'run-checkpoint:step:1:route.coding:attempt:1',
     routeId: 'route.coding',
     routeRevision: '1',
+    contextRevision: 'context-1',
     attempt: 1,
     profileId: 'model.primary',
     profileRevision: '2',
@@ -196,6 +198,34 @@ test('model attempt history is append-only and persisted attempts are immutable'
     store.commit(commit({
       ...ledger,
       modelAttempts: [{ ...ledger.modelAttempts[0], outputTokens: 11 }],
+    }, { expectedRevision: 1 })),
+    (error) => error instanceof AgentCoreError && /immutable/.test(error.message),
+  )
+})
+
+test('context envelope history keeps compact budget metadata append-only', async () => {
+  const store = new InMemoryCheckpointStore()
+  let ledger = createRunLedger(input(), at(0))
+  ledger = recordContextEnvelope(ledger, {
+    schemaVersion: 1,
+    revision: 'context-revision-1',
+    stablePrefixRevision: 'stable-prefix-1',
+    estimatedInputTokens: 800,
+    availableInputTokens: 8_000,
+    sourceRevisions: { system: '1', tools: '2' },
+    droppedFragments: 1,
+    assembledAt: at(1),
+  })
+  await store.commit(commit(ledger))
+
+  await assert.rejects(
+    store.commit(commit({ ...ledger, contextEnvelopes: [] }, { expectedRevision: 1 })),
+    (error) => error instanceof AgentCoreError && /append-only/.test(error.message),
+  )
+  await assert.rejects(
+    store.commit(commit({
+      ...ledger,
+      contextEnvelopes: [{ ...ledger.contextEnvelopes[0], droppedFragments: 2 }],
     }, { expectedRevision: 1 })),
     (error) => error instanceof AgentCoreError && /immutable/.test(error.message),
   )

@@ -280,6 +280,7 @@ export interface ModelMessage {
 export interface ModelRequest {
   runId: string
   turnId: string
+  contextRevision: string
   messages: ModelMessage[]
   tools: ToolDefinition[]
   maxOutputTokens: number
@@ -311,6 +312,7 @@ export interface ModelAttemptRecord {
   id: string
   routeId: string
   routeRevision: string
+  contextRevision: string
   attempt: number
   profileId: string
   profileRevision: string
@@ -365,6 +367,30 @@ export interface ModelProvider {
   stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent>
 }
 
+export interface AssembledModelContext {
+  revision: string
+  messages: ModelMessage[]
+  snapshot?: ModelContextSnapshot
+}
+
+export interface ModelContextSnapshot {
+  schemaVersion: number
+  revision: string
+  stablePrefixRevision: string
+  estimatedInputTokens: number
+  availableInputTokens: number
+  sourceRevisions: Record<string, string>
+  droppedFragments: number
+}
+
+export interface ContextEnvelopeRecord extends ModelContextSnapshot {
+  assembledAt: string
+}
+
+export interface ModelContextAssembler {
+  assemble(input: { runId: string; ledger: RunLedger; tools: ToolDefinition[] }): AssembledModelContext | Promise<AssembledModelContext>
+}
+
 export interface PermissionPolicy {
   decide(request: ToolRequest, tool: ToolDefinition, ledger: RunLedger): PermissionDecision | Promise<PermissionDecision>
 }
@@ -375,6 +401,7 @@ export type AgentEventType =
   | 'model.started'
   | 'model.attempted'
   | 'model.completed'
+  | 'context.assembled'
   | 'tool.requested'
   | 'tool.completed'
   | 'approval.requested'
@@ -437,6 +464,7 @@ export interface RunLedger {
   approvals: ApprovalRecord[]
   failures: FailureRecord[]
   modelAttempts: ModelAttemptRecord[]
+  contextEnvelopes: ContextEnvelopeRecord[]
   pendingAction?: PendingAction
   nextAction?: string
   diffSnapshot?: DiffSnapshot
