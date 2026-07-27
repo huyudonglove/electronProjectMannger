@@ -10,6 +10,7 @@ import {
 } from '@electron-manager/agent-core'
 
 import { budgetError, invalidOutputError, normalizeProviderError, timeoutError, toModelStreamError } from './errors.js'
+import { bindPromptCacheRequest } from './cache.js'
 import { createModelRouteSnapshot } from './snapshot.js'
 import type { BufferedModelAttempt, ModelProviderBinding, ModelRouteSnapshot, ModelRouterOptions } from './types.js'
 
@@ -42,6 +43,9 @@ export class ModelRouter implements ModelProvider {
     const routeStarted = this.#now()
     let inputTokens = 0
     let outputTokens = 0
+    let cachedInputTokens = 0
+    let cacheWriteTokens = 0
+    let reasoningTokens = 0
     let lastAttempt: BufferedModelAttempt | undefined
 
     if (!request.turnId.trim() || !request.turnId.startsWith(`${request.runId}:`) || !request.contextRevision.trim()) {
@@ -74,13 +78,23 @@ export class ModelRouter implements ModelProvider {
         return
       }
 
-      const routedRequest: ModelRequest = {
-        ...structuredClone(request),
-        maxOutputTokens: Math.min(request.maxOutputTokens, binding.profile.capabilities.maxOutputTokens, remainingTokens),
+      let routedRequest: ModelRequest
+      try {
+        routedRequest = bindPromptCacheRequest({
+          ...structuredClone(request),
+          maxOutputTokens: Math.min(request.maxOutputTokens, binding.profile.capabilities.maxOutputTokens, remainingTokens),
+        }, binding)
+      } catch (error) {
+        const normalized = normalizeProviderError(error)
+        yield { type: 'error', error: toModelStreamError(normalized, this.#route.route.id, binding.profile.id, index + 1) }
+        return
       }
       let attempted = await this.#attempt(binding, routedRequest, index + 1, remainingMs, signal)
       inputTokens += attempted.record.inputTokens
       outputTokens += attempted.record.outputTokens
+      cachedInputTokens += attempted.record.cachedInputTokens ?? 0
+      cacheWriteTokens += attempted.record.cacheWriteTokens ?? 0
+      reasoningTokens += attempted.record.reasoningTokens ?? 0
 
       if (inputTokens + outputTokens > policy.totalTokenBudget) {
         const error = budgetError('Model route token budget was exceeded by the latest attempt')
@@ -90,7 +104,7 @@ export class ModelRouter implements ModelProvider {
       yield { type: 'model_attempt', attempt: attempted.record }
 
       if (!attempted.error) {
-        if (inputTokens || outputTokens) yield { type: 'usage', inputTokens, outputTokens }
+        if (inputTokens || outputTokens) yield usageEvent(inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens, reasoningTokens)
         for (const event of attempted.events) yield event
         return
       }
@@ -101,7 +115,7 @@ export class ModelRouter implements ModelProvider {
         && attempted.error.category !== 'budget_exhausted'
         && attempted.error.category !== 'cancelled'
       if (!canFallback) {
-        if (inputTokens || outputTokens) yield { type: 'usage', inputTokens, outputTokens }
+        if (inputTokens || outputTokens) yield usageEvent(inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens, reasoningTokens)
         yield {
           type: 'error',
           error: toModelStreamError(attempted.error, this.#route.route.id, binding.profile.id, index + 1),
@@ -130,6 +144,9 @@ export class ModelRouter implements ModelProvider {
     let finishReason: ModelAttemptRecord['finishReason']
     let inputTokens = 0
     let outputTokens = 0
+    let cachedInputTokens = 0
+    let cacheWriteTokens = 0
+    let reasoningTokens = 0
     let failure: NormalizedProviderError | undefined
     const scoped = scopedSignal(signal, timeoutMs)
 
@@ -142,6 +159,9 @@ export class ModelRouter implements ModelProvider {
         if (event.type === 'usage') {
           inputTokens += event.inputTokens
           outputTokens += event.outputTokens
+          cachedInputTokens += event.cachedInputTokens ?? 0
+          cacheWriteTokens += event.cacheWriteTokens ?? 0
+          reasoningTokens += event.reasoningTokens ?? 0
           continue
         }
         if (event.type === 'error') {
@@ -204,6 +224,11 @@ export class ModelRouter implements ModelProvider {
       acceptedAction: !failure,
       inputTokens,
       outputTokens,
+      ...(cachedInputTokens ? { cachedInputTokens } : {}),
+      ...(cacheWriteTokens ? { cacheWriteTokens } : {}),
+      ...(reasoningTokens ? { reasoningTokens } : {}),
+      ...(request.promptCacheBinding ? { cacheCapability: request.promptCacheBinding.capability } : {}),
+      ...(request.promptCacheBinding?.cacheKey ? { cacheKey: request.promptCacheBinding.cacheKey } : {}),
       ...(finishReason ? { finishReason } : {}),
       ...(failure ? { error: failure } : {}),
     }
@@ -220,6 +245,31 @@ function routedCapabilityProfile(routeId: string, revision: string, bindings: Mo
     supportsStructuredOutput: bindings.every((binding) => binding.provider.profile.supportsStructuredOutput),
     contextWindow: Math.min(...bindings.map((binding) => binding.provider.profile.contextWindow)),
     maxOutputTokens: Math.min(...bindings.map((binding) => binding.provider.profile.maxOutputTokens)),
+    promptCache: commonPromptCacheCapability(bindings),
+  }
+}
+
+function commonPromptCacheCapability(bindings: ModelProviderBinding[]) {
+  const capabilities = bindings.map((binding) => binding.provider.profile.promptCache)
+  if (capabilities.every((capability) => capability === 'explicit')) return 'explicit' as const
+  if (capabilities.every((capability) => capability !== 'none')) return 'implicit' as const
+  return 'none' as const
+}
+
+function usageEvent(
+  inputTokens: number,
+  outputTokens: number,
+  cachedInputTokens: number,
+  cacheWriteTokens: number,
+  reasoningTokens: number,
+): Extract<ModelStreamEvent, { type: 'usage' }> {
+  return {
+    type: 'usage',
+    inputTokens,
+    outputTokens,
+    ...(cachedInputTokens ? { cachedInputTokens } : {}),
+    ...(cacheWriteTokens ? { cacheWriteTokens } : {}),
+    ...(reasoningTokens ? { reasoningTokens } : {}),
   }
 }
 

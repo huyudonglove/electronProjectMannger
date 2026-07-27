@@ -1,5 +1,6 @@
 export * from './types.js'
 export * from './estimator.js'
+export * from './cache.js'
 export * from './registry.js'
 export * from './assembler.js'
 export * from './ledger-context.js'

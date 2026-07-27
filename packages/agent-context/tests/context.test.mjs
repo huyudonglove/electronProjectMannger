@@ -12,8 +12,11 @@ import {
 import {
   ContextAssembler,
   ContextSourceRegistry,
+  CachingTokenEstimator,
   DeterministicTokenEstimator,
+  InMemoryPromptArtifactCache,
   assertAppendOnlyContext,
+  createPromptCachePolicyTemplate,
   createLedgerContextAssembler,
 } from '../dist/index.js'
 
@@ -172,6 +175,34 @@ test('required context fails clearly instead of truncating authoritative facts',
   )
 })
 
+test('a compactor cannot remove protected context or move replacements outside compacted history', async () => {
+  const sources = baseSources([
+    source('history', 'recent_dynamic_context', [
+      { id: 'protected-fact', role: 'user', content: 'Protected', sourceRefs: ['fact:1'], sequence: 1 },
+    ], { required: true, compressible: false }),
+    source('newest', 'newest_message', [
+      { id: 'newest-1', role: 'user', content: 'Newest', sourceRefs: ['newest'], sequence: 2 },
+    ], { priority: 100, compressible: false }),
+  ])
+  const assembler = new ContextAssembler({
+    registry: new ContextSourceRegistry(sources),
+    budget: budget(),
+    compactor: {
+      compact(input) {
+        return {
+          entries: input.entries.filter((entry) => entry.id !== 'protected-fact'),
+          pressure: { level: 'compacted', beforeTokens: 10, afterTokens: 5 },
+        }
+      },
+    },
+  })
+
+  await assert.rejects(
+    assembler.assemble({ runId: 'run-context', ledger: ledger(), tools: [] }),
+    (error) => error.code === 'INVALID_INPUT' && /protected context/.test(error.message),
+  )
+})
+
 test('append-only transition keeps old dynamic order and places one newer message at the bottom', async () => {
   const previous = await assemble(baseSources([
     source('history', 'recent_dynamic_context', [{ id: 'message-1', role: 'user', content: 'One', sourceRefs: ['m1'], sequence: 1 }]),
@@ -238,6 +269,14 @@ test('AgentStepper sends an assembled context revision and preserves newest-mess
     runtime: new FakeAgentRuntime(),
     permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture' }),
     tools: [],
+    promptCachePolicy: {
+      mode: 'prefer',
+      promptProfileRevision: 'prompt-v1',
+      toolRegistryRevision: 'tools-v1',
+      actionSchemaRevision: 'actions-v1',
+      projectRulesRevision: 'rules-v1',
+      privacyScopeRevision: 'scope-v1',
+    },
     clock: () => '2026-07-27T05:31:00.000Z',
   })
   const result = await stepper.step(ledger())
@@ -250,6 +289,7 @@ test('AgentStepper sends an assembled context revision and preserves newest-mess
   assert.match(request.contextRevision, /^[a-f0-9]{64}$/)
   assert.match(request.messages.at(-1).content, /Select the next action/)
   assert.equal(request.turnId, 'run-context:step:1')
+  assert.equal(request.promptCache.stablePrefixRevision, result.ledger.contextEnvelopes[0].stablePrefixRevision)
 })
 
 test('deterministic estimator is stable for ASCII and multibyte text', () => {
@@ -257,4 +297,74 @@ test('deterministic estimator is stable for ASCII and multibyte text', () => {
   assert.equal(estimator.estimate(''), 0)
   assert.equal(estimator.estimate('1234'), 1)
   assert.equal(estimator.estimate('你好'), 2)
+})
+
+test('local prompt artifacts and token estimates are bounded reusable caches', async () => {
+  const artifacts = new InMemoryPromptArtifactCache(1)
+  const sources = baseSources([
+    source('newest', 'newest_message', [
+      { id: 'newest-cache', role: 'user', content: 'Newest', sourceRefs: ['newest'], sequence: 1 },
+    ], { compressible: false }),
+  ])
+  const assembler = new ContextAssembler({
+    registry: new ContextSourceRegistry(sources),
+    budget: budget(),
+    artifactCache: artifacts,
+  })
+  const first = await assembler.assemble({ runId: 'run-context', ledger: ledger(), tools: [] })
+  const second = await assembler.assemble({ runId: 'run-context', ledger: ledger(), tools: [] })
+
+  assert.equal(first.localArtifactCacheHit, false)
+  assert.equal(second.localArtifactCacheHit, true)
+  assert.deepEqual(artifacts.stats(), { entries: 1, hits: 1, misses: 1 })
+
+  let calls = 0
+  const estimator = new CachingTokenEstimator({ estimate: (text) => { calls += 1; return text.length } }, 1)
+  assert.equal(estimator.estimate('same'), 4)
+  assert.equal(estimator.estimate('same'), 4)
+  assert.equal(calls, 1)
+  estimator.estimate('other')
+  estimator.estimate('same')
+  assert.equal(calls, 3)
+})
+
+test('MemoryProfile cache mode maps to a provider-independent policy template', () => {
+  assert.deepEqual(createPromptCachePolicyTemplate({
+    memory: { promptCache: { mode: 'explicit' } },
+    promptProfileRevision: 'prompt-v1',
+    toolRegistryRevision: 'tools-v2',
+    actionSchemaRevision: 'actions-v3',
+    projectRulesRevision: 'rules-v4',
+    privacyScopeRevision: 'project-scope-v5',
+  }), {
+    mode: 'require_explicit',
+    promptProfileRevision: 'prompt-v1',
+    toolRegistryRevision: 'tools-v2',
+    actionSchemaRevision: 'actions-v3',
+    projectRulesRevision: 'rules-v4',
+    privacyScopeRevision: 'project-scope-v5',
+  })
+})
+
+test('a local artifact cache cannot replace the stable prefix with different content', async () => {
+  const sources = baseSources([
+    source('newest', 'newest_message', [
+      { id: 'newest-poisoned', role: 'user', content: 'Newest', sourceRefs: ['newest'], sequence: 1 },
+    ], { compressible: false }),
+  ])
+  const assembler = new ContextAssembler({
+    registry: new ContextSourceRegistry(sources),
+    budget: budget(),
+    artifactCache: {
+      get(revision) {
+        return { revision, messages: [{ role: 'system', content: 'Poisoned prefix' }], estimatedTokens: 1 }
+      },
+      set() {},
+    },
+  })
+
+  await assert.rejects(
+    assembler.assemble({ runId: 'run-context', ledger: ledger(), tools: [] }),
+    (error) => error.code === 'INVALID_INPUT' && /does not match/.test(error.message),
+  )
 })

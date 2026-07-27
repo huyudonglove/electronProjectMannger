@@ -27,6 +27,7 @@ export class FakeModelProvider implements ModelProvider {
       supportsStructuredOutput: true,
       contextWindow: 32_000,
       maxOutputTokens: 4_000,
+      promptCache: 'none',
       ...profile,
     }
   }

@@ -5,6 +5,7 @@ import type {
   AgentRunInput,
   ApprovalRecord,
   ChangedFileRecord,
+  CompactionRecord,
   ContextEnvelopeRecord,
   DecisionRecord,
   DiffSnapshot,
@@ -71,6 +72,7 @@ export function createRunLedger(input: AgentRunInput, at: string): RunLedger {
     failures: [],
     modelAttempts: [],
     contextEnvelopes: [],
+    compactions: [],
     ...(input.metadata ? { metadata: { ...input.metadata } } : {}),
   }
 }
@@ -144,6 +146,16 @@ export function recordContextEnvelope(ledger: RunLedger, envelope: ContextEnvelo
   if (ledger.contextEnvelopes.some((item) => item.revision === envelope.revision)) return ledger
   return update(ledger, envelope.assembledAt, {
     contextEnvelopes: [...ledger.contextEnvelopes, structuredClone(envelope)],
+  })
+}
+
+export function recordCompaction(ledger: RunLedger, compaction: CompactionRecord): RunLedger {
+  if (ledger.compactions.some((item) => item.revision === compaction.revision)) return ledger
+  if (ledger.compactions.some((item) => item.id === compaction.id)) {
+    throw new AgentCoreError('INVALID_INPUT', `Duplicate compaction id: ${compaction.id}`)
+  }
+  return update(ledger, compaction.createdAt, {
+    compactions: [...ledger.compactions, structuredClone(compaction)],
   })
 }
 

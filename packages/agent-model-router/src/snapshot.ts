@@ -19,6 +19,7 @@ export function createModelRouteSnapshot(route: ResolvedModelRoute, bindings: Mo
     profiles: bindings.map((binding) => ({
       ...copyProfile(binding.profile),
       providerCapabilityId: binding.provider.profile.id,
+      providerPromptCache: binding.provider.profile.promptCache,
     })),
   })
   return {

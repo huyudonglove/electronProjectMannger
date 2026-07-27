@@ -2,6 +2,7 @@ import { AgentCoreError, type ModelProvider } from '@electron-manager/agent-core
 import type { ModelProfile } from '@electron-manager/agent-config'
 
 import type { ModelProviderBinding, ModelProviderRegistryLike } from './types.js'
+import { promptCacheCapabilitySatisfies } from './cache.js'
 
 export class ModelProviderRegistry implements ModelProviderRegistryLike {
   readonly #bindings = new Map<string, ModelProviderBinding>()
@@ -42,6 +43,7 @@ function validateProfileBinding(profile: ModelProfile, provider: ModelProvider) 
     || (profile.capabilities.toolCalls && !actual.supportsToolCalls)
     || profile.capabilities.contextWindow > actual.contextWindow
     || profile.capabilities.maxOutputTokens > actual.maxOutputTokens
+    || !promptCacheCapabilitySatisfies(actual.promptCache, profile.capabilities.promptCache)
   if (mismatch) {
     throw new AgentCoreError('INVALID_INPUT', `Provider capability does not satisfy model profile: ${profile.id}`, {
       details: { profileId: profile.id, providerProfileId: actual.id },

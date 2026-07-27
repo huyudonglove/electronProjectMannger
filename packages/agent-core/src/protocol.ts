@@ -269,6 +269,38 @@ export interface ModelCapabilityProfile {
   supportsStructuredOutput: boolean
   contextWindow: number
   maxOutputTokens: number
+  promptCache: PromptCacheCapability
+}
+
+export type PromptCacheCapability = 'none' | 'implicit' | 'explicit'
+
+export interface PromptCachePolicyTemplate {
+  mode: 'none' | 'prefer' | 'require_explicit'
+  promptProfileRevision: string
+  toolRegistryRevision: string
+  actionSchemaRevision: string
+  projectRulesRevision: string
+  privacyScopeRevision: string
+}
+
+export interface PromptCachePolicy extends PromptCachePolicyTemplate {
+  stablePrefixRevision: string
+}
+
+export interface PromptCacheBinding {
+  capability: PromptCacheCapability
+  provider: string
+  model: string
+  profileRevision: string
+  cacheKey?: string
+}
+
+export interface NormalizedUsage {
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens?: number
+  cacheWriteTokens?: number
+  reasoningTokens?: number
 }
 
 export interface ModelMessage {
@@ -284,6 +316,8 @@ export interface ModelRequest {
   messages: ModelMessage[]
   tools: ToolDefinition[]
   maxOutputTokens: number
+  promptCache?: PromptCachePolicy
+  promptCacheBinding?: PromptCacheBinding
 }
 
 export type NormalizedModelErrorCode =
@@ -324,6 +358,11 @@ export interface ModelAttemptRecord {
   acceptedAction: boolean
   inputTokens: number
   outputTokens: number
+  cachedInputTokens?: number
+  cacheWriteTokens?: number
+  reasoningTokens?: number
+  cacheCapability?: PromptCacheCapability
+  cacheKey?: string
   finishReason?: 'stop' | 'tool_calls' | 'length'
   error?: NormalizedProviderError
 }
@@ -357,7 +396,7 @@ export type ModelStreamEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'action'; action: AgentTurnAction }
   | { type: 'tool_request'; request: ToolRequest }
-  | { type: 'usage'; inputTokens: number; outputTokens: number }
+  | ({ type: 'usage' } & NormalizedUsage)
   | { type: 'model_attempt'; attempt: ModelAttemptRecord }
   | { type: 'completed'; finishReason: 'stop' | 'tool_calls' | 'length' }
   | { type: 'error'; error: SerializedAgentError }
@@ -371,6 +410,7 @@ export interface AssembledModelContext {
   revision: string
   messages: ModelMessage[]
   snapshot?: ModelContextSnapshot
+  compaction?: CompactionRecord
 }
 
 export interface ModelContextSnapshot {
@@ -381,10 +421,57 @@ export interface ModelContextSnapshot {
   availableInputTokens: number
   sourceRevisions: Record<string, string>
   droppedFragments: number
+  pressureLevel?: 'healthy' | 'warning' | 'compacted'
+  compactionRevision?: string
+  localArtifactCacheHit?: boolean
 }
 
 export interface ContextEnvelopeRecord extends ModelContextSnapshot {
   assembledAt: string
+}
+
+export interface SessionSummaryObservation {
+  sourceId: string
+  trust: 'trusted_system' | 'trusted_run' | 'trusted_project' | 'untrusted'
+  sourceRefs: string[]
+  excerpt: string
+}
+
+export interface SessionSummary {
+  objective: string
+  knownFacts: string[]
+  decisions: string[]
+  failures: string[]
+  unresolved: string[]
+  observations: SessionSummaryObservation[]
+  sourceRefs: string[]
+  nextAction?: string
+}
+
+export interface CompactionRecord {
+  schemaVersion: 1
+  id: string
+  revision: string
+  runId: string
+  strategy: 'deterministic' | 'model'
+  trigger: 'compact_threshold' | 'hard_stop'
+  policyRevision: string
+  beforeTokens: number
+  afterTokens: number
+  targetTokens: number
+  warningTokens: number
+  compactTokens: number
+  hardStopTokens: number
+  sourceHash: string
+  sourceRefs: string[]
+  replacedFragmentIds: string[]
+  coveredFragmentIds: string[]
+  retainedFragmentIds: string[]
+  summaryFragmentId: string
+  compactedHistoryRevision: string
+  summary: SessionSummary
+  createdAt: string
+  fallbackReason?: string
 }
 
 export interface ModelContextAssembler {
@@ -402,6 +489,7 @@ export type AgentEventType =
   | 'model.attempted'
   | 'model.completed'
   | 'context.assembled'
+  | 'context.compacted'
   | 'tool.requested'
   | 'tool.completed'
   | 'approval.requested'
@@ -465,6 +553,7 @@ export interface RunLedger {
   failures: FailureRecord[]
   modelAttempts: ModelAttemptRecord[]
   contextEnvelopes: ContextEnvelopeRecord[]
+  compactions: CompactionRecord[]
   pendingAction?: PendingAction
   nextAction?: string
   diffSnapshot?: DiffSnapshot

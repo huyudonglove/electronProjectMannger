@@ -83,16 +83,33 @@ test('Responses Provider maps messages, strict schemas, usage and hydrated tool 
       input: { path: 'src/example.ts', startLine: null, endLine: null },
     },
   }
-  const transport = new MockTransport([completed(action)])
+  const transport = new MockTransport([completed(action, {
+    input_tokens: 120,
+    output_tokens: 40,
+    input_tokens_details: { cached_tokens: 80, cache_write_tokens: 10 },
+    output_tokens_details: { reasoning_tokens: 12 },
+  })])
   const provider = new OpenAIResponsesProvider({
     transport,
     model: 'gpt-test',
     clock: () => '2026-07-26T14:00:00.000Z',
   })
-  const events = await collect(provider.stream(modelRequest()))
+  const events = await collect(provider.stream(modelRequest({
+    promptCacheBinding: {
+      capability: 'implicit',
+      provider: 'openai',
+      model: 'gpt-test',
+      profileRevision: '1',
+      cacheKey: 'cache-key-fixture',
+    },
+  })))
 
   assert.deepEqual(events.map((event) => event.type), ['text_delta', 'text_delta', 'usage', 'action', 'completed'])
   assert.equal(events[2].inputTokens, 120)
+  assert.equal(events[2].cachedInputTokens, 80)
+  assert.equal(events[2].cacheWriteTokens, 10)
+  assert.equal(events[2].reasoningTokens, 12)
+  assert.equal(provider.profile.promptCache, 'implicit')
   assert.equal(events[3].action.request.requestedAt, '2026-07-26T14:00:00.000Z')
   assert.deepEqual(events[3].action.request.input, { path: 'src/example.ts' })
   assert.equal(events[3].action.request.actionDigest, computeActionDigest('read_file', { path: 'src/example.ts' }))

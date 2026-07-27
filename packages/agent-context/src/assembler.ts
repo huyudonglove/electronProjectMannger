@@ -24,12 +24,16 @@ export class ContextAssembler {
   readonly #registry: ContextAssemblerOptions['registry']
   readonly #budget: ContextBudget
   readonly #estimator: TokenEstimator
+  readonly #compactor?: ContextAssemblerOptions['compactor']
+  readonly #artifactCache?: ContextAssemblerOptions['artifactCache']
 
   constructor(options: ContextAssemblerOptions) {
     validateBudget(options.budget)
     this.#registry = options.registry
     this.#budget = structuredClone(options.budget)
     this.#estimator = options.tokenEstimator || new DeterministicTokenEstimator()
+    this.#compactor = options.compactor
+    this.#artifactCache = options.artifactCache
   }
 
   async assemble(input: ContextCollectionInput): Promise<ContextEnvelope> {
@@ -42,8 +46,26 @@ export class ContextAssembler {
         tools: input.tools.map((tool) => structuredClone(tool)),
       }),
     })))
-    const entries = collected.flatMap(({ source, fragments }) => this.#entries(source, fragments))
-    validateEntries(collected, entries)
+    const collectedEntries = collected.flatMap(({ source, fragments }) => this.#entries(source, fragments))
+    validateEntries(collected, collectedEntries)
+    const compaction = this.#compactor
+      ? await this.#compactor.compact({
+        runId: input.runId,
+        ledger: structuredClone(input.ledger),
+        tools: input.tools.map((tool) => structuredClone(tool)),
+        entries: structuredClone(collectedEntries),
+        budget: structuredClone(this.#budget),
+      })
+      : {
+        entries: collectedEntries,
+        pressure: {
+          level: 'healthy' as const,
+          beforeTokens: sumTokens(collectedEntries),
+          afterTokens: sumTokens(collectedEntries),
+        },
+      }
+    const entries = compaction.entries
+    validateCompactedEntries(collectedEntries, entries)
 
     const available = this.#budget.maxInputTokens - this.#budget.reservedOutputTokens
     const selected: ContextEntry[] = []
@@ -90,7 +112,6 @@ export class ContextAssembler {
     if (regions.newest_message.length !== 1) {
       throw new AgentCoreError('INVALID_INPUT', 'ContextEnvelope requires exactly one newest_message')
     }
-    const messages = CONTEXT_REGIONS.flatMap((region) => regions[region].map(toMessage))
     const stableData = jsonValue({
       stable_system_prefix: regions.stable_system_prefix,
       stable_capability_prefix: regions.stable_capability_prefix,
@@ -102,6 +123,36 @@ export class ContextAssembler {
     })
     const revision = hash(canonicalJson(revisionData))
     const stablePrefixRevision = hash(canonicalJson(stableData))
+    const generatedStableMessages = [
+      ...regions.stable_system_prefix.map(toMessage),
+      ...regions.stable_capability_prefix.map(toMessage),
+    ]
+    const cachedArtifact = this.#artifactCache?.get(stablePrefixRevision)
+    if (cachedArtifact && (
+      cachedArtifact.revision !== stablePrefixRevision
+      || JSON.stringify(cachedArtifact.messages) !== JSON.stringify(generatedStableMessages)
+    )) {
+      throw new AgentCoreError('INVALID_INPUT', 'Prompt artifact cache returned content that does not match the stable prefix revision')
+    }
+    const localArtifactCacheHit = Boolean(cachedArtifact)
+    if (!cachedArtifact) {
+      this.#artifactCache?.set({
+        revision: stablePrefixRevision,
+        messages: generatedStableMessages,
+        estimatedTokens: sumTokens([...regions.stable_system_prefix, ...regions.stable_capability_prefix]),
+      })
+    }
+    const stableMessages = cachedArtifact?.messages ?? generatedStableMessages
+    const messages = [
+      ...stableMessages.map((message) => structuredClone(message)),
+      ...regions.compacted_history.map(toMessage),
+      ...regions.recent_dynamic_context.map(toMessage),
+      ...regions.newest_message.map(toMessage),
+    ]
+    const compactionRevision = compaction.compaction?.revision ?? compaction.compactionRevision
+    if (compaction.compaction && compaction.compactionRevision && compaction.compaction.revision !== compaction.compactionRevision) {
+      throw new AgentCoreError('INVALID_INPUT', 'Context compaction result contains conflicting revisions')
+    }
     const sourceRevisions = Object.fromEntries(
       [...new Map(selected.map((entry) => [entry.sourceId, entry.sourceRevision])).entries()]
         .sort(([left], [right]) => left.localeCompare(right)),
@@ -120,6 +171,9 @@ export class ContextAssembler {
         remainingInputTokens: available - total,
       },
       dropped: dropped.sort((left, right) => left.sourceId.localeCompare(right.sourceId) || left.fragmentId.localeCompare(right.fragmentId)),
+      pressure: structuredClone(compaction.pressure),
+      localArtifactCacheHit,
+      ...(compaction.compaction ? { compaction: structuredClone(compaction.compaction) } : {}),
       snapshot: {
         schemaVersion: CONTEXT_ENVELOPE_SCHEMA_VERSION,
         revision,
@@ -128,6 +182,9 @@ export class ContextAssembler {
         availableInputTokens: available,
         sourceRevisions,
         droppedFragments: dropped.length,
+        pressureLevel: compaction.pressure.level,
+        localArtifactCacheHit,
+        ...(compactionRevision ? { compactionRevision } : {}),
       },
     }
   }
@@ -147,6 +204,34 @@ export class ContextAssembler {
       estimatedTokens: this.#estimator.estimate(fragment.content),
     }))
   }
+}
+
+function validateCompactedEntries(original: ContextEntry[], entries: ContextEntry[]) {
+  const ids = new Set<string>()
+  for (const entry of entries) {
+    validateEntryShape(entry)
+    if (ids.has(entry.id)) throw new AgentCoreError('INVALID_INPUT', `Duplicate compacted context fragment: ${entry.id}`)
+    ids.add(entry.id)
+  }
+  if (entries.filter((entry) => entry.region === 'newest_message').length !== 1) {
+    throw new AgentCoreError('INVALID_INPUT', 'Context compaction must preserve exactly one newest_message')
+  }
+  const compactedById = new Map(entries.map((entry) => [entry.id, entry]))
+  for (const entry of original.filter((candidate) => !candidate.compressible)) {
+    if (JSON.stringify(compactedById.get(entry.id)) !== JSON.stringify(entry)) {
+      throw new AgentCoreError('INVALID_INPUT', `Context compaction cannot remove or modify protected context: ${entry.id}`)
+    }
+  }
+  const originalIds = new Set(original.map((entry) => entry.id))
+  for (const entry of entries) {
+    if (!originalIds.has(entry.id) && entry.region !== 'compacted_history') {
+      throw new AgentCoreError('INVALID_INPUT', `Compaction output must place replacement context in compacted_history: ${entry.id}`)
+    }
+  }
+}
+
+function sumTokens(entries: ContextEntry[]) {
+  return entries.reduce((total, entry) => total + entry.estimatedTokens, 0)
 }
 
 export function assertAppendOnlyContext(previous: ContextEnvelope, next: ContextEnvelope) {
@@ -197,20 +282,25 @@ function validateEntries(
   }
   for (const entry of entries) {
     const key = entry.id
-    if (!entry.id.trim() || !entry.content.trim()) throw new AgentCoreError('INVALID_INPUT', `Context fragment id and content are required: ${key}`)
+    validateEntryShape(entry)
     if (keys.has(key)) throw new AgentCoreError('INVALID_INPUT', `Duplicate context fragment: ${key}`)
     keys.add(key)
-    if (entry.region === 'stable_system_prefix' || entry.region === 'stable_capability_prefix') {
-      if (entry.sequence !== undefined) throw new AgentCoreError('INVALID_INPUT', `Stable context cannot declare a sequence: ${key}`)
-    } else if (!Number.isInteger(entry.sequence) || entry.sequence! < 0) {
-      throw new AgentCoreError('INVALID_INPUT', `Dynamic context requires a non-negative sequence: ${key}`)
-    }
-    if (entry.role === 'tool' && !entry.toolRequestId?.trim()) {
-      throw new AgentCoreError('INVALID_INPUT', `Tool context requires toolRequestId: ${key}`)
-    }
   }
   if (entries.filter((entry) => entry.region === 'newest_message').length !== 1) {
     throw new AgentCoreError('INVALID_INPUT', 'Exactly one newest_message fragment must be collected')
+  }
+}
+
+function validateEntryShape(entry: ContextEntry) {
+  const key = entry.id
+  if (!entry.id.trim() || !entry.content.trim()) throw new AgentCoreError('INVALID_INPUT', `Context fragment id and content are required: ${key}`)
+  if (entry.region === 'stable_system_prefix' || entry.region === 'stable_capability_prefix') {
+    if (entry.sequence !== undefined) throw new AgentCoreError('INVALID_INPUT', `Stable context cannot declare a sequence: ${key}`)
+  } else if (!Number.isInteger(entry.sequence) || entry.sequence! < 0) {
+    throw new AgentCoreError('INVALID_INPUT', `Dynamic context requires a non-negative sequence: ${key}`)
+  }
+  if (entry.role === 'tool' && !entry.toolRequestId?.trim()) {
+    throw new AgentCoreError('INVALID_INPUT', `Tool context requires toolRequestId: ${key}`)
   }
 }
 

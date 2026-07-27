@@ -14,6 +14,7 @@ import {
   PersistedRunCoordinator,
   RUN_SNAPSHOT_SCHEMA_VERSION,
   createRunLedger,
+  recordCompaction,
   recordModelAttempt,
   recordContextEnvelope,
   sequenceAgentEvent,
@@ -92,6 +93,39 @@ async function fixture(t) {
 test('SQLite checkpoint survives reopen with revisions and events intact', async (t) => {
   const databasePath = await fixture(t)
   let ledger = createRunLedger(input(), at(0))
+  ledger = recordCompaction(ledger, {
+    schemaVersion: 1,
+    id: 'run-sqlite:compaction:1',
+    revision: 'compaction-revision-1',
+    runId: 'run-sqlite',
+    strategy: 'deterministic',
+    trigger: 'compact_threshold',
+    policyRevision: 'memory-policy-v1',
+    beforeTokens: 1_200,
+    afterTokens: 700,
+    targetTokens: 800,
+    warningTokens: 900,
+    compactTokens: 1_000,
+    hardStopTokens: 1_500,
+    sourceHash: 'source-hash-1',
+    sourceRefs: ['tool:1'],
+    replacedFragmentIds: ['tool-result-1'],
+    coveredFragmentIds: ['tool-result-1'],
+    retainedFragmentIds: ['run-facts', 'newest'],
+    summaryFragmentId: 'compaction-summary-1',
+    compactedHistoryRevision: 'summary-revision-1',
+    summary: {
+      objective: 'Persist across process restarts',
+      knownFacts: [],
+      decisions: [],
+      failures: [],
+      unresolved: [],
+      observations: [],
+      sourceRefs: ['tool:1'],
+    },
+    createdAt: at(0),
+    fallbackReason: 'deterministic_first_stage',
+  })
   ledger = recordContextEnvelope(ledger, {
     schemaVersion: 1,
     revision: 'context-revision-1',
@@ -100,13 +134,16 @@ test('SQLite checkpoint survives reopen with revisions and events intact', async
     availableInputTokens: 8_000,
     sourceRevisions: { system: '1', tools: '1' },
     droppedFragments: 0,
+    pressureLevel: 'compacted',
+    compactionRevision: 'compaction-revision-1',
+    localArtifactCacheHit: true,
     assembledAt: at(0),
   })
   ledger = recordModelAttempt(ledger, {
     id: 'run-sqlite:step:1:route.coding:attempt:1',
     routeId: 'route.coding',
     routeRevision: '1',
-    contextRevision: 'context-1',
+    contextRevision: 'context-revision-1',
     attempt: 1,
     profileId: 'model.primary',
     profileRevision: '1',
@@ -118,6 +155,11 @@ test('SQLite checkpoint survives reopen with revisions and events intact', async
     acceptedAction: true,
     inputTokens: 120,
     outputTokens: 20,
+    cachedInputTokens: 90,
+    cacheWriteTokens: 8,
+    reasoningTokens: 4,
+    cacheCapability: 'implicit',
+    cacheKey: 'cache-key-sqlite',
     finishReason: 'stop',
   })
   let store = new SqliteCheckpointStore(databasePath)
@@ -132,7 +174,10 @@ test('SQLite checkpoint survives reopen with revisions and events intact', async
   assert.equal(loaded.snapshot.revision, 2)
   assert.equal(loaded.snapshot.ledger.objective, 'Persist across process restarts')
   assert.equal(loaded.snapshot.ledger.modelAttempts[0].profileId, 'model.primary')
+  assert.equal(loaded.snapshot.ledger.modelAttempts[0].cachedInputTokens, 90)
   assert.equal(loaded.snapshot.ledger.contextEnvelopes[0].revision, 'context-revision-1')
+  assert.equal(loaded.snapshot.ledger.contextEnvelopes[0].localArtifactCacheHit, true)
+  assert.equal(loaded.snapshot.ledger.compactions[0].revision, 'compaction-revision-1')
   assert.deepEqual(loaded.events.map((event) => event.sequence), [1])
   assert.equal((await store.list())[0].lastEventSequence, 1)
   store.close()

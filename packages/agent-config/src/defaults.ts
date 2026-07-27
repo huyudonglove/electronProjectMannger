@@ -59,8 +59,10 @@ export const DEFAULT_MEMORY_PROFILE: MemoryProfile = {
     user: 5_000,
   },
   compression: {
-    triggerTokens: 80_000,
+    warningTokens: 65_000,
+    compactTokens: 75_000,
     targetTokens: 50_000,
+    hardStopTokens: 92_000,
   },
   promptCache: {
     mode: 'implicit',

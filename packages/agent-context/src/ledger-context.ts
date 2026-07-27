@@ -2,12 +2,13 @@ import type { RunLedger, ToolDefinition } from '@electron-manager/agent-core'
 
 import { ContextAssembler } from './assembler.js'
 import { ContextSourceRegistry } from './registry.js'
-import type { ContextBudget, ContextSource } from './types.js'
+import type { ContextBudget, ContextCompactor, ContextSource } from './types.js'
 
-export function createLedgerContextAssembler(budget: ContextBudget) {
+export function createLedgerContextAssembler(budget: ContextBudget, compactor?: ContextCompactor) {
   return new ContextAssembler({
     budget,
     registry: new ContextSourceRegistry(createLedgerContextSources()),
+    ...(compactor ? { compactor } : {}),
   })
 }
 
@@ -154,6 +155,7 @@ function runFacts(ledger: RunLedger) {
     verifications: ledger.verifications,
     failures: ledger.failures,
     modelAttempts: ledger.modelAttempts.slice(-8),
+    compactions: ledger.compactions.slice(-4),
     nextAction: ledger.nextAction,
   }
 }

@@ -186,6 +186,7 @@ export function applyCheckpointCommit(current: LoadedCheckpoint | null, commit: 
   validateEffectHistory(current?.snapshot.effects ?? [], commit.effects)
   validateModelAttemptHistory(current?.snapshot.ledger.modelAttempts ?? [], commit.ledger.modelAttempts)
   validateContextEnvelopeHistory(current?.snapshot.ledger.contextEnvelopes ?? [], commit.ledger.contextEnvelopes)
+  validateCompactionHistory(current?.snapshot.ledger.compactions ?? [], commit.ledger.compactions)
   validateComponentHistory(current?.snapshot, commit)
 
   const snapshot: RunSnapshot = {
@@ -213,6 +214,8 @@ export function validateLoadedCheckpoint(record: LoadedCheckpoint) {
   for (const effect of record.snapshot.effects) validateEffect(record.snapshot.runId, effect)
   validateModelAttempts(record.snapshot.runId, record.snapshot.ledger.modelAttempts)
   validateContextEnvelopes(record.snapshot.ledger.contextEnvelopes)
+  validateCompactions(record.snapshot.runId, record.snapshot.ledger.compactions)
+  validateContextCompactionReferences(record.snapshot.ledger)
   const keys = record.snapshot.effects.map(effectRecordKey)
   if (new Set(keys).size !== keys.length) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect journal contains duplicate idempotency keys')
@@ -244,6 +247,8 @@ function validateCommit(commit: CheckpointCommit) {
   for (const effect of commit.effects) validateEffect(commit.runId, effect)
   validateModelAttempts(commit.runId, commit.ledger.modelAttempts)
   validateContextEnvelopes(commit.ledger.contextEnvelopes)
+  validateCompactions(commit.runId, commit.ledger.compactions)
+  validateContextCompactionReferences(commit.ledger)
   const keys = commit.effects.map(effectRecordKey)
   if (new Set(keys).size !== keys.length) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect journal contains duplicate idempotency keys')
@@ -359,6 +364,12 @@ function validateModelAttempts(runId: string, attempts: RunSnapshot['ledger']['m
       || attempt.inputTokens < 0
       || !Number.isInteger(attempt.outputTokens)
       || attempt.outputTokens < 0
+      || !optionalNonNegativeInteger(attempt.cachedInputTokens)
+      || !optionalNonNegativeInteger(attempt.cacheWriteTokens)
+      || !optionalNonNegativeInteger(attempt.reasoningTokens)
+      || (attempt.cachedInputTokens !== undefined && attempt.cachedInputTokens > attempt.inputTokens)
+      || (attempt.cacheCapability !== undefined && !['none', 'implicit', 'explicit'].includes(attempt.cacheCapability))
+      || (attempt.cacheKey !== undefined && (!attempt.cacheKey.trim() || !attempt.cacheCapability || attempt.cacheCapability === 'none'))
     ) {
       throw new AgentCoreError('CHECKPOINT_ERROR', 'Model attempt contains invalid identity or usage fields')
     }
@@ -371,6 +382,10 @@ function validateModelAttempts(runId: string, attempts: RunSnapshot['ledger']['m
       throw new AgentCoreError('CHECKPOINT_ERROR', 'Failed or cancelled model attempt must contain an error and no accepted action')
     }
   }
+}
+
+function optionalNonNegativeInteger(value: number | undefined) {
+  return value === undefined || (Number.isInteger(value) && value >= 0)
 }
 
 function validateModelAttemptHistory(
@@ -400,6 +415,8 @@ function validateContextEnvelopes(envelopes: RunSnapshot['ledger']['contextEnvel
       || envelope.estimatedInputTokens > envelope.availableInputTokens
       || !Number.isInteger(envelope.droppedFragments)
       || envelope.droppedFragments < 0
+      || (envelope.pressureLevel !== undefined && !['healthy', 'warning', 'compacted'].includes(envelope.pressureLevel))
+      || (envelope.localArtifactCacheHit !== undefined && typeof envelope.localArtifactCacheHit !== 'boolean')
     ) {
       throw new AgentCoreError('CHECKPOINT_ERROR', 'Context envelope contains invalid revision or budget fields')
     }
@@ -416,6 +433,83 @@ function validateContextEnvelopeHistory(
   for (let index = 0; index < previous.length; index += 1) {
     if (JSON.stringify(previous[index]) !== JSON.stringify(next[index])) {
       throw new AgentCoreError('CHECKPOINT_ERROR', 'Persisted context envelopes are immutable')
+    }
+  }
+}
+
+function validateCompactions(runId: string, compactions: RunSnapshot['ledger']['compactions']) {
+  const ids = new Set<string>()
+  const revisions = new Set<string>()
+  for (let index = 0; index < compactions.length; index += 1) {
+    const compaction = compactions[index]!
+    const previous = compactions[index - 1]
+    if (
+      compaction.schemaVersion !== 1
+      || !compaction.id.startsWith(`${runId}:`)
+      || compaction.runId !== runId
+      || !compaction.revision.trim()
+      || !compaction.policyRevision.trim()
+      || !compaction.sourceHash.trim()
+      || !compaction.summaryFragmentId.trim()
+      || !compaction.compactedHistoryRevision.trim()
+      || !compaction.createdAt.trim()
+      || !Number.isInteger(compaction.beforeTokens)
+      || !Number.isInteger(compaction.afterTokens)
+      || !Number.isInteger(compaction.targetTokens)
+      || !Number.isInteger(compaction.warningTokens)
+      || !Number.isInteger(compaction.compactTokens)
+      || !Number.isInteger(compaction.hardStopTokens)
+      || compaction.beforeTokens <= 0
+      || compaction.afterTokens < 0
+      || compaction.afterTokens >= compaction.beforeTokens
+      || compaction.targetTokens <= 0
+      || compaction.targetTokens >= compaction.warningTokens
+      || compaction.warningTokens >= compaction.compactTokens
+      || compaction.compactTokens >= compaction.hardStopTokens
+      || compaction.beforeTokens < compaction.compactTokens
+      || (compaction.trigger === 'hard_stop' && compaction.beforeTokens < compaction.hardStopTokens)
+      || compaction.replacedFragmentIds.length === 0
+      || compaction.coveredFragmentIds.length === 0
+      || compaction.summary.sourceRefs.join('\u0000') !== compaction.sourceRefs.join('\u0000')
+      || !unique(compaction.sourceRefs)
+      || !unique(compaction.replacedFragmentIds)
+      || !unique(compaction.coveredFragmentIds)
+      || !unique(compaction.retainedFragmentIds)
+      || compaction.coveredFragmentIds.some((id) => compaction.retainedFragmentIds.includes(id))
+      || (previous && !previous.coveredFragmentIds.every((id) => compaction.coveredFragmentIds.includes(id)))
+      || compaction.replacedFragmentIds.some((id) => !compaction.coveredFragmentIds.includes(id) && id !== previous?.summaryFragmentId)
+    ) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Compaction record contains invalid identity, budget or summary fields')
+    }
+    if (ids.has(compaction.id) || revisions.has(compaction.revision)) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Compaction ids and revisions must be unique')
+    }
+    ids.add(compaction.id)
+    revisions.add(compaction.revision)
+  }
+}
+
+function unique(values: string[]) {
+  return new Set(values).size === values.length
+}
+
+function validateCompactionHistory(
+  previous: RunSnapshot['ledger']['compactions'],
+  next: RunSnapshot['ledger']['compactions'],
+) {
+  if (next.length < previous.length) throw new AgentCoreError('CHECKPOINT_ERROR', 'Compaction history is append-only')
+  for (let index = 0; index < previous.length; index += 1) {
+    if (JSON.stringify(previous[index]) !== JSON.stringify(next[index])) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Persisted compaction records are immutable')
+    }
+  }
+}
+
+function validateContextCompactionReferences(ledger: RunSnapshot['ledger']) {
+  const revisions = new Set(ledger.compactions.map((compaction) => compaction.revision))
+  for (const envelope of ledger.contextEnvelopes) {
+    if (envelope.compactionRevision && !revisions.has(envelope.compactionRevision)) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Context envelope references an unknown compaction revision')
     }
   }
 }

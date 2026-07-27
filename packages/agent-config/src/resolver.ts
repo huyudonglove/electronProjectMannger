@@ -90,6 +90,7 @@ export function resolveAgentConfig(input: ResolveAgentConfigInput): ResolveAgent
     .map((id, index) => findProfile(input.catalog.modelProfiles, id, `model.fallbackProfileIds[${index}]`, issues, selections.sources.modelRouteId))
     .filter((profile): profile is ModelProfile => Boolean(profile))
   validateModelRoute(route, primary, fallbacks, issues, selections.sources.modelRouteId)
+  validatePromptCacheProfiles(memory, [primary, ...fallbacks], issues, selections.sources.memoryProfileId)
 
   const promptVariables = defaultsForPrompt(prompt)
   promptVariables.workLevel = input.workLevel
@@ -334,8 +335,27 @@ function validateCapabilities(profile: ModelProfile, requirements: ModelRequirem
     || (requirements.toolCalls === true && !profile.capabilities.toolCalls)
     || (requirements.minContextWindow !== undefined && profile.capabilities.contextWindow < requirements.minContextWindow)
     || (requirements.minOutputTokens !== undefined && profile.capabilities.maxOutputTokens < requirements.minOutputTokens)
-    || (requirements.promptCache !== undefined && profile.capabilities.promptCache !== requirements.promptCache)
+    || (requirements.promptCache !== undefined && promptCacheRank(profile.capabilities.promptCache) < promptCacheRank(requirements.promptCache))
   if (mismatch) issue(issues, `modelProfiles.${profile.id}.capabilities`, 'capability_mismatch', `Model ${profile.id} does not satisfy route requirements`, source)
+}
+
+function validatePromptCacheProfiles(
+  memory: MemoryProfile,
+  profiles: Array<ModelProfile | undefined>,
+  issues: ConfigIssue[],
+  source?: ConfigSource,
+) {
+  const required = memory.promptCache.mode
+  if (required === 'none') return
+  for (const profile of profiles) {
+    if (profile && promptCacheRank(profile.capabilities.promptCache) < promptCacheRank(required)) {
+      issue(issues, `modelProfiles.${profile.id}.capabilities.promptCache`, 'capability_mismatch', `Model ${profile.id} cannot satisfy memory prompt cache mode ${required}`, source)
+    }
+  }
+}
+
+function promptCacheRank(mode: ModelCapabilities['promptCache']) {
+  return mode === 'explicit' ? 2 : mode === 'implicit' ? 1 : 0
 }
 
 function defaultsForPrompt(prompt: PromptProfile) {
@@ -376,13 +396,19 @@ function validateLimits(limits: RunLimits, primary: ModelProfile | undefined, me
     issue(issues, 'memory.sourceBudgets', 'invalid_value', 'Memory source budgets must be non-negative integers')
   }
   if (sourceBudget > limits.maxInputTokens) issue(issues, 'memory.sourceBudgets', 'budget_exceeded', 'Memory source budgets exceed the workflow input budget')
-  if (!Number.isInteger(memory.compression.triggerTokens) || !Number.isInteger(memory.compression.targetTokens)
-    || memory.compression.triggerTokens <= 0 || memory.compression.targetTokens <= 0
-    || memory.compression.targetTokens >= memory.compression.triggerTokens) {
-    issue(issues, 'memory.compression', 'invalid_value', 'Compression target must be positive and lower than its trigger')
+  const compression = memory.compression
+  if (!Number.isInteger(compression.warningTokens)
+    || !Number.isInteger(compression.compactTokens)
+    || !Number.isInteger(compression.targetTokens)
+    || !Number.isInteger(compression.hardStopTokens)
+    || compression.targetTokens <= 0
+    || compression.targetTokens >= compression.warningTokens
+    || compression.warningTokens >= compression.compactTokens
+    || compression.compactTokens >= compression.hardStopTokens) {
+    issue(issues, 'memory.compression', 'invalid_value', 'Compression thresholds must satisfy target < warning < compact < hard-stop')
   }
-  if (memory.compression.triggerTokens > limits.maxInputTokens) {
-    issue(issues, 'memory.compression.triggerTokens', 'budget_exceeded', 'Compression trigger exceeds the workflow input budget')
+  if (compression.hardStopTokens > limits.maxInputTokens) {
+    issue(issues, 'memory.compression.hardStopTokens', 'budget_exceeded', 'Compression hard-stop exceeds the workflow input budget')
   }
 }
 
@@ -489,8 +515,10 @@ function copyMemoryProfile(profile: MemoryProfile): MemoryProfile {
       user: profile.sourceBudgets.user,
     },
     compression: {
-      triggerTokens: profile.compression.triggerTokens,
+      warningTokens: profile.compression.warningTokens,
+      compactTokens: profile.compression.compactTokens,
       targetTokens: profile.compression.targetTokens,
+      hardStopTokens: profile.compression.hardStopTokens,
     },
     promptCache: {
       mode: profile.promptCache.mode,

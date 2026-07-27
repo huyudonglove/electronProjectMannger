@@ -9,6 +9,7 @@ import {
   decideResume,
   recordModelAttempt,
   recordContextEnvelope,
+  recordCompaction,
   sequenceAgentEvent,
   setPendingAction,
 } from '../dist/index.js'
@@ -54,6 +55,42 @@ function preparedEffect(recovery = 'reconcile_then_resume') {
     }],
     preparedAt: at(2),
     updatedAt: at(2),
+  }
+}
+
+function compactionRecord() {
+  return {
+    schemaVersion: 1,
+    id: 'run-checkpoint:compaction:1',
+    revision: 'compaction-revision-1',
+    runId: 'run-checkpoint',
+    strategy: 'deterministic',
+    trigger: 'compact_threshold',
+    policyRevision: 'memory-policy-v1',
+    beforeTokens: 1_000,
+    afterTokens: 600,
+    targetTokens: 700,
+    warningTokens: 800,
+    compactTokens: 900,
+    hardStopTokens: 1_200,
+    sourceHash: 'source-hash-1',
+    sourceRefs: ['tool:1'],
+    replacedFragmentIds: ['tool-result-1'],
+    coveredFragmentIds: ['tool-result-1'],
+    retainedFragmentIds: ['run-facts', 'newest'],
+    summaryFragmentId: 'compaction-summary-1',
+    compactedHistoryRevision: 'summary-revision-1',
+    summary: {
+      objective: 'Persist one run',
+      knownFacts: [],
+      decisions: [],
+      failures: [],
+      unresolved: [],
+      observations: [],
+      sourceRefs: ['tool:1'],
+    },
+    createdAt: at(1),
+    fallbackReason: 'deterministic_first_stage',
   }
 }
 
@@ -181,6 +218,11 @@ test('model attempt history is append-only and persisted attempts are immutable'
     acceptedAction: false,
     inputTokens: 100,
     outputTokens: 10,
+    cachedInputTokens: 80,
+    cacheWriteTokens: 5,
+    reasoningTokens: 3,
+    cacheCapability: 'implicit',
+    cacheKey: 'cache-key-1',
     error: {
       category: 'rate_limit',
       message: 'Retry later',
@@ -228,6 +270,48 @@ test('context envelope history keeps compact budget metadata append-only', async
       contextEnvelopes: [{ ...ledger.contextEnvelopes[0], droppedFragments: 2 }],
     }, { expectedRevision: 1 })),
     (error) => error instanceof AgentCoreError && /immutable/.test(error.message),
+  )
+})
+
+test('compaction history is append-only and context envelopes reference persisted records', async () => {
+  const store = new InMemoryCheckpointStore()
+  let ledger = createRunLedger(input(), at(0))
+  ledger = recordCompaction(ledger, compactionRecord())
+  ledger = recordContextEnvelope(ledger, {
+    schemaVersion: 1,
+    revision: 'context-after-compaction',
+    stablePrefixRevision: 'stable-prefix-1',
+    estimatedInputTokens: 600,
+    availableInputTokens: 8_000,
+    sourceRevisions: { memory: 'compaction-revision-1' },
+    droppedFragments: 0,
+    pressureLevel: 'compacted',
+    compactionRevision: 'compaction-revision-1',
+    assembledAt: at(1),
+  })
+  await store.commit(commit(ledger))
+
+  await assert.rejects(
+    store.commit(commit({ ...ledger, compactions: [] }, { expectedRevision: 1 })),
+    (error) => error instanceof AgentCoreError && /append-only|unknown compaction/.test(error.message),
+  )
+  await assert.rejects(
+    store.commit(commit({
+      ...ledger,
+      compactions: [{ ...ledger.compactions[0], afterTokens: 601 }],
+    }, { expectedRevision: 1 })),
+    (error) => error instanceof AgentCoreError && /immutable/.test(error.message),
+  )
+  await assert.rejects(
+    store.commit(commit({
+      ...ledger,
+      contextEnvelopes: [...ledger.contextEnvelopes, {
+        ...ledger.contextEnvelopes[0],
+        revision: 'context-with-missing-compaction',
+        compactionRevision: 'missing',
+      }],
+    }, { expectedRevision: 1 })),
+    (error) => error instanceof AgentCoreError && /unknown compaction/.test(error.message),
   )
 })
 

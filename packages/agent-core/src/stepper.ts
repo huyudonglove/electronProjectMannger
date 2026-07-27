@@ -9,6 +9,7 @@ import {
   recordAgentStep,
   recordApproval,
   recordChange,
+  recordCompaction,
   recordContextEnvelope,
   recordDecision,
   recordDiffSnapshot,
@@ -33,6 +34,7 @@ import type {
   PendingAction,
   PermissionDecision,
   PermissionPolicy,
+  PromptCachePolicyTemplate,
   ProposedAcceptanceEvidence,
   RunLedger,
   RunPhase,
@@ -56,6 +58,7 @@ export interface AgentStepperOptions {
   permissionPolicy: PermissionPolicy
   tools: ToolDefinition[]
   contextAssembler?: ModelContextAssembler
+  promptCachePolicy?: PromptCachePolicyTemplate
   clock?: () => string
 }
 
@@ -85,6 +88,7 @@ export class AgentStepper {
   readonly tools: ToolDefinition[]
   readonly #toolsByName: Map<string, ToolDefinition>
   readonly #contextAssembler?: ModelContextAssembler
+  readonly #promptCachePolicy?: PromptCachePolicyTemplate
   readonly #clock: () => string
 
   constructor(options: AgentStepperOptions) {
@@ -94,6 +98,7 @@ export class AgentStepper {
     this.tools = options.tools.map((tool) => structuredClone(tool))
     this.#toolsByName = new Map(this.tools.map((tool) => [tool.name, tool]))
     this.#contextAssembler = options.contextAssembler
+    this.#promptCachePolicy = options.promptCachePolicy ? structuredClone(options.promptCachePolicy) : undefined
     if (this.#toolsByName.size !== this.tools.length) throw new AgentCoreError('INVALID_INPUT', 'Tool names must be unique')
     this.#clock = options.clock || (() => new Date().toISOString())
   }
@@ -277,6 +282,20 @@ export class AgentStepper {
         messages: projectLedgerMessages(state.ledger),
       }
     if (!context.revision.trim()) throw new AgentCoreError('INVALID_INPUT', 'Context revision is required')
+    if (context.compaction) {
+      if (context.snapshot?.compactionRevision !== context.compaction.revision) {
+        throw new AgentCoreError('INVALID_INPUT', 'Context snapshot does not reference its compaction record')
+      }
+      state.ledger = recordCompaction(state.ledger, context.compaction)
+      state.event('context.compacted', 'Session context compacted', context.compaction.createdAt, {
+        revision: context.compaction.revision,
+        strategy: context.compaction.strategy,
+        trigger: context.compaction.trigger,
+        beforeTokens: context.compaction.beforeTokens,
+        afterTokens: context.compaction.afterTokens,
+        replacedFragments: context.compaction.replacedFragmentIds.length,
+      })
+    }
     if (context.snapshot) {
       if (context.snapshot.revision !== context.revision) {
         throw new AgentCoreError('INVALID_INPUT', 'Context snapshot revision does not match assembled messages')
@@ -288,7 +307,11 @@ export class AgentStepper {
         stablePrefixRevision: context.snapshot.stablePrefixRevision,
         estimatedInputTokens: context.snapshot.estimatedInputTokens,
         droppedFragments: context.snapshot.droppedFragments,
+        ...(context.snapshot.localArtifactCacheHit !== undefined ? { localArtifactCacheHit: context.snapshot.localArtifactCacheHit } : {}),
       })
+    }
+    if (this.#promptCachePolicy && this.#promptCachePolicy.mode !== 'none' && !context.snapshot) {
+      throw new AgentCoreError('INVALID_INPUT', 'Prompt caching requires an assembled context snapshot')
     }
     const request = {
       runId: state.ledger.runId,
@@ -297,6 +320,12 @@ export class AgentStepper {
       messages: structuredClone(context.messages),
       tools: this.tools.map((tool) => structuredClone(tool)),
       maxOutputTokens: Math.min(state.ledger.limits.maxOutputTokens, this.provider.profile.maxOutputTokens),
+      ...(this.#promptCachePolicy && context.snapshot ? {
+        promptCache: {
+          ...structuredClone(this.#promptCachePolicy),
+          stablePrefixRevision: context.snapshot.stablePrefixRevision,
+        },
+      } : {}),
     }
     for await (const event of this.provider.stream(request, signal)) {
       if (event.type === 'action') {
@@ -312,6 +341,11 @@ export class AgentStepper {
           acceptedAction: event.attempt.acceptedAction,
           inputTokens: event.attempt.inputTokens,
           outputTokens: event.attempt.outputTokens,
+          ...(event.attempt.cachedInputTokens !== undefined ? { cachedInputTokens: event.attempt.cachedInputTokens } : {}),
+          ...(event.attempt.cacheWriteTokens !== undefined ? { cacheWriteTokens: event.attempt.cacheWriteTokens } : {}),
+          ...(event.attempt.reasoningTokens !== undefined ? { reasoningTokens: event.attempt.reasoningTokens } : {}),
+          ...(event.attempt.cacheCapability ? { cacheCapability: event.attempt.cacheCapability } : {}),
+          ...(event.attempt.cacheKey ? { cacheKey: event.attempt.cacheKey } : {}),
           ...(event.attempt.error ? { errorCategory: event.attempt.error.category } : {}),
         })
       } else if (event.type === 'tool_request') {
@@ -647,6 +681,7 @@ export function projectLedgerMessages(ledger: RunLedger): ModelMessage[] {
     failures: ledger.failures,
     modelAttempts: ledger.modelAttempts.slice(-8),
     contextEnvelopes: ledger.contextEnvelopes.slice(-4),
+    compactions: ledger.compactions.slice(-4),
     nextAction: ledger.nextAction,
   }
   const messages: ModelMessage[] = [

@@ -198,6 +198,36 @@ test('resolver returns field diagnostics before a run for incompatible resources
   assert.equal(codes.has('missing_dependency'), true)
 })
 
+test('resolver requires ordered warning, compact and hard-stop memory thresholds', () => {
+  const setup = fixture()
+  const invalidMemory = structuredClone(DEFAULT_MEMORY_PROFILE)
+  invalidMemory.id = 'memory.invalid-thresholds'
+  invalidMemory.compression.warningTokens = invalidMemory.compression.compactTokens
+  setup.catalog.memoryProfiles = [invalidMemory]
+  setup.layers[0].selections.memoryProfileId = invalidMemory.id
+
+  const result = resolveAgentConfig({ workLevel: 'standard', ...setup })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.issues.some((issue) => issue.path === 'memory.compression' && issue.code === 'invalid_value'), true)
+})
+
+test('prompt cache capability uses minimum semantics and validates every fallback', () => {
+  const compatible = fixture()
+  compatible.catalog.modelProfiles.forEach((model) => { model.capabilities.promptCache = 'explicit' })
+  compatible.catalog.modelRoutes[0].requirements.promptCache = 'implicit'
+  assert.equal(resolveAgentConfig({ workLevel: 'standard', ...compatible }).ok, true)
+
+  const incompatible = fixture()
+  incompatible.catalog.modelProfiles[1] = {
+    ...incompatible.catalog.modelProfiles[1],
+    capabilities: { ...incompatible.catalog.modelProfiles[1].capabilities, promptCache: 'none' },
+  }
+  const result = resolveAgentConfig({ workLevel: 'standard', ...incompatible })
+  assert.equal(result.ok, false)
+  assert.equal(result.issues.some((issue) => issue.path.endsWith('.capabilities.promptCache') && issue.code === 'capability_mismatch'), true)
+})
+
 test('resolved snapshot can be committed unchanged by PersistedRunCoordinator', async () => {
   const setup = fixture()
   const resolved = resolveAgentConfig({ workLevel: 'light', ...setup })

@@ -10,6 +10,7 @@ import {
 import {
   ModelProviderRegistry,
   ModelRouter,
+  createPromptCacheKey,
   normalizeProviderError,
 } from '../dist/index.js'
 
@@ -24,6 +25,7 @@ class ScriptedProvider {
       supportsStructuredOutput: true,
       contextWindow: 128_000,
       maxOutputTokens: 16_000,
+      promptCache: 'implicit',
       ...profile,
     }
   }
@@ -110,6 +112,15 @@ function request() {
     messages: [{ role: 'user', content: 'Choose one action' }],
     tools: [],
     maxOutputTokens: 4_000,
+    promptCache: {
+      mode: 'prefer',
+      stablePrefixRevision: 'stable-prefix-v1',
+      promptProfileRevision: 'prompt-v1',
+      toolRegistryRevision: 'tools-v1',
+      actionSchemaRevision: 'actions-v1',
+      projectRulesRevision: 'rules-v1',
+      privacyScopeRevision: 'scope-v1',
+    },
   }
 }
 
@@ -119,7 +130,7 @@ function blocked(summary = 'Done') {
 
 function completed(action = blocked()) {
   return [
-    { type: 'usage', inputTokens: 100, outputTokens: 20 },
+    { type: 'usage', inputTokens: 100, outputTokens: 20, cachedInputTokens: 60, cacheWriteTokens: 10, reasoningTokens: 4 },
     { type: 'action', action },
     { type: 'completed', finishReason: 'stop' },
   ]
@@ -128,7 +139,7 @@ function completed(action = blocked()) {
 function rateLimited() {
   return [
     { type: 'text_delta', text: 'discarded partial output' },
-    { type: 'usage', inputTokens: 40, outputTokens: 5 },
+    { type: 'usage', inputTokens: 40, outputTokens: 5, cachedInputTokens: 20, reasoningTokens: 2 },
     {
       type: 'error',
       error: {
@@ -165,14 +176,96 @@ test('router suppresses failed partial output, records attempts and falls back i
   assert.equal(events[0].attempt.error.category, 'rate_limit')
   assert.equal(events[1].attempt.profileId, 'model.fallback')
   assert.equal(events[1].attempt.acceptedAction, true)
-  assert.deepEqual(events[2], { type: 'usage', inputTokens: 140, outputTokens: 25 })
+  assert.deepEqual(events[2], {
+    type: 'usage',
+    inputTokens: 140,
+    outputTokens: 25,
+    cachedInputTokens: 80,
+    cacheWriteTokens: 10,
+    reasoningTokens: 6,
+  })
   assert.equal(events.some((event) => event.type === 'text_delta'), false)
   assert.equal(primary.requests.length, 1)
   assert.equal(fallback.requests.length, 1)
   assert.equal(primary.requests[0].contextRevision, 'context-router-1')
   assert.equal(fallback.requests[0].contextRevision, primary.requests[0].contextRevision)
+  assert.notEqual(primary.requests[0].promptCacheBinding.cacheKey, fallback.requests[0].promptCacheBinding.cacheKey)
+  assert.equal(events[0].attempt.cachedInputTokens, 20)
+  assert.equal(events[1].attempt.cachedInputTokens, 60)
+  assert.equal(events[1].attempt.cacheCapability, 'implicit')
   assert.equal(events[0].attempt.contextRevision, 'context-router-1')
   assert.equal(events[1].attempt.contextRevision, 'context-router-1')
+})
+
+test('prompt cache keys isolate provider, credential and privacy scope deterministically', () => {
+  const { registry } = setup()
+  const binding = registry.resolve('model.primary')
+  const base = request().promptCache
+  const first = createPromptCacheKey(base, binding)
+  const same = createPromptCacheKey(structuredClone(base), binding)
+  const otherScope = createPromptCacheKey({ ...base, privacyScopeRevision: 'scope-v2' }, binding)
+  const otherCredential = createPromptCacheKey(base, {
+    ...binding,
+    profile: { ...binding.profile, credentialRef: 'credential.other' },
+  })
+
+  assert.equal(first, same)
+  assert.match(first, /^[a-f0-9]{64}$/)
+  assert.notEqual(first, otherScope)
+  assert.notEqual(first, otherCredential)
+})
+
+test('explicit cache requirements fail before invoking an incompatible provider', async () => {
+  const fixture = setup({ primary: new ScriptedProvider('provider-primary', [completed()]) })
+  const router = new ModelRouter({ route: fixture.route, registry: fixture.registry })
+  const explicit = request()
+  explicit.promptCache.mode = 'require_explicit'
+  const events = await collect(router.stream(explicit))
+
+  assert.deepEqual(events.map((event) => event.type), ['error'])
+  assert.equal(events[0].error.details.modelErrorCategory, 'capability_mismatch')
+  assert.equal(fixture.primary.requests.length, 0)
+})
+
+test('a stronger explicit provider receives an explicit cache binding for a preferred policy', async () => {
+  const primary = new ScriptedProvider('provider-primary', [completed()], { promptCache: 'explicit' })
+  const fixture = setup({ primary })
+  const events = await collect(new ModelRouter({ route: fixture.route, registry: fixture.registry }).stream(request()))
+
+  assert.equal(events.some((event) => event.type === 'action'), true)
+  assert.equal(primary.requests[0].promptCacheBinding.capability, 'explicit')
+  assert.match(primary.requests[0].promptCacheBinding.cacheKey, /^[a-f0-9]{64}$/)
+})
+
+test('preferred caching degrades to none without changing provider semantics', async () => {
+  const noCacheProfile = profile('model.no-cache', {
+    capabilities: {
+      structuredOutput: true,
+      toolCalls: true,
+      contextWindow: 128_000,
+      maxOutputTokens: 16_000,
+      promptCache: 'none',
+    },
+  })
+  const provider = new ScriptedProvider('provider-no-cache', [completed()], { promptCache: 'none' })
+  const registry = new ModelProviderRegistry([{ profile: noCacheProfile, provider }])
+  const route = {
+    route: {
+      id: 'route.no-cache',
+      revision: '1',
+      primaryProfileId: noCacheProfile.id,
+      fallbackProfileIds: [],
+      requirements: { structuredOutput: true, toolCalls: true },
+      retry: { maxAttempts: 1, totalTimeoutMs: 60_000, totalTokenBudget: 20_000, retryableErrors: [] },
+    },
+    primary: noCacheProfile,
+    fallbacks: [],
+  }
+  const events = await collect(new ModelRouter({ route, registry }).stream(request()))
+
+  assert.equal(events.some((event) => event.type === 'action'), true)
+  assert.equal(provider.requests[0].promptCacheBinding.capability, 'none')
+  assert.equal(provider.requests[0].promptCacheBinding.cacheKey, undefined)
 })
 
 test('an action is not exposed until its attempt reaches a valid terminal event', async () => {
@@ -254,6 +347,17 @@ test('registry validates real capabilities and route snapshot remains stable and
   const declared = profile('model.only')
   const incompatible = new ScriptedProvider('provider-small', [], { contextWindow: 32_000 })
   assert.throws(() => new ModelProviderRegistry([{ profile: declared, provider: incompatible }]), /does not satisfy/)
+  const explicitDeclared = profile('model.explicit', {
+    capabilities: { ...declared.capabilities, promptCache: 'explicit' },
+  })
+  assert.throws(() => new ModelProviderRegistry([{
+    profile: explicitDeclared,
+    provider: new ScriptedProvider('provider-implicit', []),
+  }]), /does not satisfy/)
+  assert.doesNotThrow(() => new ModelProviderRegistry([{
+    profile: declared,
+    provider: new ScriptedProvider('provider-explicit', [], { promptCache: 'explicit' }),
+  }]))
 
   const fixture = setup()
   fixture.route.primary.apiKey = 'must-not-persist'

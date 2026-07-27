@@ -1,7 +1,9 @@
 import type {
   AssembledModelContext,
+  CompactionRecord,
   ModelContextAssembler,
   ModelMessage,
+  PromptCachePolicyTemplate,
   RunLedger,
   ToolDefinition,
 } from '@electron-manager/agent-core'
@@ -89,7 +91,45 @@ export interface ContextEnvelope extends AssembledModelContext {
     remainingInputTokens: number
   }
   dropped: ContextDrop[]
+  pressure: ContextPressure
+  localArtifactCacheHit: boolean
   snapshot: NonNullable<AssembledModelContext['snapshot']>
+}
+
+export interface PromptArtifact {
+  revision: string
+  messages: ModelMessage[]
+  estimatedTokens: number
+}
+
+export interface PromptArtifactCache {
+  get(revision: string): PromptArtifact | undefined
+  set(artifact: PromptArtifact): void
+}
+
+export interface ContextPressure {
+  level: 'healthy' | 'warning' | 'compacted'
+  beforeTokens: number
+  afterTokens: number
+  warningTokens?: number
+  compactTokens?: number
+  hardStopTokens?: number
+}
+
+export interface ContextCompactionInput extends ContextCollectionInput {
+  entries: ContextEntry[]
+  budget: ContextBudget
+}
+
+export interface ContextCompactionResult {
+  entries: ContextEntry[]
+  pressure: ContextPressure
+  compactionRevision?: string
+  compaction?: CompactionRecord
+}
+
+export interface ContextCompactor {
+  compact(input: ContextCompactionInput): ContextCompactionResult | Promise<ContextCompactionResult>
 }
 
 export interface TokenEstimator {
@@ -104,6 +144,23 @@ export interface ContextAssemblerOptions {
   registry: ContextSourceRegistryLike
   budget: ContextBudget
   tokenEstimator?: TokenEstimator
+  compactor?: ContextCompactor
+  artifactCache?: PromptArtifactCache
 }
+
+export interface PromptCacheProfileLike {
+  promptCache: { mode: 'none' | 'implicit' | 'explicit' }
+}
+
+export interface PromptCachePolicyTemplateInput {
+  memory: PromptCacheProfileLike
+  promptProfileRevision: string
+  toolRegistryRevision: string
+  actionSchemaRevision: string
+  projectRulesRevision: string
+  privacyScopeRevision: string
+}
+
+export type CorePromptCachePolicyTemplate = PromptCachePolicyTemplate
 
 export type CoreContextAssembler = ModelContextAssembler

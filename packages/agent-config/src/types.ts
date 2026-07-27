@@ -94,8 +94,10 @@ export interface MemoryProfile extends VersionedProfile {
     user: number
   }
   compression: {
-    triggerTokens: number
+    warningTokens: number
+    compactTokens: number
     targetTokens: number
+    hardStopTokens: number
   }
   promptCache: {
     mode: PromptCacheMode

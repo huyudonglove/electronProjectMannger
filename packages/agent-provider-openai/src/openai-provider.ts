@@ -45,6 +45,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
       supportsStructuredOutput: true,
       contextWindow: options.contextWindow || 1_000_000,
       maxOutputTokens: options.maxOutputTokens || 128_000,
+      promptCache: 'implicit',
     }
   }
 
@@ -107,6 +108,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
   }
 
   #requestBody(request: ModelRequest): OpenAIResponsesRequest {
+    validatePromptCacheBinding(request, this.profile)
     return {
       model: this.profile.id.slice('openai:'.length),
       input: requestInput(request),
@@ -172,7 +174,28 @@ function usageEvent(response: Record<string, unknown>): Extract<ModelStreamEvent
   const inputTokens = finiteNumber(usage.input_tokens)
   const outputTokens = finiteNumber(usage.output_tokens)
   if (inputTokens === undefined || outputTokens === undefined) return undefined
-  return { type: 'usage', inputTokens, outputTokens }
+  const inputDetails = objectValue(usage.input_tokens_details)
+  const outputDetails = objectValue(usage.output_tokens_details)
+  const cachedInputTokens = finiteNumber(inputDetails?.cached_tokens)
+  const cacheWriteTokens = finiteNumber(inputDetails?.cache_write_tokens)
+  const reasoningTokens = finiteNumber(outputDetails?.reasoning_tokens)
+  return {
+    type: 'usage',
+    inputTokens,
+    outputTokens,
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+  }
+}
+
+function validatePromptCacheBinding(request: ModelRequest, profile: ModelCapabilityProfile) {
+  const binding = request.promptCacheBinding
+  if (!binding) return
+  const model = profile.id.slice('openai:'.length)
+  if (binding.provider !== 'openai' || binding.model !== model || (binding.capability !== 'none' && binding.capability !== 'implicit')) {
+    throw new AgentCoreError('INVALID_INPUT', 'OpenAI prompt cache binding does not match the active provider')
+  }
 }
 
 function completedOutputText(response: Record<string, unknown>) {
@@ -243,5 +266,5 @@ function requiredResponse(value: unknown) {
 }
 
 function finiteNumber(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
 }
