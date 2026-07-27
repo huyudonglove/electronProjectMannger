@@ -5,6 +5,7 @@ import AppTopbar from './components/layout/AppTopbar.vue'
 import UiTag from './components/ui/UiTag.vue'
 import OverviewView from './components/views/OverviewView.vue'
 import TaskBoardView from './components/views/TaskBoardView.vue'
+import AgentSettingsView from './components/views/AgentSettingsView.vue'
 
 type AnyRecord = Record<string, any>
 type UiTone = 'neutral' | 'complete' | 'warning' | 'danger'
@@ -35,6 +36,10 @@ declare global {
       deleteDocument: (projectRoot: string, documentTarget: string) => Promise<any>
       deleteKnowledge: (projectRoot: string, knowledgeTarget: string) => Promise<any>
       replyOpenQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      getAgentSettings: () => Promise<any>
+      updateOpenAIModel: (payload: AnyRecord) => Promise<any>
+      setModelCredential: (payload: AnyRecord) => Promise<any>
+      deleteModelCredential: (payload: AnyRecord) => Promise<any>
       onProjectDataChanged?: (callback: (payload: AnyRecord) => void) => () => void
     }
   }
@@ -123,6 +128,7 @@ const navigationGroups = [
       ['versions', '版本', 'layers'],
       ['agent-logs', '工作记录', 'scrollText'],
       ['constraints', '约束', 'shield'],
+      ['agent-settings', 'Agent', 'braces'],
     ],
   },
 ] as const
@@ -161,6 +167,7 @@ const state = reactive({
   highlightedThought: '',
   highlightedDialogue: -1,
   highlightedLog: -1,
+  agentSettings: null as AnyRecord | null,
 })
 
 const taskForm = reactive({ title: '', priority: 'medium', workLevel: 'light', depthReason: 'decision', detail: '', acceptance: '', constraints: '', planRollback: '', status: '' })
@@ -292,6 +299,7 @@ function setActiveSection(section: string) {
   const validSections = [...navigationGroups.flatMap((group) => group.items), knowledgeNavItem]
   state.section = validSections.some(([key]) => key === section) ? section : 'overview'
   history.replaceState(null, '', `#${state.section}`)
+  if (state.section === 'agent-settings') void loadAgentSettings()
 }
 
 function selectVersion(versionId: string) {
@@ -329,6 +337,35 @@ async function runAction(message: string, action: () => Promise<void>) {
 function ensureApi() {
   if (!window.electronManager) throw new Error('preload API 未注入，请重新启动 Electron。')
   return window.electronManager
+}
+
+async function loadAgentSettings() {
+  await runAction('正在读取 Agent 配置…', async () => {
+    state.agentSettings = await ensureApi().getAgentSettings()
+    state.status = ''
+  })
+}
+
+async function updateOpenAIModel(payload: AnyRecord) {
+  await runAction('正在保存模型参数…', async () => {
+    state.agentSettings = await ensureApi().updateOpenAIModel(payload)
+    state.status = '模型参数已保存。'
+  })
+}
+
+async function saveModelCredential(payload: AnyRecord) {
+  await runAction('正在加密保存凭据…', async () => {
+    state.agentSettings = await ensureApi().setModelCredential(payload)
+    state.status = '凭据已保存到系统安全存储。'
+  })
+}
+
+async function deleteModelCredential(payload: AnyRecord) {
+  if (!confirm('移除本机保存的模型凭据？')) return
+  await runAction('正在移除凭据…', async () => {
+    state.agentSettings = await ensureApi().deleteModelCredential(payload)
+    state.status = '凭据已移除。'
+  })
 }
 
 function ensureReadyForInit() {
@@ -1704,6 +1741,16 @@ function escapeHtml(value: any) {
         @open-task="openTaskDetail"
         @delete-task="deleteTask"
         @toggle-done="state.doneExpanded = !state.doneExpanded"
+      />
+
+      <AgentSettingsView
+        v-if="state.section === 'agent-settings'"
+        :settings="state.agentSettings"
+        :busy="state.busy"
+        @reload="loadAgentSettings"
+        @update-model="updateOpenAIModel"
+        @save-credential="saveModelCredential"
+        @delete-credential="deleteModelCredential"
       />
 
       <section v-if="state.section === 'dialogues'" id="dialogues" class="section view active-view">

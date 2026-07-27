@@ -7,13 +7,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./settings": {
+      "types": "./dist/settings-index.d.ts",
+      "default": "./dist/settings-index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "pnpm --filter @electron-manager/agent-core build && pnpm --filter @electron-manager/agent-config build && pnpm --filter @electron-manager/agent-provider-openai build && pnpm --filter @electron-manager/agent-runner build && pnpm --filter @electron-manager/project-core build && pnpm --filter @electron-manager/agent-desktop-coordinator build && pnpm build && node --test tests/*.test.mjs"
+    "test": "pnpm --filter @electron-manager/agent-core build && pnpm --filter @electron-manager/agent-config build && pnpm --filter @electron-manager/agent-provider-openai build && pnpm --filter @electron-manager/agent-runner build && pnpm --filter @electron-manager/project-core build && pnpm --filter @electron-manager/agent-credential-vault build && pnpm --filter @electron-manager/agent-desktop-coordinator build && pnpm build && node --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@electron-manager/agent-credential-vault": "workspace:*",
     "@electron-manager/agent-config": "workspace:*",
     "@electron-manager/agent-core": "workspace:*",
     "@electron-manager/agent-provider-openai": "workspace:*",

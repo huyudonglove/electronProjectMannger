@@ -5,6 +5,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { FakePermissionPolicy } from '@electron-manager/agent-core'
+import { EncryptedCredentialVault } from '@electron-manager/agent-credential-vault'
 import {
   DesktopAgentCoordinator,
   createHeadlessDesktopAgentBackend,
@@ -14,12 +15,58 @@ import { appendTask, getDashboard, initProject } from '@electron-manager/project
 
 import {
   DesktopAgentConfigService,
+  DesktopAgentSettingsService,
   DesktopAgentSettingsStore,
   DesktopModelProviderFactory,
   desktopAgentProjectStoragePaths,
   desktopAgentSettingsPath,
   settingsInputFrom,
 } from '../dist/index.js'
+
+test('settings service exposes only credential status and applies revision-checked model settings', async (t) => {
+  const root = await temporaryRoot(t, 'settings-service')
+  const store = new DesktopAgentSettingsStore(path.join(root, 'settings.json'))
+  const credentials = new EncryptedCredentialVault(path.join(root, 'credentials.json'), new FixtureCipher())
+  const service = new DesktopAgentSettingsService({ store, credentials })
+  const initial = await service.getView()
+  assert.equal(initial.models[0].credentialConfigured, false)
+  assert.equal(JSON.stringify(initial).includes('sk-fixture-secret'), false)
+
+  const configured = await service.setModelCredential({
+    profileId: initial.models[0].profileId,
+    value: 'sk-fixture-secret',
+    expectedCredentialRevision: initial.credentialRevision,
+  })
+  assert.equal(configured.models[0].credentialConfigured, true)
+  assert.equal(JSON.stringify(configured).includes('sk-fixture-secret'), false)
+
+  const updated = await service.updateOpenAIModel({
+    expectedRevision: configured.settingsRevision,
+    profileId: configured.models[0].profileId,
+    organization: ' org-fixture ',
+    project: '',
+    reasoningEffort: 'high',
+    verbosity: 'medium',
+  })
+  assert.equal(updated.models[0].organization, 'org-fixture')
+  assert.equal(updated.models[0].project, undefined)
+  assert.equal(updated.models[0].reasoningEffort, 'high')
+  await assert.rejects(
+    () => service.updateOpenAIModel({
+      expectedRevision: configured.settingsRevision,
+      profileId: configured.models[0].profileId,
+      reasoningEffort: 'low',
+      verbosity: 'low',
+    }),
+    /revision conflict/,
+  )
+
+  const removed = await service.deleteModelCredential({
+    profileId: updated.models[0].profileId,
+    expectedCredentialRevision: updated.credentialRevision,
+  })
+  assert.equal(removed.models[0].credentialConfigured, false)
+})
 
 test('settings store creates defaults, writes atomically and rejects stale or corrupted updates', async (t) => {
   const root = await temporaryRoot(t, 'store')
@@ -185,4 +232,20 @@ async function temporaryRoot(t, suffix) {
   const root = await mkdtemp(path.join(os.tmpdir(), `electron-manager-desktop-config-${suffix}-`))
   t.after(() => rm(root, { recursive: true, force: true }))
   return root
+}
+
+class FixtureCipher {
+  id = 'fixture.desktop-config.v1'
+
+  isAvailable() {
+    return true
+  }
+
+  encrypt(value) {
+    return Buffer.from(value).map((byte) => byte ^ 0x31)
+  }
+
+  decrypt(value) {
+    return Buffer.from(value).map((byte) => byte ^ 0x31).toString('utf8')
+  }
 }

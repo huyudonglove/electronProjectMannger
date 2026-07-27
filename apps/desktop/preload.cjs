@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('electronManager', {
   deleteKnowledge: (projectRoot, knowledgeTarget) => ipcRenderer.invoke('project:delete-knowledge', projectRoot, knowledgeTarget),
   deleteThought: (projectRoot, thoughtId) => ipcRenderer.invoke('project:delete-thought', projectRoot, thoughtId),
   replyOpenQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:reply-open-question', projectRoot, payload),
+  getAgentSettings: () => ipcRenderer.invoke('agent:settings:get'),
+  updateOpenAIModel: (payload) => ipcRenderer.invoke('agent:settings:update-openai', payload),
+  setModelCredential: (payload) => ipcRenderer.invoke('agent:credential:set', payload),
+  deleteModelCredential: (payload) => ipcRenderer.invoke('agent:credential:delete', payload),
   onProjectDataChanged: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('project:data-changed', listener)

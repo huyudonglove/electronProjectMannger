@@ -30,6 +30,8 @@ import {
   updateTaskStatus,
 } from '@electron-manager/project-core'
 
+import { registerAgentIpc } from './agent-ipc.js'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
@@ -71,6 +73,7 @@ app.whenReady().then(async () => {
     }
   }
   registerIpc()
+  registerAgentIpc(managerDataRoot)
   await createWindow()
 })
 

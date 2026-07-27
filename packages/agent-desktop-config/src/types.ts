@@ -5,6 +5,7 @@ import type {
 } from '@electron-manager/agent-config'
 import type { OpenAIResponsesTransport } from '@electron-manager/agent-provider-openai'
 import type { ModelProviderRegistration } from '@electron-manager/agent-runner'
+import type { CredentialVaultSnapshot } from '@electron-manager/agent-credential-vault'
 
 export const DESKTOP_AGENT_SETTINGS_SCHEMA_VERSION = 1 as const
 
@@ -62,3 +63,44 @@ export interface DesktopResolvedAgentConfiguration {
   providers: ModelProviderRegistration[]
   projectRulesRevision: string
 }
+
+export interface DesktopOpenAIModelSettingsView {
+  profileId: string
+  provider: 'openai'
+  model: string
+  credentialRef: string
+  credentialConfigured: boolean
+  credentialUpdatedAt?: string
+  organization?: string
+  project?: string
+  reasoningEffort: NonNullable<OpenAIDesktopProviderSettings['reasoningEffort']>
+  verbosity: NonNullable<OpenAIDesktopProviderSettings['verbosity']>
+}
+
+export interface DesktopAgentSettingsView {
+  settingsRevision: string
+  credentialRevision: string
+  models: DesktopOpenAIModelSettingsView[]
+}
+
+export interface DesktopOpenAIModelSettingsPatch {
+  expectedRevision: string
+  profileId: string
+  organization?: string
+  project?: string
+  reasoningEffort: NonNullable<OpenAIDesktopProviderSettings['reasoningEffort']>
+  verbosity: NonNullable<OpenAIDesktopProviderSettings['verbosity']>
+}
+
+export interface DesktopModelCredentialInput {
+  profileId: string
+  value: string
+  expectedCredentialRevision: string
+}
+
+export interface DesktopModelCredentialDeleteInput {
+  profileId: string
+  expectedCredentialRevision: string
+}
+
+export type DesktopCredentialSnapshot = CredentialVaultSnapshot
