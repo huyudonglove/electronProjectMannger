@@ -1,4 +1,4 @@
-import type { AgentEvent, LoadedCheckpoint } from '@electron-manager/agent-core'
+import { decideResume, type AgentEvent, type LoadedCheckpoint } from '@electron-manager/agent-core'
 import type { Dashboard } from '@electron-manager/project-core'
 
 import {
@@ -18,6 +18,7 @@ export function toDesktopRunDetail(checkpoint: LoadedCheckpoint, dashboard: Dash
 export function toDesktopRunView(checkpoint: LoadedCheckpoint, dashboard: Dashboard): DesktopRunView {
   const { snapshot } = checkpoint
   const ledger = snapshot.ledger
+  const resume = decideResume(snapshot)
   const task = dashboard.tasks.find((item) => item.id === ledger.taskId || item.shortId === ledger.taskShortId)
   const log = dashboard.logs.find((item) => item.source === `agent-run:${ledger.runId}`)
   const outputRefs = unique([
@@ -47,6 +48,7 @@ export function toDesktopRunView(checkpoint: LoadedCheckpoint, dashboard: Dashbo
     stepCount: ledger.stepCount,
     eventSequence: ledger.eventSequence,
     ...(ledger.nextAction ? { nextAction: ledger.nextAction } : {}),
+    resume: { kind: resume.kind, reason: resume.reason },
     ...(ledger.pendingAction ? {
       waiting: {
         id: ledger.pendingAction.id,

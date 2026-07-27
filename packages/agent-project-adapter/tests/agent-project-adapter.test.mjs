@@ -38,8 +38,8 @@ test('project task maps deterministically to a headless run and doing update', (
   assert.equal(first.value.startUpdate.nextStatus, 'doing')
   assert.deepEqual(first.value.runInput.acceptanceCriteria.map((item) => item.description), ['One passes', 'Two passes'])
   assert.ok(first.value.runInput.constraints.some((item) => item.includes('[C001]')))
-  assert.ok(first.value.runInput.constraints.some((item) => item.includes('[SYS-SKILL]')))
-  assert.ok(first.value.runInput.constraints.some((item) => item.includes('[project-instruction]')))
+  assert.ok(first.value.runInput.constraints.every((item) => !item.includes('[SYS-')))
+  assert.ok(first.value.runInput.constraints.every((item) => !item.includes('[project-instruction]')))
   assert.equal(first.value.runInput.metadata.depthReason, 'architecture')
 })
 

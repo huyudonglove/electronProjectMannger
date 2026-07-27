@@ -18,7 +18,7 @@ export function createRepoMapContextSource(
       region: 'recent_dynamic_context',
       scope: 'project',
       trust: 'untrusted',
-      priority: 80,
+      priority: 60,
       required: false,
       compressible: true,
       maxTokens,

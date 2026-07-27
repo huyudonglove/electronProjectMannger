@@ -382,6 +382,29 @@ test('deep plan and tool approvals pause and resume without repeating side effec
   assert.equal(runtime.calls.length, 1)
 })
 
+test('standard runs can replace the current plan after acting has started', async () => {
+  const provider = new FakeModelProvider([
+    modelTurn({ kind: 'plan', id: 'current-plan', summary: 'Inspect then change', rationale: 'Initial evidence', actionDigest: 'plan-1' }),
+    modelTurn({ kind: 'plan', id: 'current-plan', summary: 'Change a different file', rationale: 'Inspection changed the implementation path', actionDigest: 'plan-2' }),
+  ])
+  const stepper = new AgentStepper({
+    provider,
+    runtime: new FakeAgentRuntime(),
+    permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture allow' }),
+    tools,
+    clock: advancingClock(1),
+  })
+  const initial = createRunLedger(input({ workLevel: 'standard' }), at(0))
+
+  const planned = await stepper.step(initial)
+  assert.equal(planned.ledger.phase, 'acting')
+  const replanned = await stepper.step(planned.ledger)
+  assert.equal(replanned.disposition, 'continue')
+  assert.equal(replanned.ledger.phase, 'acting')
+  assert.equal(replanned.ledger.decisions.length, 1)
+  assert.equal(replanned.ledger.decisions.at(-1).summary, 'Change a different file')
+})
+
 test('AgentStepper enters repair after a tool failure and blocks repeated identical failures', async () => {
   const provider = new FakeModelProvider([1, 2, 3].map((index) => modelTurn({
     kind: 'tool',

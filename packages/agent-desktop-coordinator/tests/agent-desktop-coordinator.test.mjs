@@ -137,18 +137,106 @@ test('blocked run with file changes writes one log but keeps the project task do
   assert.deepEqual(logs[0].changedFiles, ['src/value.js'])
 })
 
+test('coordinator claims a project run before loading it and rejects a concurrent operation', async (t) => {
+  const fixture = await createFixture(t, 'concurrent-operation')
+  const backend = createBackend(fixture, provider([]))
+  const starter = new DesktopAgentCoordinator({
+    managerDataRoot: fixture.managerDataRoot,
+    backend,
+  })
+  await starter.startTask({
+    projectRoot: fixture.projectRoot,
+    taskId: fixture.task.id,
+    runId: 'shared-run-id',
+  })
+
+  const checkpointRepository = await backend.openRepository(fixture.projectRoot)
+  const checkpoint = await checkpointRepository.load('shared-run-id')
+  checkpointRepository.close()
+  assert.ok(checkpoint)
+
+  const loadEntered = deferred()
+  const releaseLoads = deferred()
+  let loadCount = 0
+  let operationSignal
+  const guardedBackend = {
+    async openRepository(projectRoot) {
+      const repository = await backend.openRepository(projectRoot)
+      return {
+        async load(runId) {
+          loadCount += 1
+          loadEntered.resolve()
+          await releaseLoads.promise
+          return await repository.load(runId)
+        },
+        list: () => repository.list(),
+        readOutput: (ref) => repository.readOutput(ref),
+        close: () => repository.close(),
+      }
+    },
+    async openRunner() {
+      const result = { checkpoint }
+      return {
+        createRun: async () => checkpoint,
+        advance: async (_runId, signal) => {
+          operationSignal = signal
+          return result
+        },
+        runUntilPause: async (_runId, signal) => {
+          operationSignal = signal
+          return result
+        },
+        resolveApproval: async (_runId, _resolution, signal) => {
+          operationSignal = signal
+          return result
+        },
+        close() {},
+      }
+    },
+  }
+  const coordinator = new DesktopAgentCoordinator({
+    managerDataRoot: fixture.managerDataRoot,
+    backend: guardedBackend,
+  })
+
+  const first = coordinator.advanceRun({
+    projectRoot: fixture.projectRoot,
+    runId: 'shared-run-id',
+  })
+  await loadEntered.promise
+  const second = coordinator.advanceRun({
+    projectRoot: fixture.projectRoot,
+    runId: 'shared-run-id',
+  }).then(() => null, (error) => error)
+  await new Promise((resolve) => setImmediate(resolve))
+  const observedLoadCount = loadCount
+  const cancelledCount = coordinator.cancelAllActiveRuns()
+  releaseLoads.resolve()
+
+  const [firstResult, secondError] = await Promise.all([first, second])
+  assert.equal(observedLoadCount, 1, 'a concurrent operation must be rejected before repository loading starts')
+  assert.equal(cancelledCount, 1)
+  assert.equal(operationSignal?.aborted, true)
+  assert.equal(firstResult.run.runId, 'shared-run-id')
+  assert.equal(secondError?.code, 'RUN_OPERATION_ACTIVE')
+})
+
 function createCoordinator(fixture, modelProvider) {
-  const backend = createHeadlessDesktopAgentBackend({
+  const backend = createBackend(fixture, modelProvider)
+  return new DesktopAgentCoordinator({
+    managerDataRoot: fixture.managerDataRoot,
+    backend,
+    createRunId: () => 'generated-run-id',
+  })
+}
+
+function createBackend(fixture, modelProvider) {
+  return createHeadlessDesktopAgentBackend({
     storageFor: () => ({
       checkpointPath: fixture.checkpointPath,
       outputDirectory: fixture.outputDirectory,
     }),
     runnerOptionsFor: () => runnerOptions(modelProvider),
-  })
-  return new DesktopAgentCoordinator({
-    managerDataRoot: fixture.managerDataRoot,
-    backend,
-    createRunId: () => 'generated-run-id',
   })
 }
 
@@ -232,6 +320,14 @@ function request(id, name, input) {
     requestedAt: new Date().toISOString(),
     actionDigest: computeActionDigest(name, input),
   }
+}
+
+function deferred() {
+  let resolve
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
 }
 
 async function createFixture(t, suffix) {

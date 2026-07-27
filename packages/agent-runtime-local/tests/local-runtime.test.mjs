@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import {
   LocalAgentRuntime,
+  commandEnvironment,
   commitFileTransaction,
   computeActionDigest,
   contentHash,
@@ -123,6 +124,29 @@ test('output limits and permission decisions are enforced', async () => {
   assert.deepEqual(limitText('abcdef', 4), { text: 'abcd', truncated: true, originalChars: 6 })
 })
 
+test('command environment allows system essentials without forwarding credentials', () => {
+  const previousSecret = process.env.OPENAI_API_KEY
+  const previousLocale = process.env.LC_AGENT_RUNTIME_TEST
+  process.env.OPENAI_API_KEY = 'must-not-reach-project-script'
+  process.env.LC_AGENT_RUNTIME_TEST = 'allowed-locale-value'
+  try {
+    const environment = commandEnvironment()
+    assert.equal(environment.OPENAI_API_KEY, undefined)
+    assert.equal(environment.LC_AGENT_RUNTIME_TEST, 'allowed-locale-value')
+    assert.equal(environment.PATH, process.env.PATH)
+    assert.equal(environment.CI, '1')
+    assert.equal(environment.NO_COLOR, '1')
+    assert.equal(environment.FORCE_COLOR, '0')
+    assert.equal(environment.COREPACK_ENABLE_DOWNLOAD_PROMPT, '0')
+    assert.equal(environment.npm_config_update_notifier, 'false')
+  } finally {
+    if (previousSecret === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = previousSecret
+    if (previousLocale === undefined) delete process.env.LC_AGENT_RUNTIME_TEST
+    else process.env.LC_AGENT_RUNTIME_TEST = previousLocale
+  }
+})
+
 test('process runner reports timeout and terminates the process group', async () => {
   const { root } = await fixture()
   const result = await runProcess(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], {
@@ -132,6 +156,33 @@ test('process runner reports timeout and terminates the process group', async ()
   })
   assert.equal(result.timedOut, true)
   assert.notEqual(result.signal, null)
+})
+
+test('process runner aborts and force-terminates descendants that ignore SIGTERM', { skip: process.platform === 'win32' }, async () => {
+  const { root } = await fixture()
+  const marker = path.join(root, 'surviving-child.txt')
+  const childSource = [
+    "const { writeFileSync } = require('node:fs')",
+    "process.on('SIGTERM', () => {})",
+    "setTimeout(() => writeFileSync(process.argv[1], 'survived'), 900)",
+  ].join(';')
+  const parentSource = [
+    "const { spawn } = require('node:child_process')",
+    `spawn(process.execPath, ['-e', ${JSON.stringify(childSource)}, ${JSON.stringify(marker)}], { stdio: 'ignore' })`,
+    'setTimeout(() => {}, 5000)',
+  ].join(';')
+  const controller = new AbortController()
+  const running = runProcess(process.execPath, ['-e', parentSource], {
+    cwd: root,
+    timeoutMs: 5_000,
+    maxOutputChars: 1_000,
+    signal: controller.signal,
+  })
+
+  setTimeout(() => controller.abort('test cancellation'), 50)
+  await assert.rejects(running, (error) => error?.code === 'CANCELLED')
+  await new Promise((resolve) => setTimeout(resolve, 1_000))
+  await assert.rejects(() => readFile(marker, 'utf8'), { code: 'ENOENT' })
 })
 
 test('create_file is exclusive, digest-bound and cannot cross symlink or Git boundaries', async () => {
@@ -334,6 +385,22 @@ test('exec_command enforces its timeout and records termination evidence', async
   assert.equal(result.error.code, 'TOOL_TIMEOUT')
   assert.notEqual(result.metadata.signal, null)
   assert.equal(result.metadata.timeoutMs, 100)
+})
+
+test('exec_command propagates cancellation to the running process', async () => {
+  const { root } = await fixture()
+  const runtime = new LocalAgentRuntime(root, { timeoutMs: 5_000, allowedPackageScripts: ['slow'] })
+  const input = { command: 'pnpm', args: ['slow'], timeoutMs: 5_000 }
+  const controller = new AbortController()
+  const startedAt = Date.now()
+  const running = runtime.execute(writeRequest('exec-cancelled', 'exec_command', input), context(root), controller.signal)
+
+  setTimeout(() => controller.abort('user cancelled'), 100)
+  const result = await running
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'CANCELLED')
+  assert.ok(Date.now() - startedAt < 2_000)
 })
 
 async function run(command, args, cwd) {

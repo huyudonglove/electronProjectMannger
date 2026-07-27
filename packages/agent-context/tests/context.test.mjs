@@ -287,9 +287,44 @@ test('AgentStepper sends an assembled context revision and preserves newest-mess
   assert.equal(result.ledger.contextEnvelopes[0].revision, request.contextRevision)
   assert.equal(result.events.filter((event) => event.type === 'context.assembled').length, 1)
   assert.match(request.contextRevision, /^[a-f0-9]{64}$/)
-  assert.match(request.messages.at(-1).content, /Select the next action/)
+  assert.match(request.messages.at(-1).content, /Select the next valid action for phase inspecting/)
   assert.equal(request.turnId, 'run-context:step:1')
   assert.equal(request.promptCache.stablePrefixRevision, result.ledger.contextEnvelopes[0].stablePrefixRevision)
+})
+
+test('default ledger context keeps tool guidance compact and excludes operational telemetry', async () => {
+  const assembler = createLedgerContextAssembler(budget({
+    maxInputTokens: 20_000,
+    reservedOutputTokens: 4_000,
+    regionTokens: {
+      stable_system_prefix: 3_000,
+      stable_capability_prefix: 6_000,
+      compacted_history: 2_000,
+      recent_dynamic_context: 8_000,
+      newest_message: 1_000,
+    },
+  }))
+  const envelope = await assembler.assemble({
+    runId: 'run-context',
+    ledger: ledger(),
+    tools: [{
+      name: 'read_file',
+      description: 'Read a project file',
+      risk: 'read',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+        additionalProperties: false,
+      },
+    }],
+  })
+  const capability = envelope.messages.find((message) => message.content.startsWith('Tool capabilities:'))
+  const facts = envelope.regions.recent_dynamic_context.find((entry) => entry.id.startsWith('run-facts-step-'))
+
+  assert.match(capability.content, /read_file/)
+  assert.doesNotMatch(capability.content, /inputSchema|properties/)
+  assert.doesNotMatch(facts.content, /modelAttempts|compactions|contextEnvelopes/)
 })
 
 test('deterministic estimator is stable for ASCII and multibyte text', () => {

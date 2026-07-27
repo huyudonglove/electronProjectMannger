@@ -8,6 +8,7 @@ export interface ProcessRunOptions {
   timeoutMs: number
   maxOutputChars: number
   env?: NodeJS.ProcessEnv
+  signal?: AbortSignal
 }
 
 export interface ProcessRunResult {
@@ -23,6 +24,8 @@ export interface ProcessRunResult {
 }
 
 export function runProcess(command: string, args: string[], options: ProcessRunOptions): Promise<ProcessRunResult> {
+  if (options.signal?.aborted) return Promise.reject(cancelledError(options.signal))
+
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -38,7 +41,20 @@ export function runProcess(command: string, args: string[], options: ProcessRunO
     let timedOut = false
     let timeoutTimer: NodeJS.Timeout | undefined
     let forceKillTimer: NodeJS.Timeout | undefined
+    let terminationReason: 'timeout' | 'abort' | undefined
     const collectionLimit = Math.max(options.maxOutputChars * 2, options.maxOutputChars + 1)
+
+    const terminate = (reason: 'timeout' | 'abort') => {
+      if (terminationReason) return
+      terminationReason = reason
+      timedOut = reason === 'timeout'
+      forceKillTimer = terminateProcessTree(child.pid)
+    }
+    const abort = () => terminate('abort')
+    const cleanup = () => {
+      if (timeoutTimer) clearTimeout(timeoutTimer)
+      options.signal?.removeEventListener('abort', abort)
+    }
 
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
@@ -52,13 +68,19 @@ export function runProcess(command: string, args: string[], options: ProcessRunO
     })
 
     child.once('error', (error) => {
-      if (timeoutTimer) clearTimeout(timeoutTimer)
-      if (forceKillTimer) clearTimeout(forceKillTimer)
+      cleanup()
+      if (terminationReason === 'abort') {
+        reject(cancelledError(options.signal))
+        return
+      }
       reject(new AgentCoreError('TOOL_EXECUTION_FAILED', `Failed to start ${command}`, { retryable: true, cause: error }))
     })
     child.once('close', (exitCode, signal) => {
-      if (timeoutTimer) clearTimeout(timeoutTimer)
-      if (forceKillTimer) clearTimeout(forceKillTimer)
+      cleanup()
+      if (terminationReason === 'abort') {
+        reject(cancelledError(options.signal))
+        return
+      }
       const combined = [stdout.trimEnd(), stderr.trimEnd()].filter(Boolean).join('\n')
       const limited = limitText(combined, options.maxOutputChars)
       resolve({
@@ -74,12 +96,17 @@ export function runProcess(command: string, args: string[], options: ProcessRunO
       })
     })
 
-    timeoutTimer = setTimeout(() => {
-      timedOut = true
-      forceKillTimer = terminateProcessTree(child.pid)
-    }, options.timeoutMs)
-    timeoutTimer.unref()
+    options.signal?.addEventListener('abort', abort, { once: true })
+    if (options.signal?.aborted) abort()
+    if (!terminationReason) {
+      timeoutTimer = setTimeout(() => terminate('timeout'), options.timeoutMs)
+      timeoutTimer.unref()
+    }
   })
+}
+
+function cancelledError(signal: AbortSignal | undefined) {
+  return new AgentCoreError('CANCELLED', 'Process execution was cancelled', { cause: signal?.reason })
 }
 
 function terminateProcessTree(pid: number | undefined) {

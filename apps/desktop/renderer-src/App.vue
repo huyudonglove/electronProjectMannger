@@ -40,7 +40,15 @@ declare global {
       updateOpenAIModel: (payload: AnyRecord) => Promise<any>
       setModelCredential: (payload: AnyRecord) => Promise<any>
       deleteModelCredential: (payload: AnyRecord) => Promise<any>
+      listAgentRuns: (projectRoot: string) => Promise<any[]>
+      getAgentRun: (projectRoot: string, runId: string) => Promise<any>
+      startAgentTask: (payload: AnyRecord) => Promise<any>
+      advanceAgentRun: (payload: AnyRecord) => Promise<any>
+      resolveAgentApproval: (payload: AnyRecord) => Promise<any>
+      cancelAgentRun: (projectRoot: string, runId: string) => Promise<boolean>
+      readAgentOutput: (projectRoot: string, ref: string) => Promise<any>
       onProjectDataChanged?: (callback: (payload: AnyRecord) => void) => () => void
+      onAgentRunChanged?: (callback: (payload: AnyRecord) => void) => () => void
     }
   }
 }
@@ -168,7 +176,23 @@ const state = reactive({
   highlightedDialogue: -1,
   highlightedLog: -1,
   agentSettings: null as AnyRecord | null,
+  agentRuns: [] as AnyRecord[],
+  agentRunDetails: {} as Record<string, AnyRecord>,
+  agentRunBusy: false,
+  agentRunBusyId: '',
+  agentOutput: null as null | {
+    ref: string
+    label: string
+    content: string
+    artifact: AnyRecord | null
+    loading: boolean
+    error: string
+  },
 })
+
+let agentProjectRevision = 0
+let agentOperationRevision = 0
+let agentOutputRevision = 0
 
 const taskForm = reactive({ title: '', priority: 'medium', workLevel: 'light', depthReason: 'decision', detail: '', acceptance: '', constraints: '', planRollback: '', status: '' })
 const thoughtForm = reactive({ content: '', status: '' })
@@ -218,6 +242,15 @@ const allThoughts = computed(() => dashboard.value?.thoughts || [])
 const allDialogues = computed(() => dashboard.value?.dialogues || [])
 const allDocuments = computed(() => dashboard.value?.documents || [])
 const allLogs = computed(() => dashboard.value?.logs || [])
+const selectedTaskRun = computed(() => {
+  const task = state.selectedTask
+  if (!task) return null
+  return state.agentRuns.find((run: AnyRecord) => run.task?.id === task.id || run.task?.shortId === task.shortId) || null
+})
+const selectedTaskRunDetail = computed(() => {
+  const run = selectedTaskRun.value
+  return run ? state.agentRunDetails[run.runId] || { run, events: [] } : null
+})
 const tasks = computed(() => allTasks.value.filter(recordMatchesSelectedVersion))
 const thoughts = computed(() => allThoughts.value.filter(recordMatchesSelectedVersion))
 const dialogues = computed(() => allDialogues.value.filter(recordMatchesSelectedVersion))
@@ -282,6 +315,7 @@ watch(
 onMounted(() => {
   applyTheme(localStorage.getItem('electron-manager-theme') || 'dark')
   setupAutoRefresh()
+  setupAgentRunUpdates()
   const initialSection = location.hash.replace('#', '') || 'overview'
   setActiveSection(initialSection)
   if (window.electronManager) {
@@ -318,6 +352,22 @@ function setupAutoRefresh() {
   window.electronManager.onProjectDataChanged((payload) => {
     if (!payload?.projectRoot || payload.projectRoot !== state.projectRoot || !state.initialized) return
     refreshDashboard({ quiet: true })
+  })
+}
+
+function setupAgentRunUpdates() {
+  if (!window.electronManager?.onAgentRunChanged) return
+  window.electronManager.onAgentRunChanged((payload) => {
+    if (!payload?.projectRoot || payload.projectRoot !== state.projectRoot || !payload.run) return
+    const existing = state.agentRunDetails[payload.run.runId]
+    const events = [...(existing?.events || []), ...(payload.events || [])]
+      .filter((event: AnyRecord, index: number, values: AnyRecord[]) =>
+        values.findIndex((candidate) => candidate.sequence === event.sequence) === index)
+      .sort((left: AnyRecord, right: AnyRecord) => left.sequence - right.sequence)
+    setAgentRunDetail({ run: payload.run, events })
+    if (['completed', 'blocked', 'failed', 'cancelled'].includes(payload.run.status)) {
+      void refreshDashboard({ quiet: true })
+    }
   })
 }
 
@@ -366,6 +416,203 @@ async function deleteModelCredential(payload: AnyRecord) {
     state.agentSettings = await ensureApi().deleteModelCredential(payload)
     state.status = '凭据已移除。'
   })
+}
+
+async function loadAgentRuns() {
+  if (!state.projectRoot || !state.initialized) {
+    state.agentRuns = []
+    state.agentRunDetails = {}
+    return
+  }
+  const projectRoot = state.projectRoot
+  const projectRevision = agentProjectRevision
+  try {
+    const runs = await ensureApi().listAgentRuns(projectRoot)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.agentRuns = runs
+    const task = state.selectedTask
+    const run = task && state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
+    if (run) void loadAgentRunDetail(run.runId)
+  } catch (error: any) {
+    console.error(error)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.status = error?.message || 'Agent 运行记录读取失败。'
+  }
+}
+
+function setAgentRunDetail(detail: AnyRecord) {
+  if (!detail?.run?.runId) return
+  state.agentRunDetails[detail.run.runId] = detail
+  state.agentRuns = [detail.run, ...state.agentRuns.filter((run: AnyRecord) => run.runId !== detail.run.runId)]
+}
+
+async function loadAgentRunDetail(runId: string) {
+  if (!state.projectRoot || !runId || state.agentRunDetails[runId]) return
+  const projectRoot = state.projectRoot
+  const projectRevision = agentProjectRevision
+  try {
+    const detail = await ensureApi().getAgentRun(projectRoot, runId)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    if (detail) setAgentRunDetail(detail)
+  } catch (error: any) {
+    console.error(error)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.status = error?.message || 'Agent 运行详情读取失败。'
+  }
+}
+
+async function runAgentOperation(message: string, action: () => Promise<AnyRecord>, runId = '') {
+  const projectRoot = state.projectRoot
+  const projectRevision = agentProjectRevision
+  const operationRevision = ++agentOperationRevision
+  try {
+    state.agentRunBusy = true
+    state.agentRunBusyId = runId
+    state.status = message
+    const detail = await action()
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return null
+    setAgentRunDetail(detail)
+    await refreshDashboard({ quiet: true })
+    state.status = ''
+    return detail
+  } catch (error: any) {
+    console.error(error)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return null
+    state.status = error?.message || 'Agent 操作失败。'
+    return null
+  } finally {
+    if (operationRevision === agentOperationRevision) {
+      state.agentRunBusy = false
+      state.agentRunBusyId = ''
+    }
+  }
+}
+
+async function startSelectedTaskRun() {
+  const task = state.selectedTask
+  if (!task) return
+  const started = await runAgentOperation('正在创建 Agent 运行…', () => ensureApi().startAgentTask({
+    projectRoot: state.projectRoot,
+    taskId: task.id,
+  }))
+  if (!started?.run || started.run.status !== 'running') return
+  if (started.warnings?.length) showToast(started.warnings[0].message || 'Agent 运行包含待确认项')
+  await advanceAgentRun(started.run.runId)
+}
+
+async function advanceAgentRun(runId: string) {
+  await runAgentOperation('Agent 正在处理任务…', () => ensureApi().advanceAgentRun({
+    projectRoot: state.projectRoot,
+    runId,
+    untilPause: true,
+  }), runId)
+}
+
+async function resolveAgentApproval(decision: 'approved' | 'denied') {
+  const run = selectedTaskRun.value
+  if (!run) return
+  await runAgentOperation(decision === 'approved' ? '正在执行已批准操作…' : '正在拒绝 Agent 操作…', () => ensureApi().resolveAgentApproval({
+    projectRoot: state.projectRoot,
+    runId: run.runId,
+    decision,
+    continueUntilPause: decision === 'approved',
+  }), run.runId)
+}
+
+async function cancelAgentRun(runId: string) {
+  if (!runId) return
+  try {
+    const cancelled = await ensureApi().cancelAgentRun(state.projectRoot, runId)
+    state.status = cancelled ? '正在取消 Agent 运行…' : '当前没有可取消的 Agent 操作。'
+  } catch (error: any) {
+    console.error(error)
+    state.status = error?.message || '取消 Agent 运行失败。'
+  }
+}
+
+function agentRunStatusText(status: string) {
+  return ({ running: '运行中', completed: '已完成', blocked: '已阻塞', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] || status
+}
+
+function agentRunStatusTone(status: string): UiTone {
+  if (status === 'completed') return 'complete'
+  if (status === 'failed' || status === 'blocked') return 'danger'
+  if (status === 'running') return 'warning'
+  return 'neutral'
+}
+
+function agentPhaseText(phase: string) {
+  return ({
+    inspecting: '检查项目',
+    planning: '制定方案',
+    acting: '执行修改',
+    verifying: '验证结果',
+    finalizing: '整理结果',
+    awaiting_approval: '等待批准',
+    completed: '完成',
+    blocked: '阻塞',
+    failed: '失败',
+    cancelled: '已取消',
+  } as Record<string, string>)[phase] || phase
+}
+
+function agentOutputLabel(run: AnyRecord, ref: string, index: number) {
+  if (run?.diff?.outputRef === ref) return '完整代码差异'
+  const previousOutputs = (run?.outputRefs || []).slice(0, index)
+    .filter((candidate: string) => candidate !== run?.diff?.outputRef)
+  return `运行输出 ${previousOutputs.length + 1}`
+}
+
+function redactAgentOutput(content: string) {
+  const redacted = '[已隐藏敏感信息]'
+  return String(content || '')
+    .replace(/-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g, redacted)
+    .replace(/(["']?(?:api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|password|passwd|secret|client[_-]?secret|private[_-]?key)["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/gi, `$1${redacted}`)
+    .replace(/(authorization\s*:\s*)(?:basic|bearer)\s+[^\s]+/gi, `$1${redacted}`)
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|AIza[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|(?:sk|rk)_live_[A-Za-z0-9]{16,})\b/g, redacted)
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, redacted)
+    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, `$1${redacted}@`)
+}
+
+async function openAgentOutput(ref: string, label: string) {
+  if (!state.projectRoot || !ref) return
+  const projectRoot = state.projectRoot
+  const projectRevision = agentProjectRevision
+  const outputRevision = ++agentOutputRevision
+  state.agentOutput = { ref, label, content: '', artifact: null, loading: true, error: '' }
+  try {
+    const output = await ensureApi().readAgentOutput(projectRoot, ref)
+    if (
+      projectRoot !== state.projectRoot
+      || projectRevision !== agentProjectRevision
+      || outputRevision !== agentOutputRevision
+      || state.agentOutput?.ref !== ref
+    ) return
+    if (!output || typeof output.content !== 'string') throw new Error('Invalid Agent output response')
+    state.agentOutput = {
+      ref,
+      label,
+      content: redactAgentOutput(output.content),
+      artifact: output.artifact || null,
+      loading: false,
+      error: '',
+    }
+  } catch (error) {
+    console.error(error)
+    if (outputRevision !== agentOutputRevision || state.agentOutput?.ref !== ref) return
+    state.agentOutput.loading = false
+    state.agentOutput.error = '无法读取该输出。文件可能已被清理，或当前项目已不可用。'
+  }
+}
+
+function retryAgentOutput() {
+  const output = state.agentOutput
+  if (output) void openAgentOutput(output.ref, output.label)
+}
+
+function closeAgentOutput() {
+  agentOutputRevision += 1
+  state.agentOutput = null
 }
 
 function ensureReadyForInit() {
@@ -785,11 +1032,17 @@ async function submitReply() {
 }
 
 function updateState(result: AnyRecord) {
+  agentProjectRevision += 1
+  closeAgentOutput()
   state.projectRoot = result.projectRoot
   state.initialized = result.initialized
   state.dashboard = result.dashboard
+  state.agentRuns = []
+  state.agentRunDetails = {}
+  state.selectedTask = null
   syncSelectedVersion(result.dashboard)
   state.selectedLogIndex = clampLogIndex(state.selectedLogIndex, result.dashboard?.logs || [])
+  if (result.initialized) void loadAgentRuns()
 }
 
 function updateDashboard(nextDashboard: AnyRecord) {
@@ -1018,9 +1271,12 @@ function openBoardTask(taskId: string) {
 
 function openTaskDetail(task: AnyRecord) {
   state.selectedTask = task
+  const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
+  if (run) void loadAgentRunDetail(run.runId)
 }
 
 function closeTaskDetail() {
+  closeAgentOutput()
   state.selectedTask = null
 }
 
@@ -2187,6 +2443,95 @@ function escapeHtml(value: any) {
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeTaskDetail" v-html="icon('x')" />
       </div>
       <div class="task-detail-body">
+        <section class="agent-run-panel">
+          <div class="agent-run-heading">
+            <div><strong>Agent 执行</strong><small>本地检查点，可关闭应用后继续</small></div>
+            <UiTag
+              v-if="selectedTaskRun"
+              :label="agentRunStatusText(selectedTaskRun.status)"
+              :tone="agentRunStatusTone(selectedTaskRun.status)"
+              variant="status"
+              :icon-svg="icon(selectedTaskRun.status === 'completed' ? 'circleCheck' : selectedTaskRun.status === 'failed' ? 'circleX' : 'clock')"
+            />
+          </div>
+          <template v-if="selectedTaskRunDetail">
+            <div class="agent-run-summary">
+              <span><small>阶段</small>{{ agentPhaseText(selectedTaskRunDetail.run.phase) }}</span>
+              <span><small>步数</small>{{ selectedTaskRunDetail.run.stepCount }}</span>
+              <span><small>已检查</small>{{ selectedTaskRunDetail.run.progress.inspectedFiles }} 个文件</span>
+              <span><small>已修改</small>{{ selectedTaskRunDetail.run.progress.changedFiles.length }} 个文件</span>
+            </div>
+            <div v-if="selectedTaskRunDetail.run.waiting" class="agent-run-approval">
+              <strong>{{ selectedTaskRunDetail.run.waiting.kind === 'plan_approval' ? '方案等待批准' : '操作等待批准' }}</strong>
+              <p>{{ selectedTaskRunDetail.run.waiting.summary }}</p>
+              <div class="agent-run-actions">
+                <button class="btn btn-primary btn-sm" type="button" :disabled="state.agentRunBusy" @click="resolveAgentApproval('approved')">批准并继续</button>
+                <button class="btn btn-outline-secondary btn-sm" type="button" :disabled="state.agentRunBusy" @click="resolveAgentApproval('denied')">拒绝</button>
+              </div>
+            </div>
+            <div v-else-if="selectedTaskRunDetail.run.resume?.kind === 'blocked'" class="agent-run-approval">
+              <strong>此运行不能自动恢复</strong>
+              <p>{{ selectedTaskRunDetail.run.resume.reason }}。请确认项目当前状态后新建一次运行。</p>
+            </div>
+            <p v-else-if="selectedTaskRunDetail.run.nextAction" class="agent-run-next">{{ selectedTaskRunDetail.run.nextAction }}</p>
+            <div class="agent-run-actions">
+              <button
+                v-if="selectedTaskRunDetail.run.status === 'running' && selectedTaskRunDetail.run.resume?.kind !== 'blocked' && !selectedTaskRunDetail.run.waiting && !state.agentRunBusy"
+                class="btn btn-primary btn-sm"
+                type="button"
+                @click="advanceAgentRun(selectedTaskRunDetail.run.runId)"
+              >继续运行</button>
+              <button
+                v-if="state.agentRunBusy && state.agentRunBusyId === selectedTaskRunDetail.run.runId"
+                class="btn btn-outline-secondary btn-sm"
+                type="button"
+                @click="cancelAgentRun(selectedTaskRunDetail.run.runId)"
+              >停止</button>
+              <button
+                v-if="(['blocked', 'failed', 'cancelled'].includes(selectedTaskRunDetail.run.status) || selectedTaskRunDetail.run.resume?.kind === 'blocked') && ['todo', 'doing'].includes(state.selectedTask.status)"
+                class="btn btn-outline-secondary btn-sm"
+                type="button"
+                :disabled="state.agentRunBusy"
+                @click="startSelectedTaskRun"
+              >新建运行</button>
+            </div>
+            <div v-if="selectedTaskRunDetail.run.outputRefs?.length" class="agent-run-outputs">
+              <div class="agent-run-outputs-head">
+                <strong>运行产物</strong>
+                <small>内容会在本机读取，常见凭据将自动隐藏</small>
+              </div>
+              <div class="agent-run-output-links">
+                <button
+                  v-for="(ref, index) in selectedTaskRunDetail.run.outputRefs"
+                  :key="ref"
+                  class="agent-run-output-link"
+                  type="button"
+                  @click="openAgentOutput(ref, agentOutputLabel(selectedTaskRunDetail.run, ref, index))"
+                >
+                  <span v-html="icon(selectedTaskRunDetail.run.diff?.outputRef === ref ? 'gitPullRequest' : 'fileText')" />
+                  <span>{{ agentOutputLabel(selectedTaskRunDetail.run, ref, index) }}</span>
+                  <small>查看</small>
+                </button>
+              </div>
+            </div>
+            <div v-if="selectedTaskRunDetail.events?.length" class="agent-run-events">
+              <div v-for="event in selectedTaskRunDetail.events.slice(-8).reverse()" :key="event.sequence">
+                <time>{{ formatTime(event.at) }}</time><span>{{ event.summary }}</span>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <p class="agent-run-empty">Agent 将读取项目上下文、执行修改、验证结果，并把完成记录同步回当前任务。</p>
+            <button
+              v-if="['todo', 'doing'].includes(state.selectedTask.status)"
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="state.agentRunBusy"
+              @click="startSelectedTaskRun"
+            >交给 Agent</button>
+            <small v-else>只有当前版本中未完成的任务可以启动 Agent。</small>
+          </template>
+        </section>
         <section>
           <strong>用户原话</strong>
           <div v-if="state.selectedTask.userOriginal" v-html="renderTextBlock(state.selectedTask.userOriginal)" />
@@ -2212,6 +2557,40 @@ function escapeHtml(value: any) {
           <div v-if="state.selectedTask.planRollback" v-html="renderTextBlock(state.selectedTask.planRollback)" />
           <p v-else>暂无方案与回退</p>
         </section>
+      </div>
+    </section>
+  </div>
+
+  <div v-if="state.agentOutput" class="modal-overlay agent-output-modal-overlay" @click.self="closeAgentOutput">
+    <section class="card agent-output-dialog" role="dialog" aria-modal="true" aria-labelledby="agentOutputDialogTitle">
+      <div class="project-dialog-head agent-output-dialog-head">
+        <div>
+          <h2 id="agentOutputDialogTitle">{{ state.agentOutput.label }}</h2>
+          <p v-if="state.agentOutput.artifact">
+            {{ state.agentOutput.artifact.characters?.toLocaleString() || 0 }} 字符 · {{ formatTime(state.agentOutput.artifact.createdAt) }}
+          </p>
+          <p v-else>Agent 运行的本地输出</p>
+        </div>
+        <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭输出" aria-label="关闭输出" @click="closeAgentOutput" v-html="icon('x')" />
+      </div>
+      <div v-if="state.agentOutput.loading" class="agent-output-state" role="status" aria-live="polite">
+        <span class="agent-output-spinner" aria-hidden="true" />
+        <strong>正在读取输出…</strong>
+        <small>内容保存在当前项目的本地检查点中</small>
+      </div>
+      <div v-else-if="state.agentOutput.error" class="agent-output-state is-error" role="alert">
+        <span class="agent-output-state-icon" v-html="icon('alertTriangle')" />
+        <strong>输出读取失败</strong>
+        <small>{{ state.agentOutput.error }}</small>
+        <button class="btn btn-outline-secondary btn-sm" type="button" @click="retryAgentOutput">重新读取</button>
+      </div>
+      <div v-else class="agent-output-body">
+        <pre v-if="state.agentOutput.content"><code>{{ state.agentOutput.content }}</code></pre>
+        <div v-else class="agent-output-state"><strong>该输出为空</strong><small>此次操作没有产生可显示的文本。</small></div>
+      </div>
+      <div class="agent-output-notice">
+        <span v-html="icon('shield')" />
+        <span>已隐藏常见 API Key、令牌、密码和带凭据的网址；分享前仍建议人工检查。</span>
       </div>
     </section>
   </div>

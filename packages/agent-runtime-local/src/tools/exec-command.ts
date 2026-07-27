@@ -51,7 +51,7 @@ export function createExecCommandTool(services: LocalRuntimeServices): ToolModul
         expectedEffects: [],
       }
     },
-    async execute(request) {
+    async execute(request, _context, signal) {
       const startedAt = services.now()
       services.assertDigest(request)
       const command = services.parseCommand(request.input)
@@ -60,6 +60,7 @@ export function createExecCommandTool(services: LocalRuntimeServices): ToolModul
         cwd: cwd.absolutePath,
         timeoutMs: command.timeoutMs,
         env: commandEnvironment(),
+        ...(signal ? { signal } : {}),
       })
       const toolResult = processToolResult(request, startedAt, services.now(), result, `Ran ${command.command} ${command.packageScript}`)
       toolResult.metadata = {

@@ -33,9 +33,21 @@ contextBridge.exposeInMainWorld('electronManager', {
   updateOpenAIModel: (payload) => ipcRenderer.invoke('agent:settings:update-openai', payload),
   setModelCredential: (payload) => ipcRenderer.invoke('agent:credential:set', payload),
   deleteModelCredential: (payload) => ipcRenderer.invoke('agent:credential:delete', payload),
+  listAgentRuns: (projectRoot) => ipcRenderer.invoke('agent:runs:list', projectRoot),
+  getAgentRun: (projectRoot, runId) => ipcRenderer.invoke('agent:runs:get', projectRoot, runId),
+  startAgentTask: (payload) => ipcRenderer.invoke('agent:runs:start-task', payload),
+  advanceAgentRun: (payload) => ipcRenderer.invoke('agent:runs:advance', payload),
+  resolveAgentApproval: (payload) => ipcRenderer.invoke('agent:runs:resolve-approval', payload),
+  cancelAgentRun: (projectRoot, runId) => ipcRenderer.invoke('agent:runs:cancel', projectRoot, runId),
+  readAgentOutput: (projectRoot, ref) => ipcRenderer.invoke('agent:runs:read-output', projectRoot, ref),
   onProjectDataChanged: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('project:data-changed', listener)
     return () => ipcRenderer.removeListener('project:data-changed', listener)
+  },
+  onAgentRunChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('agent:runs:changed', listener)
+    return () => ipcRenderer.removeListener('agent:runs:changed', listener)
   },
 })

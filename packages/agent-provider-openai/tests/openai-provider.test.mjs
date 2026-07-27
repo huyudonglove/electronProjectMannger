@@ -121,8 +121,9 @@ test('Responses Provider maps messages, strict schemas, usage and hydrated tool 
   assert.equal(sent.text.format.strict, true)
   assert.equal(sent.text.format.schema.type, 'object')
   assert.equal(sent.input[0].content, 'Select one action.')
-  assert.match(sent.input[1].content, /Available tools/)
-  assert.match(sent.input.at(-1).content, /tool_result request_id=previous-1/)
+  assert.equal(sent.input.length, 2)
+  assert.match(sent.input[1].content, /tool_result request_id=previous-1/)
+  assert.doesNotMatch(sent.input.map((message) => message.content).join('\n'), /Available tools/)
 })
 
 test('malformed, unknown and incomplete model output becomes explicit stream errors', async () => {

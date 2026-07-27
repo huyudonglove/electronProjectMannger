@@ -27,6 +27,7 @@ const WORK_LEVEL_BOUNDARIES = {
 function workLevelRulesZh() {
   return `## 工作等级与合并规则
 
+- 指令冲突时按以下顺序处理：运行时安全边界 > 用户当前明确目标与确认 > 任务验收和任务约束 > 当前项目约束 > 协作记录规则 > 计划、并行和子 Agent 启发式策略。
 - 每张执行任务必须写 \`work_level:: light | standard | deep\`；它表示工作复杂度，与 \`priority:: low | medium | high\` 的紧急程度相互独立。
 - \`light\`：${WORK_LEVEL_BOUNDARIES.light.zh}
 - \`standard\`：${WORK_LEVEL_BOUNDARIES.standard.zh}
@@ -37,12 +38,17 @@ function workLevelRulesZh() {
 - 同一用户目标、同一版本、同一功能区域、同一轮验收中的连续 light 修改允许合并为一张任务和一条工作记录。必须列全修改文件、实际动作和验证结果。
 - 不得仅因为改动都很小就合并无关目标；需要独立排期、独立验收、独立发布或具有独立风险的改动必须分开。
 - 当 light 修改立即执行、无需排期或后续跟踪时，可以不创建任务卡，使用 \`task_short_id:: T000\`；同一用户目标在本轮验收关闭前的小修合并为一条日志，验收关闭后的新修改必须新建 Lxxx。
+- 简单明确的 light 工作直接执行，不为形式完整额外创建计划；standard、deep 或范围尚不明确的工作先建立简洁、可执行的当前计划。
+- 用户目标和验收是稳定锚点，执行计划只是可替换的工作状态。执行中应按新证据动态调整计划，但不得静默改变目标；目标需要变化、无法实现或与新约束冲突时，回到用户确认。
+- 不保存无价值的计划演变过程。协作数据只保留目标、当前有效范围、实际关键判断、结果和验证；中间尝试仅在形成高影响决策、风险或后续事项时记录。
+- 以整体完成效率为优先：运行环境支持子 Agent 时，可将边界清楚、彼此独立、能够并行或适合专项调查的工作交给子 Agent。简单顺序工作或协调成本高于收益时不要拆分；主 Agent 始终保留目标、验收、依赖协调、结果整合和最终验证责任。
 - priority 只表示紧急程度：\`high\` 仅用于阻塞当前工作、安全或数据损坏、发布关键问题；普通计划工作使用 \`medium\`；非紧急优化使用 \`low\`。priority 不得用于推断 work_level。`
 }
 
 function workLevelRulesEn() {
   return `## Work levels and merging
 
+- Resolve instruction conflicts in this order: runtime safety boundaries > the user's current explicit goal and confirmations > task acceptance and task constraints > active project constraints > collaboration record rules > planning, parallelism, and subagent heuristics.
 - Every executable task must declare \`work_level:: light | standard | deep\`. Work level describes complexity; \`priority:: low | medium | high\` describes urgency. They are independent.
 - \`light\`: ${WORK_LEVEL_BOUNDARIES.light.en}
 - \`standard\`: ${WORK_LEVEL_BOUNDARIES.standard.en}
@@ -53,16 +59,19 @@ function workLevelRulesEn() {
 - Consecutive light changes may share one task and one log only when they belong to the same user goal, active version, functional area, and acceptance cycle. List every changed file, action, and verification result.
 - Never merge unrelated goals merely because each change is small. Work requiring separate scheduling, acceptance, rollout, or risk tracking stays separate.
 - An immediately executed light change that needs no scheduling or follow-up may skip a task card and use \`task_short_id:: T000\`. Consolidate related tweaks before the current acceptance cycle closes; changes after closure require a new Lxxx.
+- Execute clear light work directly without creating a plan for ceremony. Create a concise, actionable current plan for standard, deep, or materially uncertain work.
+- The user goal and acceptance criteria are the stable anchor; the execution plan is replaceable working state. Update the plan as evidence changes, but never silently change the goal. Return to the user when the goal itself must change, is infeasible, or conflicts with a new constraint.
+- Do not preserve low-value plan churn. Collaboration data keeps the goal, current effective scope, actual key decisions, result, and verification; record intermediate attempts only when they create a high-impact decision, risk, or follow-up.
+- Optimize for overall completion time. When the runtime supports subagents, delegate clearly bounded, independent work that can run in parallel or benefits from specialist investigation. Do not split simple sequential work or work whose coordination cost exceeds the gain. The main agent retains the goal, acceptance criteria, dependency coordination, integration, and final verification.
 - Priority is urgency only: use \`high\` for current blockers, security or data-loss issues, and release-critical work; \`medium\` for normal planned work; and \`low\` for non-urgent improvements. Priority never determines work level.`
 }
 
 export function agentBriefWorkInstructions() {
   return [
-    '执行前先确定 work_level:: light | standard | deep；对应工作记录的 record_level 必须与任务最终等级一致。',
-    'light 用于单一、局部、易回退的修改；standard 用于方案明确且不涉及架构、数据/协议迁移、跨系统契约或信任边界的常规功能或修复；deep 仅用于这些高影响边界和不可逆取舍。',
-    'deep 任务必须写 depth_reason，并记录关键约束、方案与回退；文件多、步骤多或耗时长本身不构成 deep。',
-    '同一目标、版本、功能区域和验收轮次中的连续 light 修改可以合并为一张任务和一条日志，并列全文件与验证；无关目标、独立排期、独立发布或独立风险不得合并。',
-    '无需排期和后续跟踪的即时 light 修改可以不建任务，使用 task_short_id:: T000 写 light 日志；priority 只表示紧急程度，不决定 work_level。',
+    '按边界确定 work_level:: light | standard | deep：light 是单一局部且易回退的修改；standard 是方案明确的常规功能或修复；deep 仅用于架构、迁移、跨系统契约、安全边界、不可逆操作或高影响取舍，并必须记录 depth_reason、关键约束和回退。priority 只表示紧急程度。',
+    '简单明确的 light 工作直接执行，只做最小必要检查；standard、deep 或范围不明确的工作先给出简洁计划。目标和验收是稳定锚点，计划按证据动态替换；不得静默改变目标，也不保存无价值的计划演变。',
+    '同一目标、版本、功能区域和验收轮次中的连续 light 修改可以合并，并让 record_level 与最终 work_level 一致；无关目标、独立排期、发布或风险必须分开。无需跟踪的即时 light 工作可使用 task_short_id:: T000。',
+    '运行环境支持时，以整体效率为准，可将边界清楚、彼此独立、可并行或适合专项调查的工作交给子 Agent；简单顺序工作不强行拆分，主 Agent 保留目标、验收、整合和最终验证责任。',
   ]
 }
 
@@ -119,10 +128,13 @@ export function dataSpecTemplate() {
 - JSON 只作为配置、同步包和可再生成缓存。
 - 版本是协作记录的物理边界：任务、想法、研究、问题和风险保存在 \`versions/Vxxx/\`，工作记录保存在 \`versions/Vxxx/工作记录/YYYY-MM.md\`。
 - 已完成版本默认只读；新记录只写入 \`agent-brief.json.currentDataPaths\` 指向的当前版本文件。
-- 所有项目记录必须写入 \`version:: Vxxx\`，用于标识产生或主要维护阶段，避免后续检索遗漏版本上下文。
+- 所有项目级和版本级记录必须写入 \`version:: Vxxx\`，用于标识产生或主要维护阶段，避免后续检索遗漏版本上下文；跨项目共享的全局知识除外。
 - 任务、想法、研究、问题、风险和工作记录按版本进入默认展示和检索范围；文档和项目约束是项目级资料，版本号只用于追溯，不决定是否可见。
 - 任务卡必须保留用户原话、执行定义和验收，并在执行前标注 \`work_level:: light | standard | deep\`。执行定义合并 Agent 对需求的理解与本次执行范围，避免重复段落。
-- 所有记录型 Markdown 都必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Wxxx\`、\`Kxxx\`、\`Lxxx\`、\`Cxxx\` 写在较小 ID 上方，例如 \`T036\` 在 \`T001\` 上面、\`D036\` 在 \`D012\` 上面。这是写入准则，不依赖界面排序或解析层重排。
+- 简单明确的 light 工作直接执行；standard、deep 或范围不明确的工作先建立简洁可执行的当前计划，执行中按证据动态调整。用户目标和验收始终是稳定锚点，计划只是可替换的工作状态，不得静默改变目标。
+- 不把中间计划演变写成长期协作负担；只保留当前有效范围、实际关键判断、结果和验证。目标需要变化、不可行或与新约束冲突时，回到用户确认。
+- 以整体完成效率为优先。运行环境支持子 Agent 时，可并行委派边界清楚、彼此独立或适合专项调查的工作；简单顺序工作和协调成本高于收益的工作不拆分。主 Agent 负责目标、验收、依赖协调、结果整合和最终验证。
+- 同一聚合 Markdown 内的记录必须按 ID 倒序维护：较大的 \`Txxx\`、\`Ixxx\`、\`Dxxx\`、\`Qxxx\`、\`Rxxx\`、\`Lxxx\`、\`Cxxx\`、\`Vxxx\` 写在较小 ID 上方。\`Wxxx\` 和 \`Kxxx\` 是按 ID 命名的独立文件，不适用文件内排序。这是写入准则，不依赖界面排序或解析层重排。
 - 只要修改了项目交付文件（源码、配置、测试、项目文档、知识条目或协作规则），就必须写一条 Lxxx 工作记录；普通问答、想法整理、协作元数据更新和自动生成的 agent-brief/index/基线缓存不单独写日志。
 - 工作记录使用 \`record_level:: light | standard | deep\`，并与关联任务最终的 \`work_level\` 保持一致。关联任务的日志只记录结果、修改文件和验证；deep 仅在执行中实际形成或改变高影响取舍时增加关键判断。只有使用 \`task_short_id:: T000\` 的即时 light 日志额外保留用户目标。
 - 工作记录本身是交付记录，不因为写入任务状态、问题回复、研究状态或派生缓存而递归生成新的工作记录。
@@ -153,7 +165,7 @@ ${workLevelRulesZh()}
 
 ## 详细规则
 
-完整的数据规则和日志模板见同一数据目录下的 数据层规范.md。
+字段格式见下文；Agent 操作协作数据时以 \`${SKILL_PATH}\` 为完整规则来源。
 
 - 想法/输入是收集入口，不代表承诺执行。
 - 整理想法时只更新当前版本 \`想法与问题.md\` 的 \`### 回答\`，必要时创建或关联任务短 ID。
@@ -396,8 +408,11 @@ export function handoffTemplate(projectRoot: string) {
 6. 执行前标注 \`work_level:: light | standard | deep\`；工作记录的 \`record_level\` 必须与任务最终等级一致。
 7. 同一目标和验收轮次中的连续 light 修改允许合并；无关目标、独立排期、独立发布或独立风险不得合并。
 8. 无需排期和后续跟踪的即时 light 修改可不创建任务卡，使用 \`task_short_id:: T000\` 写一条 light 日志。
-9. 执行任务前设为 doing，验收后设为 done；所有文件修改仍必须列入对应 Lxxx 的修改文件和验证结果。
-10. 任务状态、问题回复、研究状态和 brief/index/基线等派生缓存不单独触发日志；想法整理只补 ### 回答。
+9. 简单明确的 light 工作直接执行；standard、deep 或范围不明确的工作先建立简洁计划，执行时允许动态调整，但用户目标和验收必须始终保留为稳定锚点。
+10. 不记录无价值的计划演变；只保留当前有效范围、关键判断、结果和验证。目标本身需要变化时回到用户确认。
+11. 以整体完成效率为优先；环境支持时，可将边界清楚、彼此独立、可并行或适合专项调查的工作交给子 Agent。简单顺序工作不强行拆分，主 Agent 保留目标、验收、整合和最终验证责任。
+12. 执行任务前设为 doing，验收后设为 done；所有文件修改仍必须列入对应 Lxxx 的修改文件和验证结果。
+13. 任务状态、问题回复、研究状态和 brief/index/基线等派生缓存不单独触发日志；想法整理只补 ### 回答。
 
 ## 工作流顺序
 
@@ -559,12 +574,12 @@ Use this skill when working on this project with Electron Manager initialized da
 - Use the active version and the paths in \`agent-brief.json.currentDataPaths\` by default. Completed versions are read-only history; project documents, knowledge notes, and constraints remain project-wide.
 - Before executing a task, set its status to \`doing\`.
 - After verification, set its status to \`done\`.
-- Keep all record Markdown physically ordered by descending record ID: larger \`Txxx\`, \`Ixxx\`, \`Dxxx\`, \`Wxxx\`, \`Kxxx\`, \`Lxxx\`, and \`Cxxx\` entries must appear above smaller IDs, for example \`T036\` above \`T001\` and \`D036\` above \`D012\`. This is a writing rule; do not rely on UI sorting or parser reordering to fix record order.
+- Keep entries in each aggregate Markdown file physically ordered by descending record ID: larger \`Txxx\`, \`Ixxx\`, \`Dxxx\`, \`Qxxx\`, \`Rxxx\`, \`Lxxx\`, \`Cxxx\`, and \`Vxxx\` entries appear above smaller IDs. \`Wxxx\` and \`Kxxx\` are separate files named by ID, so in-file ordering does not apply. Do not rely on UI sorting or parser reordering to fix record order.
 - Keep user wording, one combined execution definition, acceptance, and \`work_level\` explicit in tasks. Deep tasks additionally require \`depth_reason\`, \`### 关键约束\`, and \`### 方案与回退\`.
 - Any change to source, configuration, tests, project documents, knowledge notes, or collaboration rules requires one agent log with \`log_short_id:: Lxxx\` per task and acceptance cycle, not per changed file. Consolidate related tweaks before that cycle closes; after it closes, a new change gets a new log.
 - A linked light or standard log contains only \`### 结果\`, \`### 修改文件\`, and \`### 验证\`. A deep log adds \`### 关键判断\` only when execution creates or changes a high-impact decision. A \`T000\` light log also contains \`### 用户目标\` because no task card exists.
 - Define and read acceptance in the task before execution. State completion in \`### 结果\` and record checks in \`### 验证\`; do not copy task intent, scope, or acceptance into the log.
-- Keep questions append-only in the current version's 待确认事项.md: open waits for the user, decided waits for the Agent, resolved is complete. Use Qxxx only for a genuine decision, clarification, blocker, or follow-up.
+- Keep questions append-only in the current version's 待确认事项.md: open waits for the user, decided waits for the Agent, resolved is complete. Use Qxxx only for a genuine conversational decision, clarification, or blocker.
 - Put technical risks and non-conversational follow-ups in 风险与后续.md. Do not create inline 未确认事项 sections.
 - Store continuing risks, verification gaps, and follow-up work in one \`Rxxx\`; mention its ID in the log result instead of copying the risk text.
 - Use Wxxx for project documents, Kxxx for shared stable knowledge, and Cxxx for project constraints. These records are independently deletable; references do not cascade.

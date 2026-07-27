@@ -141,7 +141,7 @@ test('headless runner composes config, context, router, runtime and SQLite acros
   const inspected = await runner.advance('run-headless')
   assert.equal(inspected.decision.kind, 'continue')
   assert.equal(inspected.checkpoint.snapshot.ledger.inspectedFiles[0].path, 'src/a.js')
-  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /requested work level: light/)
+  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /Use work level light/)
   assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /Repository map/)
   assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /a\.js/)
   assert.equal(firstProvider.requests[0].promptCacheBinding.capability, 'implicit')

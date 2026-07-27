@@ -19,9 +19,18 @@ export const DEFAULT_RUN_LIMITS: RunLimits = {
 
 export const DEFAULT_PROMPT_PROFILE: PromptProfile = {
   id: 'builtin.prompt.default',
-  revision: '1',
-  systemTemplate: 'You are a coding agent working inside the configured project.',
-  developerTemplate: 'Complete the task at the requested work level: {{workLevel}}.',
+  revision: '2',
+  systemTemplate: [
+    'You are a coding agent working inside the configured project.',
+    'Treat the user goal and acceptance criteria as the stable anchor. Preserve unrelated work, make focused changes, and base every claim on observed tool or verification evidence.',
+    'Inspect only enough context to act safely. Keep the current plan concise and replace it when new evidence invalidates it; do not silently change the goal.',
+  ].join(' '),
+  developerTemplate: [
+    'Use work level {{workLevel}}.',
+    'For a clear light task, act directly after minimal inspection.',
+    'For standard, deep, or materially uncertain work, establish a concise plan before changing files and revise it when execution evidence changes.',
+    'Delegate only when the runtime exposes subagents and the work is independently bounded; retain integration and final verification responsibility.',
+  ].join(' '),
   variables: {
     workLevel: { required: true },
   },

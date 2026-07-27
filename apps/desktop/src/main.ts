@@ -39,6 +39,8 @@ let managerDataRoot = ''
 let projectWatchers: FSWatcher[] = []
 let watchedProjectRoot = ''
 let watcherTimer: NodeJS.Timeout | null = null
+let cancelAllAgentRuns: (() => number) | null = null
+let agentShutdownComplete = false
 
 app.setPath('userData', path.join(app.getPath('appData'), 'electron-manager'))
 
@@ -73,8 +75,22 @@ app.whenReady().then(async () => {
     }
   }
   registerIpc()
-  registerAgentIpc(managerDataRoot)
+  const agentIpc = registerAgentIpc(managerDataRoot, (notification) => {
+    mainWindow?.webContents.send('agent:runs:changed', notification)
+  })
+  cancelAllAgentRuns = () => agentIpc.coordinator.cancelAllActiveRuns()
   await createWindow()
+})
+
+app.on('before-quit', (event) => {
+  if (agentShutdownComplete) return
+  const cancelled = cancelAllAgentRuns?.() || 0
+  if (!cancelled) return
+  event.preventDefault()
+  setTimeout(() => {
+    agentShutdownComplete = true
+    app.quit()
+  }, 650)
 })
 
 app.on('window-all-closed', () => {

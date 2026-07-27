@@ -92,6 +92,10 @@ export interface DesktopRunView {
   stepCount: number
   eventSequence: number
   nextAction?: string
+  resume: {
+    kind: 'continue' | 'awaiting_approval' | 'replay' | 'reconcile' | 'blocked' | 'terminal'
+    reason: string
+  }
   waiting?: {
     id: string
     kind: 'plan_approval' | 'tool_approval' | 'user_input'

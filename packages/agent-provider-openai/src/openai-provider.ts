@@ -8,7 +8,6 @@ import {
   type ModelRequest,
   type ModelStreamEvent,
   type SerializedAgentError,
-  type ToolDefinition,
 } from '@electron-manager/agent-core'
 
 import { createAgentTurnActionSchema, hydrateAgentTurnAction } from './action-schema.js'
@@ -130,25 +129,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
 }
 
 function requestInput(request: ModelRequest): OpenAIResponseInputMessage[] {
-  const prefixLength = request.messages.findIndex((message) => message.role !== 'system')
-  const stableSystemCount = prefixLength === -1 ? request.messages.length : prefixLength
-  return [
-    ...request.messages.slice(0, stableSystemCount).map(mapMessage),
-    toolCatalogMessage(request.tools),
-    ...request.messages.slice(stableSystemCount).map(mapMessage),
-  ]
-}
-
-function toolCatalogMessage(tools: ToolDefinition[]): OpenAIResponseInputMessage {
-  return {
-    role: 'developer',
-    content: [
-      'Return exactly one action matching the supplied JSON schema.',
-      'Request ids must be unique and stable because later evidence refers to them.',
-      'Null in an optional tool field means omit that field. Never claim a tool result before it appears in the ledger.',
-      `Available tools: ${JSON.stringify(tools.map(({ name, description, risk, riskCategory, baseRiskLevel }) => ({ name, description, riskCategory: riskCategory || risk, baseRiskLevel })))}`,
-    ].join('\n'),
-  }
+  return request.messages.map(mapMessage)
 }
 
 function mapMessage(message: ModelMessage): OpenAIResponseInputMessage {

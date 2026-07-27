@@ -36,7 +36,11 @@ export class DesktopAgentCoordinator {
   readonly #createRunId: () => string
   readonly #clock: () => string
   readonly #listeners = new Set<DesktopRunListener>()
-  readonly #active = new Map<string, AbortController>()
+  readonly #active = new Map<string, {
+    projectRoot: string
+    runId: string
+    controller: AbortController
+  }>()
 
   constructor(options: DesktopAgentCoordinatorOptions) {
     if (!options.managerDataRoot.trim()) throw new Error('Manager data root is required')
@@ -99,11 +103,23 @@ export class DesktopAgentCoordinator {
     })
   }
 
-  cancelActiveRun(runId: string) {
-    const controller = this.#active.get(runId)
-    if (!controller) return false
-    controller.abort()
-    return true
+  cancelActiveRun(runId: string, projectRoot?: string) {
+    let cancelled = false
+    for (const operation of this.#active.values()) {
+      if (operation.runId !== runId || (projectRoot && operation.projectRoot !== projectRoot)) continue
+      operation.controller.abort()
+      cancelled = true
+    }
+    return cancelled
+  }
+
+  cancelAllActiveRuns() {
+    let cancelled = 0
+    for (const operation of this.#active.values()) {
+      operation.controller.abort()
+      cancelled += 1
+    }
+    return cancelled
   }
 
   async getRun(projectRoot: string, runId: string): Promise<DesktopRunDetail | null> {
@@ -143,14 +159,16 @@ export class DesktopAgentCoordinator {
     externalSignal: AbortSignal | undefined,
     action: (runner: DesktopAgentRunner, signal: AbortSignal) => Promise<{ checkpoint: LoadedCheckpoint }>,
   ) {
-    if (this.#active.has(runId)) throw new DesktopAgentCoordinatorError('RUN_OPERATION_ACTIVE', `Run already has an active operation: ${runId}`)
-    const current = await this.#load(projectRoot, runId)
-    if (!current) throw new DesktopAgentCoordinatorError('RUN_NOT_FOUND', `Agent Run does not exist: ${runId}`)
-    assertRunIdentity(current.snapshot.ledger, projectRoot, current.snapshot.ledger.taskId, current.snapshot.ledger.workLevel)
+    const operationKey = activeOperationKey(projectRoot, runId)
+    if (this.#active.has(operationKey)) throw new DesktopAgentCoordinatorError('RUN_OPERATION_ACTIVE', `Run already has an active operation: ${runId}`)
     const linked = linkedAbortController(externalSignal)
-    this.#active.set(runId, linked.controller)
+    const operation = { projectRoot, runId, controller: linked.controller }
+    this.#active.set(operationKey, operation)
     let runner: DesktopAgentRunner | undefined
     try {
+      const current = await this.#load(projectRoot, runId)
+      if (!current) throw new DesktopAgentCoordinatorError('RUN_NOT_FOUND', `Agent Run does not exist: ${runId}`)
+      assertRunIdentity(current.snapshot.ledger, projectRoot, current.snapshot.ledger.taskId, current.snapshot.ledger.workLevel)
       runner = await this.#openRunner(projectRoot, current.snapshot.ledger.workLevel)
       const result = await action(runner, linked.controller.signal)
       const settled = await this.#settle(projectRoot, result.checkpoint.snapshot.ledger)
@@ -160,7 +178,7 @@ export class DesktopAgentCoordinator {
     } finally {
       runner?.close()
       linked.dispose()
-      this.#active.delete(runId)
+      if (this.#active.get(operationKey) === operation) this.#active.delete(operationKey)
     }
   }
 
@@ -217,6 +235,10 @@ export class DesktopAgentCoordinator {
       }
     }
   }
+}
+
+function activeOperationKey(projectRoot: string, runId: string) {
+  return JSON.stringify([projectRoot, runId])
 }
 
 function assertRunIdentity(ledger: RunLedger, projectRoot: string, taskId: string | undefined, workLevel: RunLedger['workLevel']) {

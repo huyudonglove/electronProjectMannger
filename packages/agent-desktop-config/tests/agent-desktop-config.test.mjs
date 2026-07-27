@@ -15,13 +15,49 @@ import { appendTask, getDashboard, initProject } from '@electron-manager/project
 
 import {
   DesktopAgentConfigService,
+  DesktopAgentPermissionPolicy,
   DesktopAgentSettingsService,
   DesktopAgentSettingsStore,
   DesktopModelProviderFactory,
   desktopAgentProjectStoragePaths,
   desktopAgentSettingsPath,
+  inferDesktopVerificationPlan,
   settingsInputFrom,
 } from '../dist/index.js'
+
+test('desktop verification plan selects one deterministic repository script', async (t) => {
+  const root = await temporaryRoot(t, 'verification-plan')
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'node --test', build: 'tsc' },
+  }), 'utf8')
+  await writeFile(path.join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n', 'utf8')
+  assert.deepEqual(await inferDesktopVerificationPlan(root), {
+    checks: [{
+      id: 'package-script-test',
+      label: '运行项目 test 脚本',
+      required: true,
+      command: ['pnpm', 'run', 'test'],
+      timeoutMs: 120_000,
+    }],
+  })
+
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'echo "Error: no test specified" && exit 1', build: 'vite build' },
+  }), 'utf8')
+  assert.equal((await inferDesktopVerificationPlan(root)).checks[0].id, 'package-script-build')
+})
+
+test('desktop permission policy allows project-local work and denies unsupported risks', () => {
+  const policy = new DesktopAgentPermissionPolicy()
+  const ledger = {}
+  const request = { id: 'request-1', name: 'fixture', input: {}, requestedAt: 'now', actionDigest: 'digest' }
+  const tool = (name, risk) => ({ name, description: name, inputSchema: { type: 'object' }, risk })
+
+  assert.equal(policy.decide(request, tool('read_file', 'read'), ledger).effect, 'allow')
+  assert.equal(policy.decide(request, tool('apply_patch', 'project_write'), ledger).effect, 'allow')
+  assert.equal(policy.decide(request, tool('exec_command', 'process'), ledger).effect, 'ask')
+  assert.equal(policy.decide(request, tool('remote_write', 'external_write'), ledger).effect, 'deny')
+})
 
 test('settings service exposes only credential status and applies revision-checked model settings', async (t) => {
   const root = await temporaryRoot(t, 'settings-service')

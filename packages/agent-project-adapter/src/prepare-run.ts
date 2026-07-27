@@ -66,8 +66,7 @@ export function prepareProjectTaskRun(
   }
   const taskConstraints = splitMarkdownRequirements(task.constraints)
   const constraintRefs = activeConstraints(dashboard.constraints).map((constraint) => constraintRef(constraint))
-  const instructions = dashboard.agentBrief.instructions.map((instruction) => `[project-instruction] ${instruction}`)
-  const constraints = deduplicate([...taskConstraints, ...constraintRefs.map((item) => item.text), ...instructions])
+  const constraints = deduplicate([...taskConstraints, ...constraintRefs.map((item) => item.text)])
   const sourceRefs = deduplicate([
     `project:${dashboard.config.projectId}`,
     `version:${task.version}`,
@@ -180,7 +179,7 @@ function cloneVerificationPlan(value: PrepareProjectRunInput['verificationPlan']
 
 function activeConstraints(constraints: ProjectConstraint[]) {
   return constraints
-    .filter((constraint) => constraint.status === 'active' || constraint.status === 'readonly')
+    .filter((constraint) => constraint.source === 'user' && (constraint.status === 'active' || constraint.status === 'readonly'))
     .sort((left, right) => left.shortId.localeCompare(right.shortId) || left.id.localeCompare(right.id))
 }
 

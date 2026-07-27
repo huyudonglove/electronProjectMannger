@@ -27,6 +27,7 @@ export function createAgentTurnActionSchema(tools: ToolDefinition[]): Record<str
   branches.push(planBranch(), finishBranch(), blockedBranch())
   return {
     type: 'object',
+    description: 'Select exactly one valid action for the current run phase.',
     properties: { action: { anyOf: branches } },
     required: ['action'],
     additionalProperties: false,
@@ -92,8 +93,8 @@ function toolActionBranches(kind: 'inspect' | 'tool' | 'verify', tools: ToolDefi
   return tools.map((tool) => ({
     type: 'object',
     properties: {
-      kind: { type: 'string', const: kind },
-      ...(verification ? { checkId: { type: 'string' } } : {}),
+      kind: { type: 'string', const: kind, description: actionKindDescription(kind) },
+      ...(verification ? { checkId: { type: 'string', description: 'The configured verification check id whose command this request exactly implements.' } } : {}),
       request: {
         type: 'object',
         properties: {
@@ -114,10 +115,10 @@ function planBranch() {
   return {
     type: 'object',
     properties: {
-      kind: { type: 'string', const: 'plan' },
-      id: { type: 'string' },
-      summary: { type: 'string' },
-      rationale: { type: 'string' },
+      kind: { type: 'string', const: 'plan', description: 'Establish or materially revise the current execution plan.' },
+      id: { type: 'string', description: 'A stable plan identifier; reuse it when revising the same plan.' },
+      summary: { type: 'string', description: 'A concise ordered plan focused on the next useful steps.' },
+      rationale: { type: 'string', description: 'Why this plan fits the goal, acceptance criteria, constraints, and current evidence.' },
     },
     required: ['kind', 'id', 'summary', 'rationale'],
     additionalProperties: false,
@@ -128,9 +129,9 @@ function finishBranch() {
   const diff = {
     type: 'object',
     properties: {
-      toolRequestId: { type: 'string' },
+      toolRequestId: { type: 'string', description: 'Request id of a successful git_diff tool result.' },
       changedFiles: { type: 'array', items: { type: 'string' } },
-      summary: { type: 'string' },
+      summary: { type: 'string', description: 'Concise completion result grounded in recorded evidence.' },
     },
     required: ['toolRequestId', 'changedFiles', 'summary'],
     additionalProperties: false,
@@ -145,9 +146,9 @@ function finishBranch() {
         items: {
           type: 'object',
           properties: {
-            criterionId: { type: 'string' },
-            summary: { type: 'string' },
-            refs: { type: 'array', items: { type: 'string' } },
+            criterionId: { type: 'string', description: 'An acceptance criterion id from the run facts.' },
+            summary: { type: 'string', description: 'How the cited evidence satisfies this criterion.' },
+            refs: { type: 'array', items: { type: 'string' }, description: 'References to successful tool or verification evidence already present in the run facts.' },
           },
           required: ['criterionId', 'summary', 'refs'],
           additionalProperties: false,
@@ -164,13 +165,19 @@ function blockedBranch() {
   return {
     type: 'object',
     properties: {
-      kind: { type: 'string', const: 'blocked' },
-      summary: { type: 'string' },
-      reason: { type: 'string' },
+      kind: { type: 'string', const: 'blocked', description: 'Stop only for a genuine blocker that cannot be resolved with available tools or evidence.' },
+      summary: { type: 'string', description: 'Concise blocker summary.' },
+      reason: { type: 'string', description: 'The external input, unavailable capability, or goal conflict preventing further progress.' },
     },
     required: ['kind', 'summary', 'reason'],
     additionalProperties: false,
   }
+}
+
+function actionKindDescription(kind: 'inspect' | 'tool' | 'verify') {
+  if (kind === 'inspect') return 'Read relevant project context during the inspection phase.'
+  if (kind === 'verify') return 'Run one configured verification check using its exact command.'
+  return 'Perform the next concrete execution or read-only evidence action allowed in the current phase.'
 }
 
 function strictToolSchema(schema: JsonSchema): Record<string, unknown> {

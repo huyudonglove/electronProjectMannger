@@ -401,7 +401,7 @@ export class AgentStepper {
 
   #applyPlan(state: StepState, action: Extract<AgentTurnAction, { kind: 'plan' }>): AgentStepResult {
     if (state.ledger.phase === 'inspecting') this.#phase(state, 'planning')
-    else if (state.ledger.phase !== 'planning') throw new AgentCoreError('INVALID_TRANSITION', 'Plan action is not valid in the current phase')
+    else if (!['planning', 'acting', 'repairing'].includes(state.ledger.phase)) throw new AgentCoreError('INVALID_TRANSITION', 'Plan action is not valid in the current phase')
     state.ledger = recordDecision(state.ledger, {
       id: action.id,
       summary: action.summary,
@@ -409,7 +409,7 @@ export class AgentStepper {
       at: this.#clock(),
     })
     if (state.ledger.workLevel !== 'deep') {
-      this.#phase(state, 'acting')
+      if (state.ledger.phase !== 'acting') this.#phase(state, 'acting')
       return state.result('continue', action.summary)
     }
     const at = this.#clock()
@@ -686,19 +686,16 @@ export function projectLedgerMessages(ledger: RunLedger): ModelMessage[] {
     acceptanceCriteria: ledger.acceptanceCriteria,
     verificationPlan: ledger.verificationPlan,
     inspectedFiles: ledger.inspectedFiles,
-    decisions: ledger.decisions,
+    decisions: ledger.decisions.slice(-12),
     changes: ledger.changes,
     verifications: ledger.verifications,
     failures: ledger.failures,
-    modelAttempts: ledger.modelAttempts.slice(-8),
-    contextEnvelopes: ledger.contextEnvelopes.slice(-4),
-    compactions: ledger.compactions.slice(-4),
     nextAction: ledger.nextAction,
   }
   const messages: ModelMessage[] = [
     {
       role: 'system',
-      content: 'Choose exactly one structured AgentTurnAction. RunLedger is authoritative; never claim that a tool, verification, approval, or change occurred unless it is present in the ledger projection.',
+      content: 'Return exactly one structured AgentTurnAction. RunLedger and tool results are authoritative; never invent tool results, verification, approval, changes, or evidence. Plan before standard or deep changes and revise the plan from acting or repairing when evidence materially invalidates it. Finish only with recorded acceptance evidence and a successful final diff.',
     },
     { role: 'user', content: JSON.stringify(snapshot) },
   ]

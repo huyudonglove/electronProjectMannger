@@ -66,12 +66,13 @@ export class LocalRuntimeServices {
     return resolveProjectDirectory(this.projectRoot, requestedPath)
   }
 
-  run(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}) {
+  run(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}) {
     return runProcess(command, args, {
       cwd: options.cwd || this.projectRoot,
       timeoutMs: options.timeoutMs ?? this.timeoutMs,
       maxOutputChars: this.maxOutputChars,
       ...(options.env ? { env: options.env } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
     })
   }
 
@@ -210,8 +211,35 @@ export function cliAvailability(toolName: string, checkedAt: string, backends: B
 }
 
 export function commandEnvironment(): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {}
+  const allowedKeys = new Set([
+    'PATH',
+    'HOME',
+    'TMPDIR',
+    'TMP',
+    'TEMP',
+    'LANG',
+    'LANGUAGE',
+    'TERM',
+    'COLORTERM',
+    'USER',
+    'USERNAME',
+    'LOGNAME',
+    'SHELL',
+    'SYSTEMROOT',
+    'WINDIR',
+    'COMSPEC',
+    'PATHEXT',
+    'APPDATA',
+    'LOCALAPPDATA',
+  ])
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && (allowedKeys.has(key.toUpperCase()) || key.startsWith('LC_'))) {
+      environment[key] = value
+    }
+  }
   return {
-    ...process.env,
+    ...environment,
     CI: '1',
     NO_COLOR: '1',
     FORCE_COLOR: '0',

@@ -112,7 +112,11 @@ export function recordInspection(ledger: RunLedger, inspection: InspectionRecord
 }
 
 export function recordDecision(ledger: RunLedger, decision: DecisionRecord): RunLedger {
-  return update(ledger, decision.at, { decisions: [...ledger.decisions, { ...decision }] })
+  const existingIndex = ledger.decisions.findIndex((item) => item.id === decision.id)
+  if (existingIndex === -1) return update(ledger, decision.at, { decisions: [...ledger.decisions, { ...decision }] })
+  const decisions = [...ledger.decisions]
+  decisions[existingIndex] = { ...decision }
+  return update(ledger, decision.at, { decisions })
 }
 
 export function recordToolRequest(ledger: RunLedger, request: ToolRequest): RunLedger {

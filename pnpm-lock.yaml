@@ -23,6 +23,9 @@ importers:
       '@electron-manager/agent-desktop-config':
         specifier: workspace:*
         version: link:../../packages/agent-desktop-config
+      '@electron-manager/agent-desktop-coordinator':
+        specifier: workspace:*
+        version: link:../../packages/agent-desktop-coordinator
       '@electron-manager/project-core':
         specifier: workspace:*
         version: link:../../packages/project-core
