@@ -5,12 +5,16 @@ import type {
 } from '@electron-manager/agent-config'
 import type { OpenAIResponsesTransport } from '@electron-manager/agent-provider-openai'
 import type { ModelProviderRegistration } from '@electron-manager/agent-runner'
+import type { ProjectMemoryDocument } from '@electron-manager/agent-memory'
 import type { CredentialVaultSnapshot } from '@electron-manager/agent-credential-vault'
 
 export const DESKTOP_AGENT_SETTINGS_SCHEMA_VERSION = 1 as const
 
 export interface OpenAIDesktopProviderSettings {
   provider: 'openai'
+  providerId?: string
+  connectionSource?: 'credential-vault' | 'telance-local-proxy'
+  apiStyle?: 'responses' | 'chat-completions'
   baseUrl?: string
   organization?: string
   project?: string
@@ -37,7 +41,7 @@ export interface CredentialResolver {
 }
 
 export interface OpenAITransportFactoryInput {
-  apiKey: string
+  apiKey?: string
   baseUrl?: string
   organization?: string
   project?: string
@@ -62,34 +66,110 @@ export interface DesktopResolvedAgentConfiguration {
   layers: AgentConfigLayer[]
   providers: ModelProviderRegistration[]
   projectRulesRevision: string
+  projectMemoryDocuments: ProjectMemoryDocument[]
+}
+
+export interface DesktopProjectMemoryStatusView {
+  enabled: boolean
+  profile: {
+    id: string
+    revision: string
+    mode: 'minimal' | 'balanced' | 'extended'
+    sourceBudgets: {
+      runFacts: number
+      session: number
+      project: number
+      user: number
+    }
+  }
+  sources: {
+    total: number
+    byKind: {
+      constraints: number
+      documents: number
+      knowledge: number
+    }
+    byTrust: {
+      trustedProject: number
+      untrusted: number
+    }
+  }
 }
 
 export interface DesktopOpenAIModelSettingsView {
   profileId: string
   provider: 'openai'
+  providerId: string
   model: string
-  credentialRef: string
-  credentialConfigured: boolean
-  credentialUpdatedAt?: string
-  organization?: string
-  project?: string
+  connectionSource: 'credential-vault' | 'telance-local-proxy'
+  connectionConfigured: boolean
+  desktopAvailable: boolean
+  availabilityReason?: string
   reasoningEffort: NonNullable<OpenAIDesktopProviderSettings['reasoningEffort']>
   verbosity: NonNullable<OpenAIDesktopProviderSettings['verbosity']>
 }
 
+export interface DesktopModelSelectionInput {
+  providerId: string
+  model: string
+  reasoningEffort?: NonNullable<OpenAIDesktopProviderSettings['reasoningEffort']>
+  verbosity?: NonNullable<OpenAIDesktopProviderSettings['verbosity']>
+}
+
+export interface DesktopEffectiveModelSelectionView extends DesktopOpenAIModelSettingsView {
+  role: 'primary' | 'fallback'
+  order: number
+}
+
+export interface DesktopEffectiveModelRouteView {
+  routeId: string
+  source: 'built_in' | 'user' | 'project'
+  projectId?: string
+  selections: DesktopEffectiveModelSelectionView[]
+}
+
+export interface DesktopBackendProviderOption {
+  id: string
+  name: string
+  models: string[]
+  defaultModel: string
+  free: boolean
+  configured: boolean
+  transport: 'loopback-proxy' | 'browser-direct'
+  desktopAvailable: boolean
+}
+
+export interface DesktopBackendProviderCatalogView {
+  source: 'telance-local-proxy'
+  label: string
+  available: boolean
+  activeProviderId: string
+  providers: DesktopBackendProviderOption[]
+  error?: string
+}
+
 export interface DesktopAgentSettingsView {
   settingsRevision: string
-  credentialRevision: string
+  providerCatalog: DesktopBackendProviderCatalogView
   models: DesktopOpenAIModelSettingsView[]
+  effectiveModelRoute: DesktopEffectiveModelRouteView
+  projectMemory?: DesktopProjectMemoryStatusView
 }
 
 export interface DesktopOpenAIModelSettingsPatch {
   expectedRevision: string
   profileId: string
-  organization?: string
-  project?: string
+  providerId: string
+  model: string
   reasoningEffort: NonNullable<OpenAIDesktopProviderSettings['reasoningEffort']>
   verbosity: NonNullable<OpenAIDesktopProviderSettings['verbosity']>
+}
+
+export interface DesktopProjectModelRoutePatch {
+  expectedRevision: string
+  projectId: string
+  primary: DesktopModelSelectionInput
+  fallbacks: DesktopModelSelectionInput[]
 }
 
 export interface DesktopModelCredentialInput {

@@ -2,9 +2,11 @@ export type AgentIpcRiskLevel = 'low' | 'medium' | 'high'
 
 export const AGENT_IPC = {
   getSettings: { channel: 'agent:settings:get', risk: 'low' },
+  getModelDiagnostics: { channel: 'agent:model-diagnostics:list', risk: 'low' },
+  listChats: { channel: 'agent:chats:list', risk: 'low' },
+  sendChat: { channel: 'agent:chats:send', risk: 'medium' },
   updateOpenAIModel: { channel: 'agent:settings:update-openai', risk: 'medium' },
-  setModelCredential: { channel: 'agent:credential:set', risk: 'high' },
-  deleteModelCredential: { channel: 'agent:credential:delete', risk: 'high' },
+  updateProjectModelRoute: { channel: 'agent:settings:update-project-model-route', risk: 'medium' },
   listRuns: { channel: 'agent:runs:list', risk: 'low' },
   getRun: { channel: 'agent:runs:get', risk: 'low' },
   startTask: { channel: 'agent:runs:start-task', risk: 'medium' },

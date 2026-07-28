@@ -21,6 +21,12 @@ import {
   toolInventoryFromRegistrySnapshot,
 } from '../dist/index.js'
 
+test('default prompt profile is sourced from the managed Chinese prompt catalog', () => {
+  assert.equal(DEFAULT_PROMPT_PROFILE.revision, '4')
+  assert.match(DEFAULT_PROMPT_PROFILE.systemTemplate, /编码 Agent/)
+  assert.match(DEFAULT_PROMPT_PROFILE.developerTemplate, /\{\{workLevel\}\}/)
+})
+
 function fixture() {
   const model = {
     id: 'model.primary',

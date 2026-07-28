@@ -39,7 +39,7 @@ export function createDefaultDesktopAgentSettingsInput(): DesktopAgentSettingsIn
     capabilities: {
       structuredOutput: true,
       toolCalls: true,
-      contextWindow: 1_000_000,
+      contextWindow: 1_050_000,
       maxOutputTokens: 128_000,
       promptCache: 'implicit',
     },
@@ -60,7 +60,7 @@ export function createDefaultDesktopAgentSettingsInput(): DesktopAgentSettingsIn
       maxAttempts: 3,
       totalTimeoutMs: 180_000,
       totalTokenBudget: 120_000,
-      retryableErrors: ['rate_limit', 'timeout', 'service_unavailable', 'transport'],
+      retryableErrors: ['rate_limit', 'timeout', 'service_unavailable', 'transport', 'invalid_output'],
     },
   }
   const catalog: AgentConfigCatalog = {

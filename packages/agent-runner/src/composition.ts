@@ -13,6 +13,7 @@ import {
   toolInventoryFromRegistrySnapshot,
   type AgentConfigSnapshot,
   type ResolvedAgentConfig,
+  type ResolvedModelRoute,
 } from '@electron-manager/agent-config'
 import {
   CachingTokenEstimator,
@@ -25,7 +26,14 @@ import {
   type ContextBudget,
   type ContextSource,
 } from '@electron-manager/agent-context'
-import { DeterministicSessionCompactor, sessionCompactionPolicyFromProfile } from '@electron-manager/agent-memory'
+import {
+  DeterministicSessionCompactor,
+  ModelBackedSessionCompactor,
+  PROJECT_MEMORY_RETRIEVAL_REVISION,
+  ProjectMemoryIndex,
+  createProjectMemoryContextSources,
+  sessionCompactionPolicyFromProfile,
+} from '@electron-manager/agent-memory'
 import { ModelProviderRegistry, ModelRouter } from '@electron-manager/agent-model-router'
 import {
   DEFAULT_MAX_OUTPUT_ARTIFACT_BYTES,
@@ -46,6 +54,8 @@ import {
 } from '@electron-manager/agent-runtime-local'
 
 import type { HeadlessAgentRunnerOptions } from './types.js'
+import { createModelRouteSessionSummarizer } from './route-summarizer.js'
+import { encodeProjectMemorySnapshot } from './project-memory-snapshot.js'
 
 export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) {
   const projectRoot = path.resolve(options.projectRoot)
@@ -91,7 +101,14 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
     return tool
   })
   const providerByProfile = registrations(options)
-  const selectedProfiles = [resolved.config.model.primary, ...resolved.config.model.fallbacks]
+  const summarizerRoute = resolved.config.memory.summarizerRouteId
+    ? resolveConfiguredRoute(options, resolved.config.memory.summarizerRouteId)
+    : undefined
+  const selectedProfiles = uniqueProfiles([
+    resolved.config.model.primary,
+    ...resolved.config.model.fallbacks,
+    ...(summarizerRoute ? [summarizerRoute.primary, ...summarizerRoute.fallbacks] : []),
+  ])
   const providerRegistry = new ModelProviderRegistry(selectedProfiles.map((profile) => {
     const provider = providerByProfile.get(profile.id)
     if (!provider) throw new AgentCoreError('INVALID_INPUT', `No provider registered for selected model profile: ${profile.id}`)
@@ -102,13 +119,46 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
     registry: providerRegistry,
     clock,
     ...(options.now ? { now: options.now } : {}),
+    ...(options.onModelAttempt ? { onAttempt: options.onModelAttempt } : {}),
   })
+  const summarizerRouter = summarizerRoute ? new ModelRouter({
+    route: summarizerRoute,
+    registry: providerRegistry,
+    clock,
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.onModelAttempt ? { onAttempt: options.onModelAttempt } : {}),
+  }) : undefined
 
   const estimator = new CachingTokenEstimator(new DeterministicTokenEstimator())
-  const compactor = new DeterministicSessionCompactor({
+  const compactorOptions = {
     policy: sessionCompactionPolicyFromProfile(resolved.config.memory),
     tokenEstimator: estimator,
-  })
+  }
+  const sessionSummarizer = summarizerRouter && summarizerRoute
+    ? createModelRouteSessionSummarizer(
+      summarizerRouter,
+      summarizerRoute.route.id,
+      summarizerRoute.route.revision,
+    )
+    : undefined
+  const compactor = summarizerRouter && summarizerRoute
+    ? new ModelBackedSessionCompactor({
+      ...compactorOptions,
+      summarizer: sessionSummarizer!,
+      onDiagnostic: options.onMemoryDiagnostic,
+    })
+    : new DeterministicSessionCompactor(compactorOptions)
+  const projectMemoryIndex = resolved.config.memory.mode === 'minimal' || !(options.projectMemoryDocuments?.length)
+    ? undefined
+    : new ProjectMemoryIndex(options.projectMemoryDocuments, {
+      retrievalRevision: options.projectMemoryRetrievalRevision,
+    })
+  const projectMemorySnapshot = projectMemoryIndex
+    ? encodeProjectMemorySnapshot(options.projectMemoryDocuments!)
+    : undefined
+  const projectMemorySnapshotArtifact = projectMemorySnapshot
+    ? await outputStore.put(projectMemorySnapshot.content)
+    : undefined
   const sources = [
     configuredPromptSource(resolved.config),
     ...createLedgerContextSources().map((source) => applySourceBudget(source, resolved.config)),
@@ -117,6 +167,10 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
       repoMapConfig.maxTokens,
       repoMapArtifact ? [repoMapArtifact.ref] : [],
     )] : []),
+    ...(projectMemoryIndex ? createProjectMemoryContextSources(projectMemoryIndex, {
+      maxTokens: resolved.config.memory.sourceBudgets.project,
+      maxResults: resolved.config.memory.mode === 'extended' ? 16 : 8,
+    }) : []),
     ...(options.extraContextSources ?? []),
   ]
   const contextAssembler = new ContextAssembler({
@@ -156,8 +210,12 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
     outputStore,
     repoMap,
     repoMapOutputRef: repoMapArtifact?.ref,
+    projectMemorySnapshotRef: projectMemorySnapshotArtifact?.ref,
     tools,
     router,
+    summarizerRouter,
+    sessionSummarizer,
+    sessionCompactor: compactor,
     contextAssembler,
     promptCachePolicy,
     config: resolved.config,
@@ -165,7 +223,12 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
       configSnapshot,
       modelRouteSnapshot: router.snapshot(),
       toolRegistrySnapshot,
-      memorySnapshot: memorySnapshot(resolved.config),
+      memorySnapshot: memorySnapshot(
+        resolved.config,
+        projectMemoryIndex,
+        projectMemorySnapshotArtifact?.ref,
+        summarizerRouter?.snapshot(),
+      ),
     },
   }
 }
@@ -180,6 +243,25 @@ function registrations(options: HeadlessAgentRunnerOptions) {
     entries.set(registration.profileId, registration.provider)
   }
   return entries
+}
+
+function resolveConfiguredRoute(options: HeadlessAgentRunnerOptions, routeId: string): ResolvedModelRoute {
+  const route = options.catalog.modelRoutes.find((candidate) => candidate.id === routeId)
+  if (!route) throw new AgentCoreError('INVALID_INPUT', `Configured summarizer route does not exist: ${routeId}`)
+  const profile = (profileId: string) => {
+    const value = options.catalog.modelProfiles.find((candidate) => candidate.id === profileId)
+    if (!value) throw new AgentCoreError('INVALID_INPUT', `Summarizer route model profile does not exist: ${profileId}`)
+    return value
+  }
+  return {
+    route: structuredClone(route),
+    primary: structuredClone(profile(route.primaryProfileId)),
+    fallbacks: route.fallbackProfileIds.map((profileId) => structuredClone(profile(profileId))),
+  }
+}
+
+function uniqueProfiles(profiles: ResolvedModelRoute['primary'][]) {
+  return [...new Map(profiles.map((profile) => [profile.id, profile])).values()]
 }
 
 function configuredPromptSource(config: ResolvedAgentConfig): ContextSource {
@@ -242,6 +324,9 @@ function contextBudget(config: ResolvedAgentConfig): ContextBudget {
   return {
     maxInputTokens,
     reservedOutputTokens,
+    scopeTokens: {
+      project: Math.min(available, memory.project),
+    },
     regionTokens: {
       stable_system_prefix: available,
       stable_capability_prefix: available,
@@ -260,9 +345,20 @@ function runtimeToolSnapshot(snapshot: ToolRegistrySnapshot): RuntimeToolSnapsho
   }
 }
 
-function memorySnapshot(config: ResolvedAgentConfig): VersionedRunComponentSnapshot {
+function memorySnapshot(
+  config: ResolvedAgentConfig,
+  projectMemoryIndex?: ProjectMemoryIndex,
+  projectMemorySnapshotRef?: string,
+  summarizerRouteSnapshot?: VersionedRunComponentSnapshot,
+): VersionedRunComponentSnapshot {
   const data = {
     profile: toJson(config.memory),
+    ...(projectMemoryIndex ? { projectMemoryRevision: projectMemoryIndex.revision } : {}),
+    ...(projectMemoryIndex?.retrievalRevision === PROJECT_MEMORY_RETRIEVAL_REVISION
+      ? { retrievalRevision: projectMemoryIndex.retrievalRevision }
+      : {}),
+    ...(projectMemorySnapshotRef ? { projectMemorySnapshotRef } : {}),
+    ...(summarizerRouteSnapshot ? { summarizerRoute: toJson(summarizerRouteSnapshot) } : {}),
   }
   return {
     schemaVersion: 1,

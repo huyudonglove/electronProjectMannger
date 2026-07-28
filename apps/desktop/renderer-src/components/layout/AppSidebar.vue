@@ -7,7 +7,7 @@ type NavGroup = {
 
 const props = defineProps<{
   navigationGroups: readonly NavGroup[]
-  knowledgeItem: NavItem
+  footerItems: readonly NavItem[]
   activeSection: string
   collabAttentionCount: number
   theme: 'dark' | 'light'
@@ -51,13 +51,15 @@ const emit = defineEmits<{
 
     <div class="sidebar-footer">
       <a
-        class="sidebar-knowledge-link"
-        :href="`#${props.knowledgeItem[0]}`"
-        :class="{ active: props.activeSection === props.knowledgeItem[0] }"
-        @click.prevent="emit('selectSection', props.knowledgeItem[0])"
+        v-for="[key, label, iconName] in props.footerItems"
+        :key="key"
+        class="sidebar-utility-link"
+        :href="`#${key}`"
+        :class="{ active: props.activeSection === key }"
+        @click.prevent="emit('selectSection', key)"
       >
-        <span class="nav-icon" v-html="props.icon(props.knowledgeItem[2])" />
-        <span>{{ props.knowledgeItem[1] }}</span>
+        <span class="nav-icon" v-html="props.icon(iconName)" />
+        <span>{{ label }}</span>
       </a>
       <button
         class="theme-toggle"

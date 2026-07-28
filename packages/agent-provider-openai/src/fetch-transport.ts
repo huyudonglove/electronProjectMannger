@@ -4,7 +4,7 @@ import { parseServerSentEvents } from './sse.js'
 import type { OpenAIResponsesRequest, OpenAIResponsesStreamEvent, OpenAIResponsesTransport } from './types.js'
 
 export interface FetchOpenAIResponsesTransportOptions {
-  apiKey: string
+  apiKey?: string
   baseUrl?: string
   organization?: string
   project?: string
@@ -19,8 +19,7 @@ export class FetchOpenAIResponsesTransport implements OpenAIResponsesTransport {
   readonly #fetcher: typeof fetch
 
   constructor(options: FetchOpenAIResponsesTransportOptions) {
-    if (!options.apiKey.trim()) throw new AgentCoreError('INVALID_INPUT', 'OpenAI API key is required')
-    this.#apiKey = options.apiKey
+    this.#apiKey = String(options.apiKey || '').trim()
     this.#baseUrl = (options.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
     this.#organization = options.organization
     this.#project = options.project
@@ -31,7 +30,7 @@ export class FetchOpenAIResponsesTransport implements OpenAIResponsesTransport {
     const response = await this.#fetcher(`${this.#baseUrl}/responses`, {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${this.#apiKey}`,
+        ...(this.#apiKey ? { authorization: `Bearer ${this.#apiKey}` } : {}),
         'content-type': 'application/json',
         ...(this.#organization ? { 'openai-organization': this.#organization } : {}),
         ...(this.#project ? { 'openai-project': this.#project } : {}),

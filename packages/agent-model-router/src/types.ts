@@ -18,6 +18,14 @@ export interface ModelRouterOptions {
   registry: ModelProviderRegistryLike
   clock?: () => string
   now?: () => number
+  onAttempt?: (diagnostic: ModelRouteAttemptDiagnostic) => void | Promise<void>
+}
+
+export interface ModelRouteAttemptDiagnostic {
+  runId: string
+  turnId: string
+  order: number
+  attempt: ModelAttemptRecord
 }
 
 export interface ModelProviderRegistryLike {

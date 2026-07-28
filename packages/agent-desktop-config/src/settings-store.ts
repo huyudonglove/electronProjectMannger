@@ -5,6 +5,8 @@ import path from 'node:path'
 import { AgentConfigRegistry } from '@electron-manager/agent-config'
 
 import { createDefaultDesktopAgentSettingsInput } from './defaults.js'
+import { normalizeDesktopModelName } from './model-name.js'
+import { normalizeDesktopOpenAIBaseUrl } from './openai-endpoint.js'
 import {
   DESKTOP_AGENT_SETTINGS_SCHEMA_VERSION,
   type DesktopAgentSettings,
@@ -127,12 +129,15 @@ export function validateSettingsInput(input: DesktopAgentSettingsInput) {
   }
   for (const profile of input.catalog.modelProfiles) {
     if (profile.provider !== 'openai') throw new Error(`Unsupported desktop model provider: ${profile.provider}`)
+    const normalizedModel = normalizeDesktopModelName(profile.model)
+    if (profile.model !== normalizedModel) throw new Error(`OpenAI model name must be trimmed: ${profile.id}`)
     if (!profile.credentialRef || !/^credential\.[A-Za-z0-9._-]+$/.test(profile.credentialRef)) {
       throw new Error(`Model profile must use a credential reference: ${profile.id}`)
     }
     const provider = input.providerSettings[profile.id]
     if (!provider || provider.provider !== profile.provider) throw new Error(`Provider settings are missing for model profile: ${profile.id}`)
-    if (provider.baseUrl) validateProviderBaseUrl(provider.baseUrl, profile.id)
+    if (provider.baseUrl) normalizeDesktopOpenAIBaseUrl(provider.baseUrl)
+    if (provider.connectionSource === 'telance-local-proxy') validateTelanceProviderSettings(profile.id, provider)
   }
   for (const id of Object.keys(input.providerSettings)) {
     if (!modelIds.has(id)) throw new Error(`Provider settings reference an unknown model profile: ${id}`)
@@ -141,20 +146,27 @@ export function validateSettingsInput(input: DesktopAgentSettingsInput) {
   for (const layer of Object.values(input.projectLayers)) validateLayerSelections(layer, input.catalog, routeIds)
 }
 
-function validateProviderBaseUrl(value: string, profileId: string) {
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    throw new Error(`Provider base URL is invalid: ${profileId}`)
+function validateTelanceProviderSettings(
+  profileId: string,
+  provider: DesktopAgentSettingsInput['providerSettings'][string],
+) {
+  if (!provider.providerId || !/^[A-Za-z0-9._-]+$/.test(provider.providerId)) {
+    throw new Error(`Telance provider id is invalid: ${profileId}`)
   }
+  if (provider.apiStyle !== 'chat-completions') {
+    throw new Error(`Telance provider must use Chat Completions: ${profileId}`)
+  }
+  const url = new URL(String(provider.baseUrl || ''))
   if (
-    !['http:', 'https:'].includes(url.protocol)
-    || url.username
-    || url.password
+    url.protocol !== 'http:'
+    || !['127.0.0.1', 'localhost'].includes(url.hostname)
+    || url.port !== '8787'
+    || url.pathname !== `/provider/${encodeURIComponent(provider.providerId)}`
     || url.search
     || url.hash
-  ) throw new Error(`Provider base URL is invalid: ${profileId}`)
+  ) {
+    throw new Error(`Telance provider must use its loopback proxy route: ${profileId}`)
+  }
 }
 
 export function settingsInputFrom(settings: DesktopAgentSettings): DesktopAgentSettingsInput {

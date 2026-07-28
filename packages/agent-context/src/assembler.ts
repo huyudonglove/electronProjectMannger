@@ -14,6 +14,7 @@ import {
   type ContextEnvelope,
   type ContextFragment,
   type ContextRegion,
+  type ContextScope,
   type ContextSource,
   type TokenEstimator,
 } from './types.js'
@@ -71,12 +72,13 @@ export class ContextAssembler {
     const selected: ContextEntry[] = []
     const dropped: ContextDrop[] = []
     const sourceUsage = new Map<string, number>()
+    const scopeUsage = new Map<ContextScope, number>()
     const regionUsage = new Map<ContextRegion, number>(CONTEXT_REGIONS.map((region) => [region, 0]))
     let total = 0
 
     const required = entries.filter((entry) => entry.required).sort(finalOrder)
     for (const entry of required) {
-      const failure = budgetFailure(entry, sourceUsage, regionUsage, total, available, this.#budget)
+      const failure = budgetFailure(entry, sourceUsage, scopeUsage, regionUsage, total, available, this.#budget)
       if (failure) {
         throw new AgentCoreError('CONTEXT_BUDGET_EXCEEDED', `Required context exceeds ${failure.replace('_', ' ')}: ${entry.sourceId}/${entry.id}`, {
           details: {
@@ -87,12 +89,12 @@ export class ContextAssembler {
           },
         })
       }
-      total = select(entry, selected, sourceUsage, regionUsage, total)
+      total = select(entry, selected, sourceUsage, scopeUsage, regionUsage, total)
     }
 
     const optional = entries.filter((entry) => !entry.required).sort(selectionOrder)
     for (const entry of optional) {
-      const failure = budgetFailure(entry, sourceUsage, regionUsage, total, available, this.#budget)
+      const failure = budgetFailure(entry, sourceUsage, scopeUsage, regionUsage, total, available, this.#budget)
       if (failure) {
         dropped.push({
           sourceId: entry.sourceId,
@@ -102,7 +104,7 @@ export class ContextAssembler {
         })
         continue
       }
-      total = select(entry, selected, sourceUsage, regionUsage, total)
+      total = select(entry, selected, sourceUsage, scopeUsage, regionUsage, total)
     }
 
     const regions = Object.fromEntries(CONTEXT_REGIONS.map((region) => [
@@ -268,6 +270,11 @@ function validateBudget(budget: ContextBudget) {
       throw new AgentCoreError('INVALID_INPUT', `Context region budget must be a positive integer: ${region}`)
     }
   }
+  for (const [scope, value] of Object.entries(budget.scopeTokens ?? {})) {
+    if (!Number.isInteger(value) || value! < 0) {
+      throw new AgentCoreError('INVALID_INPUT', `Context scope budget must be a non-negative integer: ${scope}`)
+    }
+  }
 }
 
 function validateEntries(
@@ -307,12 +314,15 @@ function validateEntryShape(entry: ContextEntry) {
 function budgetFailure(
   entry: ContextEntry,
   sourceUsage: Map<string, number>,
+  scopeUsage: Map<ContextScope, number>,
   regionUsage: Map<ContextRegion, number>,
   total: number,
   available: number,
   budget: ContextBudget,
 ): ContextDrop['reason'] | undefined {
   if ((sourceUsage.get(entry.sourceId) ?? 0) + entry.estimatedTokens > entry.maxTokens) return 'source_budget'
+  const scopeBudget = budget.scopeTokens?.[entry.scope]
+  if (scopeBudget !== undefined && (scopeUsage.get(entry.scope) ?? 0) + entry.estimatedTokens > scopeBudget) return 'scope_budget'
   if ((regionUsage.get(entry.region) ?? 0) + entry.estimatedTokens > budget.regionTokens[entry.region]) return 'region_budget'
   if (total + entry.estimatedTokens > available) return 'total_budget'
   return undefined
@@ -322,11 +332,13 @@ function select(
   entry: ContextEntry,
   selected: ContextEntry[],
   sourceUsage: Map<string, number>,
+  scopeUsage: Map<ContextScope, number>,
   regionUsage: Map<ContextRegion, number>,
   total: number,
 ) {
   selected.push(entry)
   sourceUsage.set(entry.sourceId, (sourceUsage.get(entry.sourceId) ?? 0) + entry.estimatedTokens)
+  scopeUsage.set(entry.scope, (scopeUsage.get(entry.scope) ?? 0) + entry.estimatedTokens)
   regionUsage.set(entry.region, (regionUsage.get(entry.region) ?? 0) + entry.estimatedTokens)
   return total + entry.estimatedTokens
 }

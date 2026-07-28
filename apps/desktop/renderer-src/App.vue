@@ -5,7 +5,9 @@ import AppTopbar from './components/layout/AppTopbar.vue'
 import UiTag from './components/ui/UiTag.vue'
 import OverviewView from './components/views/OverviewView.vue'
 import TaskBoardView from './components/views/TaskBoardView.vue'
+import AgentChatView from './components/views/AgentChatView.vue'
 import AgentSettingsView from './components/views/AgentSettingsView.vue'
+import { inferAgentTaskIntent, routeAgentChatInput } from './chat-routing'
 
 type AnyRecord = Record<string, any>
 type UiTone = 'neutral' | 'complete' | 'warning' | 'danger'
@@ -36,10 +38,12 @@ declare global {
       deleteDocument: (projectRoot: string, documentTarget: string) => Promise<any>
       deleteKnowledge: (projectRoot: string, knowledgeTarget: string) => Promise<any>
       replyOpenQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
-      getAgentSettings: () => Promise<any>
+      getAgentSettings: (projectRoot?: string) => Promise<any>
+      getModelDiagnostics: (projectRoot?: string) => Promise<any[]>
+      listAgentChats: (projectRoot: string) => Promise<any[]>
+      sendAgentChat: (payload: AnyRecord) => Promise<any>
       updateOpenAIModel: (payload: AnyRecord) => Promise<any>
-      setModelCredential: (payload: AnyRecord) => Promise<any>
-      deleteModelCredential: (payload: AnyRecord) => Promise<any>
+      updateProjectModelRoute: (payload: AnyRecord) => Promise<any>
       listAgentRuns: (projectRoot: string) => Promise<any[]>
       getAgentRun: (projectRoot: string, runId: string) => Promise<any>
       startAgentTask: (payload: AnyRecord) => Promise<any>
@@ -105,6 +109,7 @@ const icons: Record<string, string> = {
   rotateLeft: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
   scrollText: '<path d="M8 21h8" /><path d="M12 21V7" /><path d="M16 7h3a2 2 0 0 1 2 2v8" /><path d="M8 7H5a2 2 0 0 0-2 2v8" /><path d="M7 3h10" /><path d="M7 7h10" />',
   search: '<circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />',
+  settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.03-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.03h-.09v-3h.09A1.7 1.7 0 0 0 7 9.94a1.7 1.7 0 0 0-.34-1.88L6.6 8l2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.7 4.7V4.6h3v.09a1.7 1.7 0 0 0 1.03 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.03h.09v3h-.09A1.7 1.7 0 0 0 19.4 15Z" />',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="M9 12l2 2 4-5" />',
   slash: '<circle cx="12" cy="12" r="8" /><path d="M7 17 17 7" />',
   sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
@@ -118,6 +123,7 @@ const navigationGroups = [
     label: '工作区',
     items: [
       ['overview', '总览', 'layoutDashboard'],
+      ['agent-chat', 'Agent', 'messagesSquare'],
       ['capture', '想法', 'messageCircle'],
       ['board', '任务', 'listChecks'],
       ['dialogues', '研究', 'messagesSquare'],
@@ -136,12 +142,14 @@ const navigationGroups = [
       ['versions', '版本', 'layers'],
       ['agent-logs', '工作记录', 'scrollText'],
       ['constraints', '约束', 'shield'],
-      ['agent-settings', 'Agent', 'braces'],
     ],
   },
 ] as const
 
-const knowledgeNavItem = ['knowledge', '知识库', 'bookOpen'] as const
+const footerNavItems = [
+  ['knowledge', '知识库', 'bookOpen'],
+  ['settings', '设置', 'settings'],
+] as const
 
 const state = reactive({
   projectRoot: '',
@@ -168,6 +176,7 @@ const state = reactive({
   replyItem: null as AnyRecord | null,
   markdownDocument: null as AnyRecord | null,
   selectedTask: null as AnyRecord | null,
+  taskDetailOpen: false,
   status: '等待选择项目',
   theme: 'dark',
   toasts: [] as Array<{ id: number; message: string; leaving: boolean }>,
@@ -176,10 +185,14 @@ const state = reactive({
   highlightedDialogue: -1,
   highlightedLog: -1,
   agentSettings: null as AnyRecord | null,
+  agentDiagnostics: [] as AnyRecord[],
   agentRuns: [] as AnyRecord[],
   agentRunDetails: {} as Record<string, AnyRecord>,
   agentRunBusy: false,
   agentRunBusyId: '',
+  agentChatCreating: false,
+  agentChats: [] as AnyRecord[],
+  selectedAgentChatId: '',
   agentOutput: null as null | {
     ref: string
     label: string
@@ -193,6 +206,7 @@ const state = reactive({
 let agentProjectRevision = 0
 let agentOperationRevision = 0
 let agentOutputRevision = 0
+let agentSettingsRequestRevision = 0
 
 const taskForm = reactive({ title: '', priority: 'medium', workLevel: 'light', depthReason: 'decision', detail: '', acceptance: '', constraints: '', planRollback: '', status: '' })
 const thoughtForm = reactive({ content: '', status: '' })
@@ -250,6 +264,24 @@ const selectedTaskRun = computed(() => {
 const selectedTaskRunDetail = computed(() => {
   const run = selectedTaskRun.value
   return run ? state.agentRunDetails[run.runId] || { run, events: [] } : null
+})
+const agentChatTasks = computed(() => {
+  const runTaskIds = new Set(state.agentRuns.flatMap((run: AnyRecord) => [run.task?.id, run.task?.shortId]).filter(Boolean))
+  return allTasks.value
+    .filter((task: AnyRecord) => ['todo', 'doing'].includes(task.status) || runTaskIds.has(task.id) || runTaskIds.has(task.shortId))
+    .sort((left: AnyRecord, right: AnyRecord) => String(right.updated || '').localeCompare(String(left.updated || '')))
+})
+const selectedAgentChat = computed(() => state.agentChats.find((conversation: AnyRecord) => conversation.id === state.selectedAgentChatId) || null)
+const agentChatMessages = computed(() => selectedAgentChat.value?.messages || [])
+const agentCredentialConfigured = computed(() => Boolean(state.agentSettings?.effectiveModelRoute?.selections?.[0]?.desktopAvailable))
+const agentCredentialStatus = computed(() => {
+  if (!state.agentSettings) return 'loading' as const
+  return agentCredentialConfigured.value ? 'configured' as const : 'missing' as const
+})
+const agentCredentialLabel = computed(() => {
+  const model = state.agentSettings?.effectiveModelRoute?.selections?.[0]
+  const provider = state.agentSettings?.providerCatalog?.providers?.find((item: AnyRecord) => item.id === model?.providerId)
+  return model ? `${provider?.name || model.providerId || 'Provider'} · ${model.model}` : ''
 })
 const tasks = computed(() => allTasks.value.filter(recordMatchesSelectedVersion))
 const thoughts = computed(() => allThoughts.value.filter(recordMatchesSelectedVersion))
@@ -330,10 +362,20 @@ function icon(name: string) {
 }
 
 function setActiveSection(section: string) {
-  const validSections = [...navigationGroups.flatMap((group) => group.items), knowledgeNavItem]
-  state.section = validSections.some(([key]) => key === section) ? section : 'overview'
+  const normalizedSection = section === 'agent-settings' ? 'settings' : section
+  const validSections = [...navigationGroups.flatMap((group) => group.items), ...footerNavItems]
+  state.section = validSections.some(([key]) => key === normalizedSection) ? normalizedSection : 'overview'
   history.replaceState(null, '', `#${state.section}`)
-  if (state.section === 'agent-settings') void loadAgentSettings()
+  if (state.section === 'settings' || state.section === 'agent-chat') void loadAgentSettings()
+  if (state.section === 'agent-chat') {
+    void loadAgentChats()
+    state.taskDetailOpen = false
+    if (!state.selectedTask && !state.selectedAgentChatId) {
+      state.selectedTask = agentChatTasks.value.find((task: AnyRecord) => ['doing', 'todo'].includes(task.status)) || agentChatTasks.value[0] || null
+      const run = selectedTaskRun.value
+      if (run) void loadAgentRunDetail(run.runId)
+    }
+  }
 }
 
 function selectVersion(versionId: string) {
@@ -367,6 +409,7 @@ function setupAgentRunUpdates() {
     setAgentRunDetail({ run: payload.run, events })
     if (['completed', 'blocked', 'failed', 'cancelled'].includes(payload.run.status)) {
       void refreshDashboard({ quiet: true })
+      void loadAgentDiagnostics()
     }
   })
 }
@@ -390,31 +433,72 @@ function ensureApi() {
 }
 
 async function loadAgentSettings() {
-  await runAction('正在读取 Agent 配置…', async () => {
-    state.agentSettings = await ensureApi().getAgentSettings()
+  const requestRevision = ++agentSettingsRequestRevision
+  const projectRoot = state.initialized ? state.projectRoot : ''
+  try {
+    const [settings, diagnostics] = await Promise.all([
+      ensureApi().getAgentSettings(projectRoot || undefined),
+      ensureApi().getModelDiagnostics(projectRoot || undefined),
+    ])
+    if (requestRevision !== agentSettingsRequestRevision || projectRoot !== (state.initialized ? state.projectRoot : '')) return
+    state.agentSettings = settings
+    state.agentDiagnostics = diagnostics
     state.status = ''
+  } catch (error: any) {
+    console.error(error)
+    if (requestRevision !== agentSettingsRequestRevision) return
+    state.status = error?.message || 'Agent 配置读取失败。'
+  }
+}
+
+async function loadAgentDiagnostics() {
+  try {
+    state.agentDiagnostics = await ensureApi().getModelDiagnostics(state.initialized ? state.projectRoot : undefined)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+async function loadAgentChats() {
+  if (!state.projectRoot || !state.initialized) {
+    state.agentChats = []
+    state.selectedAgentChatId = ''
+    return
+  }
+  const projectRoot = state.projectRoot
+  const projectRevision = agentProjectRevision
+  try {
+    const conversations = await ensureApi().listAgentChats(projectRoot)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.agentChats = conversations
+    if (state.selectedAgentChatId && !conversations.some((item: AnyRecord) => item.id === state.selectedAgentChatId)) {
+      state.selectedAgentChatId = ''
+    }
+  } catch (error: any) {
+    console.error(error)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.status = error?.message || 'Agent 对话记录读取失败。'
+  }
+}
+
+async function saveOpenAIProvider(payload: { settings: AnyRecord }) {
+  await runAction('正在保存模型服务配置…', async () => {
+    const projectMemory = state.agentSettings?.projectMemory
+    state.agentSettings = {
+      ...await ensureApi().updateOpenAIModel(payload.settings),
+      ...(projectMemory ? { projectMemory } : {}),
+    }
+    state.status = '模型选择已保存，连接与凭据继续由后台统一维护。'
   })
 }
 
-async function updateOpenAIModel(payload: AnyRecord) {
-  await runAction('正在保存模型参数…', async () => {
-    state.agentSettings = await ensureApi().updateOpenAIModel(payload)
-    state.status = '模型参数已保存。'
-  })
-}
-
-async function saveModelCredential(payload: AnyRecord) {
-  await runAction('正在加密保存凭据…', async () => {
-    state.agentSettings = await ensureApi().setModelCredential(payload)
-    state.status = '凭据已保存到系统安全存储。'
-  })
-}
-
-async function deleteModelCredential(payload: AnyRecord) {
-  if (!confirm('移除本机保存的模型凭据？')) return
-  await runAction('正在移除凭据…', async () => {
-    state.agentSettings = await ensureApi().deleteModelCredential(payload)
-    state.status = '凭据已移除。'
+async function saveProjectModelRoute(payload: { settings: AnyRecord }) {
+  await runAction('正在保存当前项目的模型链路…', async () => {
+    state.agentSettings = await ensureApi().updateProjectModelRoute({
+      ...payload.settings,
+      projectRoot: state.projectRoot,
+    })
+    state.status = '当前项目的主模型与 fallback 已保存。'
   })
 }
 
@@ -488,16 +572,112 @@ async function runAgentOperation(message: string, action: () => Promise<AnyRecor
   }
 }
 
-async function startSelectedTaskRun() {
-  const task = state.selectedTask
+async function startSelectedTaskRun(task = state.selectedTask) {
   if (!task) return
+  state.selectedTask = task
   const started = await runAgentOperation('正在创建 Agent 运行…', () => ensureApi().startAgentTask({
     projectRoot: state.projectRoot,
     taskId: task.id,
+    intent: inferAgentTaskIntent([
+      task.title,
+      task.detail,
+      task.executionDefinition,
+      task.userOriginal,
+    ].filter(Boolean).join('\n')),
   }))
   if (!started?.run || started.run.status !== 'running') return
   if (started.warnings?.length) showToast(started.warnings[0].message || 'Agent 运行包含待确认项')
   await advanceAgentRun(started.run.runId)
+}
+
+async function sendAgentChatMessage(message: string) {
+  const prompt = String(message || '').trim()
+  if (!prompt || state.agentChatCreating || state.agentRunBusy) return
+
+  const currentRun = selectedTaskRun.value
+  const route = routeAgentChatInput(prompt, {
+    hasActiveTask: Boolean(state.selectedTask),
+    hasResumableRun: Boolean(
+      currentRun?.status === 'running'
+      || (!currentRun && state.selectedTask && ['todo', 'doing'].includes(state.selectedTask.status)),
+    ),
+  })
+  if (!agentCredentialConfigured.value) {
+    state.status = '请先在设置中配置模型凭据。'
+    setActiveSection('settings')
+    return
+  }
+  if (route.kind === 'chat') {
+    const api = ensureReady()
+    if (!api) return
+    state.agentChatCreating = true
+    state.status = '模型正在回复…'
+    try {
+      const result = await api.sendAgentChat({
+        projectRoot: state.projectRoot,
+        ...(state.selectedAgentChatId ? { conversationId: state.selectedAgentChatId } : {}),
+        message: prompt,
+      })
+      const conversation = result?.conversation
+      if (!conversation?.id) throw new Error('Agent 对话响应无效。')
+      state.agentChats = [conversation, ...state.agentChats.filter((item: AnyRecord) => item.id !== conversation.id)]
+      state.selectedAgentChatId = conversation.id
+      state.selectedTask = null
+      state.taskDetailOpen = false
+      state.status = ''
+    } catch (error: any) {
+      console.error(error)
+      await Promise.all([loadAgentChats(), loadAgentDiagnostics()])
+      if (!state.selectedAgentChatId && state.agentChats[0]) state.selectedAgentChatId = state.agentChats[0].id
+      state.selectedTask = null
+      state.status = error?.message || '模型回复失败。'
+    } finally {
+      state.agentChatCreating = false
+    }
+    return
+  }
+  if (route.kind === 'continue') {
+    if (currentRun) await advanceAgentRun(currentRun.runId)
+    else await startSelectedTaskRun()
+    return
+  }
+
+  const api = ensureReady()
+  if (!api || route.kind !== 'execute') return
+
+  const existingIds = new Set(allTasks.value.map((task: AnyRecord) => task.id || task.shortId))
+  const firstLine = prompt.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || '新对话'
+  const title = firstLine.length > 72 ? `${firstLine.slice(0, 72).trimEnd()}…` : firstLine
+  state.agentChatCreating = true
+  try {
+    state.status = '正在创建 Agent 对话…'
+    const nextDashboard = await api.addTask(state.projectRoot, {
+      title,
+      status: 'todo',
+      priority: 'medium',
+      workLevel: route.workLevel,
+      depthReason: route.workLevel === 'deep' ? route.depthReason : undefined,
+      area: 'agent-chat',
+      userOriginal: prompt,
+      executionDefinition: prompt,
+      acceptance: '- 完成用户请求并说明结果。\n- 对实际改动执行合适的验证。\n- 如遇阻塞，明确说明原因和下一步。',
+      constraints: route.workLevel === 'deep' ? '保留现有未提交改动；先确认影响范围和权限边界。' : undefined,
+      planRollback: route.workLevel === 'deep' ? '执行前给出方案；验证失败时停止后续操作并说明安全回退步骤。' : undefined,
+    })
+    updateDashboard(nextDashboard)
+    const createdTask = (nextDashboard.tasks || []).find((task: AnyRecord) => !existingIds.has(task.id || task.shortId))
+    if (!createdTask) throw new Error('Agent 对话任务创建后未能定位。')
+    state.selectedAgentChatId = ''
+    state.selectedTask = createdTask
+    state.taskDetailOpen = false
+    state.status = ''
+    await startSelectedTaskRun(createdTask)
+  } catch (error: any) {
+    console.error(error)
+    state.status = error?.message || 'Agent 对话创建失败。'
+  } finally {
+    state.agentChatCreating = false
+  }
 }
 
 async function advanceAgentRun(runId: string) {
@@ -1039,10 +1219,17 @@ function updateState(result: AnyRecord) {
   state.dashboard = result.dashboard
   state.agentRuns = []
   state.agentRunDetails = {}
+  state.agentChats = []
+  state.selectedAgentChatId = ''
   state.selectedTask = null
+  state.taskDetailOpen = false
   syncSelectedVersion(result.dashboard)
   state.selectedLogIndex = clampLogIndex(state.selectedLogIndex, result.dashboard?.logs || [])
-  if (result.initialized) void loadAgentRuns()
+  if (result.initialized) {
+    void loadAgentRuns()
+    void loadAgentChats()
+    void loadAgentSettings()
+  }
 }
 
 function updateDashboard(nextDashboard: AnyRecord) {
@@ -1271,13 +1458,61 @@ function openBoardTask(taskId: string) {
 
 function openTaskDetail(task: AnyRecord) {
   state.selectedTask = task
+  state.taskDetailOpen = true
   const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
   if (run) void loadAgentRunDetail(run.runId)
 }
 
 function closeTaskDetail() {
   closeAgentOutput()
+  state.taskDetailOpen = false
   state.selectedTask = null
+}
+
+function openTaskInAgent(task: AnyRecord) {
+  state.selectedAgentChatId = ''
+  state.selectedTask = task
+  state.taskDetailOpen = false
+  setActiveSection('agent-chat')
+  const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
+  if (run) void loadAgentRunDetail(run.runId)
+}
+
+function selectAgentChatTask(task: AnyRecord | null) {
+  state.selectedAgentChatId = ''
+  state.selectedTask = task
+  state.taskDetailOpen = false
+  closeAgentOutput()
+  if (!task) return
+  const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
+  if (run) void loadAgentRunDetail(run.runId)
+}
+
+function selectAgentChatConversation(conversationId: string) {
+  if (!state.agentChats.some((conversation: AnyRecord) => conversation.id === conversationId)) return
+  state.selectedTask = null
+  state.selectedAgentChatId = conversationId
+  state.taskDetailOpen = false
+  closeAgentOutput()
+  state.status = ''
+}
+
+function startNewAgentChat() {
+  state.selectedTask = null
+  state.selectedAgentChatId = ''
+  state.taskDetailOpen = false
+  closeAgentOutput()
+  state.status = ''
+}
+
+function selectAgentChatTaskById(taskId: string) {
+  const task = allTasks.value.find((item: AnyRecord) => item.id === taskId || item.shortId === taskId) || null
+  selectAgentChatTask(task)
+}
+
+function startAgentChatTask(taskId: string) {
+  const task = allTasks.value.find((item: AnyRecord) => item.id === taskId || item.shortId === taskId)
+  if (task) void startSelectedTaskRun(task)
 }
 
 function openThought(thoughtId: string) {
@@ -1897,7 +2132,7 @@ function escapeHtml(value: any) {
   <main class="page-shell">
     <AppSidebar
       :navigation-groups="navigationGroups"
-      :knowledge-item="knowledgeNavItem"
+      :footer-items="footerNavItems"
       :active-section="state.section"
       :collab-attention-count="collabAttentionCount"
       :theme="state.theme"
@@ -1999,14 +2234,41 @@ function escapeHtml(value: any) {
         @toggle-done="state.doneExpanded = !state.doneExpanded"
       />
 
+      <AgentChatView
+        v-if="state.section === 'agent-chat'"
+        :tasks="agentChatTasks"
+        :chats="state.agentChats"
+        :current-chat="selectedAgentChat"
+        :current-task="state.selectedTask"
+        :run-detail="selectedTaskRunDetail"
+        :runs="state.agentRuns"
+        :busy="state.agentRunBusy || state.agentChatCreating"
+        :status="state.status"
+        :credential-status="agentCredentialStatus"
+        :credential-label="agentCredentialLabel"
+        :diagnostics="state.agentDiagnostics"
+        :local-messages="agentChatMessages"
+        :memory-status="state.agentSettings?.projectMemory"
+        @select-chat="selectAgentChatConversation"
+        @select-task="selectAgentChatTaskById"
+        @start="startAgentChatTask"
+        @advance="advanceAgentRun"
+        @approve="resolveAgentApproval('approved')"
+        @deny="resolveAgentApproval('denied')"
+        @cancel="cancelAgentRun"
+        @open-output="openAgentOutput"
+        @new-chat="startNewAgentChat"
+        @send="sendAgentChatMessage"
+      />
+
       <AgentSettingsView
-        v-if="state.section === 'agent-settings'"
+        v-if="state.section === 'settings'"
         :settings="state.agentSettings"
         :busy="state.busy"
+        :diagnostics="state.agentDiagnostics"
         @reload="loadAgentSettings"
-        @update-model="updateOpenAIModel"
-        @save-credential="saveModelCredential"
-        @delete-credential="deleteModelCredential"
+        @save-provider="saveOpenAIProvider"
+        @save-project-route="saveProjectModelRoute"
       />
 
       <section v-if="state.section === 'dialogues'" id="dialogues" class="section view active-view">
@@ -2427,7 +2689,7 @@ function escapeHtml(value: any) {
     <div v-for="toast in state.toasts" :key="toast.id" class="toast-message" :class="{ 'is-leaving': toast.leaving }">{{ toast.message }}</div>
   </div>
 
-  <div v-if="state.selectedTask" class="modal-overlay" @click.self="closeTaskDetail">
+  <div v-if="state.selectedTask && state.taskDetailOpen" class="modal-overlay" @click.self="closeTaskDetail">
     <section class="card task-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="taskDetailTitle">
       <div class="project-dialog-head">
         <div>
@@ -2443,94 +2705,12 @@ function escapeHtml(value: any) {
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeTaskDetail" v-html="icon('x')" />
       </div>
       <div class="task-detail-body">
-        <section class="agent-run-panel">
-          <div class="agent-run-heading">
-            <div><strong>Agent 执行</strong><small>本地检查点，可关闭应用后继续</small></div>
-            <UiTag
-              v-if="selectedTaskRun"
-              :label="agentRunStatusText(selectedTaskRun.status)"
-              :tone="agentRunStatusTone(selectedTaskRun.status)"
-              variant="status"
-              :icon-svg="icon(selectedTaskRun.status === 'completed' ? 'circleCheck' : selectedTaskRun.status === 'failed' ? 'circleX' : 'clock')"
-            />
+        <section class="agent-run-panel task-agent-entry">
+          <div>
+            <strong>在 Agent 中继续</strong>
+            <p>{{ selectedTaskRun ? `已有一条${agentRunStatusText(selectedTaskRun.status)}的对话。` : '用聊天方式启动、观察和控制这项任务。' }}</p>
           </div>
-          <template v-if="selectedTaskRunDetail">
-            <div class="agent-run-summary">
-              <span><small>阶段</small>{{ agentPhaseText(selectedTaskRunDetail.run.phase) }}</span>
-              <span><small>步数</small>{{ selectedTaskRunDetail.run.stepCount }}</span>
-              <span><small>已检查</small>{{ selectedTaskRunDetail.run.progress.inspectedFiles }} 个文件</span>
-              <span><small>已修改</small>{{ selectedTaskRunDetail.run.progress.changedFiles.length }} 个文件</span>
-            </div>
-            <div v-if="selectedTaskRunDetail.run.waiting" class="agent-run-approval">
-              <strong>{{ selectedTaskRunDetail.run.waiting.kind === 'plan_approval' ? '方案等待批准' : '操作等待批准' }}</strong>
-              <p>{{ selectedTaskRunDetail.run.waiting.summary }}</p>
-              <div class="agent-run-actions">
-                <button class="btn btn-primary btn-sm" type="button" :disabled="state.agentRunBusy" @click="resolveAgentApproval('approved')">批准并继续</button>
-                <button class="btn btn-outline-secondary btn-sm" type="button" :disabled="state.agentRunBusy" @click="resolveAgentApproval('denied')">拒绝</button>
-              </div>
-            </div>
-            <div v-else-if="selectedTaskRunDetail.run.resume?.kind === 'blocked'" class="agent-run-approval">
-              <strong>此运行不能自动恢复</strong>
-              <p>{{ selectedTaskRunDetail.run.resume.reason }}。请确认项目当前状态后新建一次运行。</p>
-            </div>
-            <p v-else-if="selectedTaskRunDetail.run.nextAction" class="agent-run-next">{{ selectedTaskRunDetail.run.nextAction }}</p>
-            <div class="agent-run-actions">
-              <button
-                v-if="selectedTaskRunDetail.run.status === 'running' && selectedTaskRunDetail.run.resume?.kind !== 'blocked' && !selectedTaskRunDetail.run.waiting && !state.agentRunBusy"
-                class="btn btn-primary btn-sm"
-                type="button"
-                @click="advanceAgentRun(selectedTaskRunDetail.run.runId)"
-              >继续运行</button>
-              <button
-                v-if="state.agentRunBusy && state.agentRunBusyId === selectedTaskRunDetail.run.runId"
-                class="btn btn-outline-secondary btn-sm"
-                type="button"
-                @click="cancelAgentRun(selectedTaskRunDetail.run.runId)"
-              >停止</button>
-              <button
-                v-if="(['blocked', 'failed', 'cancelled'].includes(selectedTaskRunDetail.run.status) || selectedTaskRunDetail.run.resume?.kind === 'blocked') && ['todo', 'doing'].includes(state.selectedTask.status)"
-                class="btn btn-outline-secondary btn-sm"
-                type="button"
-                :disabled="state.agentRunBusy"
-                @click="startSelectedTaskRun"
-              >新建运行</button>
-            </div>
-            <div v-if="selectedTaskRunDetail.run.outputRefs?.length" class="agent-run-outputs">
-              <div class="agent-run-outputs-head">
-                <strong>运行产物</strong>
-                <small>内容会在本机读取，常见凭据将自动隐藏</small>
-              </div>
-              <div class="agent-run-output-links">
-                <button
-                  v-for="(ref, index) in selectedTaskRunDetail.run.outputRefs"
-                  :key="ref"
-                  class="agent-run-output-link"
-                  type="button"
-                  @click="openAgentOutput(ref, agentOutputLabel(selectedTaskRunDetail.run, ref, index))"
-                >
-                  <span v-html="icon(selectedTaskRunDetail.run.diff?.outputRef === ref ? 'gitPullRequest' : 'fileText')" />
-                  <span>{{ agentOutputLabel(selectedTaskRunDetail.run, ref, index) }}</span>
-                  <small>查看</small>
-                </button>
-              </div>
-            </div>
-            <div v-if="selectedTaskRunDetail.events?.length" class="agent-run-events">
-              <div v-for="event in selectedTaskRunDetail.events.slice(-8).reverse()" :key="event.sequence">
-                <time>{{ formatTime(event.at) }}</time><span>{{ event.summary }}</span>
-              </div>
-            </div>
-          </template>
-          <template v-else>
-            <p class="agent-run-empty">Agent 将读取项目上下文、执行修改、验证结果，并把完成记录同步回当前任务。</p>
-            <button
-              v-if="['todo', 'doing'].includes(state.selectedTask.status)"
-              class="btn btn-primary btn-sm"
-              type="button"
-              :disabled="state.agentRunBusy"
-              @click="startSelectedTaskRun"
-            >交给 Agent</button>
-            <small v-else>只有当前版本中未完成的任务可以启动 Agent。</small>
-          </template>
+          <button class="btn btn-primary btn-sm" type="button" @click="openTaskInAgent(state.selectedTask)">打开对话</button>
         </section>
         <section>
           <strong>用户原话</strong>

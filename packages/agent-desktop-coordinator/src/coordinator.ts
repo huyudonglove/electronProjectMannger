@@ -69,7 +69,7 @@ export class DesktopAgentCoordinator {
 
     const existing = await this.#load(input.projectRoot, prepared.value.runInput.runId)
     if (existing) assertRunIdentity(existing.snapshot.ledger, prepared.value.projectRoot, prepared.value.runInput.taskId, prepared.value.workLevel)
-    const runner = await this.#openRunner(prepared.value.projectRoot, prepared.value.workLevel)
+    const runner = await this.#openRunner(prepared.value.projectRoot, prepared.value.workLevel, prepared.value.runInput.runId)
     try {
       await applyPreparedProjectRunStart(this.#managerDataRoot, prepared.value)
       const checkpoint = existing || await runner.createRun(prepared.value.runInput)
@@ -169,7 +169,7 @@ export class DesktopAgentCoordinator {
       const current = await this.#load(projectRoot, runId)
       if (!current) throw new DesktopAgentCoordinatorError('RUN_NOT_FOUND', `Agent Run does not exist: ${runId}`)
       assertRunIdentity(current.snapshot.ledger, projectRoot, current.snapshot.ledger.taskId, current.snapshot.ledger.workLevel)
-      runner = await this.#openRunner(projectRoot, current.snapshot.ledger.workLevel)
+      runner = await this.#openRunner(projectRoot, current.snapshot.ledger.workLevel, runId)
       const result = await action(runner, linked.controller.signal)
       const settled = await this.#settle(projectRoot, result.checkpoint.snapshot.ledger)
       const detail = toDesktopRunDetail(result.checkpoint, settled.dashboard)
@@ -207,9 +207,10 @@ export class DesktopAgentCoordinator {
     }
   }
 
-  async #openRunner(projectRoot: string, workLevel: RunLedger['workLevel']) {
+  async #openRunner(projectRoot: string, workLevel: RunLedger['workLevel'], runId: string) {
     return await this.#backend.openRunner({
       projectRoot,
+      runId,
       workLevel,
       onCommitted: async (checkpoint, events) => {
         await this.#notify(projectRoot, checkpoint, events)

@@ -41,6 +41,7 @@ function workLevelRulesZh() {
 - 简单明确的 light 工作直接执行，不为形式完整额外创建计划；standard、deep 或范围尚不明确的工作先建立简洁、可执行的当前计划。
 - 用户目标和验收是稳定锚点，执行计划只是可替换的工作状态。执行中应按新证据动态调整计划，但不得静默改变目标；目标需要变化、无法实现或与新约束冲突时，回到用户确认。
 - 不保存无价值的计划演变过程。协作数据只保留目标、当前有效范围、实际关键判断、结果和验证；中间尝试仅在形成高影响决策、风险或后续事项时记录。
+- 已配置、验收明确要求或用户指定的验证必须执行；其他情况先运行与改动直接相关的最小检查，例如单个测试文件、单包测试、类型检查或 smoke test。只有改动涉及共享核心、跨模块契约、构建发布链路、影响范围不明，或轻量检查不足以证明验收时，才扩大到全量测试。
 - 以整体完成效率为优先：运行环境支持子 Agent 时，可将边界清楚、彼此独立、能够并行或适合专项调查的工作交给子 Agent。简单顺序工作或协调成本高于收益时不要拆分；主 Agent 始终保留目标、验收、依赖协调、结果整合和最终验证责任。
 - priority 只表示紧急程度：\`high\` 仅用于阻塞当前工作、安全或数据损坏、发布关键问题；普通计划工作使用 \`medium\`；非紧急优化使用 \`low\`。priority 不得用于推断 work_level。`
 }
@@ -62,15 +63,17 @@ function workLevelRulesEn() {
 - Execute clear light work directly without creating a plan for ceremony. Create a concise, actionable current plan for standard, deep, or materially uncertain work.
 - The user goal and acceptance criteria are the stable anchor; the execution plan is replaceable working state. Update the plan as evidence changes, but never silently change the goal. Return to the user when the goal itself must change, is infeasible, or conflicts with a new constraint.
 - Do not preserve low-value plan churn. Collaboration data keeps the goal, current effective scope, actual key decisions, result, and verification; record intermediate attempts only when they create a high-impact decision, risk, or follow-up.
+- Always run configured, acceptance-required, or explicitly requested verification. Otherwise start with the smallest check directly related to the change, such as one test file, one package test, type checking, or a smoke test. Expand to the full suite only for shared foundations, cross-module contracts, build or release paths, unclear blast radius, or when focused checks cannot establish acceptance.
 - Optimize for overall completion time. When the runtime supports subagents, delegate clearly bounded, independent work that can run in parallel or benefits from specialist investigation. Do not split simple sequential work or work whose coordination cost exceeds the gain. The main agent retains the goal, acceptance criteria, dependency coordination, integration, and final verification.
 - Priority is urgency only: use \`high\` for current blockers, security or data-loss issues, and release-critical work; \`medium\` for normal planned work; and \`low\` for non-urgent improvements. Priority never determines work level.`
 }
 
 export function agentBriefWorkInstructions() {
   return [
+    '先判断输入属于普通对话、咨询澄清还是可执行工作。普通问候、解释和无需项目动作的咨询只留在会话中，不创建任务；只有存在明确可执行目标时才创建或关联任务。同一目标的后续消息复用原会话和任务，不重复建卡。',
     '按边界确定 work_level:: light | standard | deep：light 是单一局部且易回退的修改；standard 是方案明确的常规功能或修复；deep 仅用于架构、迁移、跨系统契约、安全边界、不可逆操作或高影响取舍，并必须记录 depth_reason、关键约束和回退。priority 只表示紧急程度。',
-    '简单明确的 light 工作直接执行，只做最小必要检查；standard、deep 或范围不明确的工作先给出简洁计划。目标和验收是稳定锚点，计划按证据动态替换；不得静默改变目标，也不保存无价值的计划演变。',
-    '同一目标、版本、功能区域和验收轮次中的连续 light 修改可以合并，并让 record_level 与最终 work_level 一致；无关目标、独立排期、发布或风险必须分开。无需跟踪的即时 light 工作可使用 task_short_id:: T000。',
+    '简单明确的 light 工作直接执行，只做最小必要检查；standard、deep 或范围不明确的工作先给出简洁计划。目标和验收是稳定锚点，计划按证据动态替换；不得静默改变目标，也不保存无价值的计划演变。已配置、验收要求或用户指定的验证必须执行；其他情况先跑与改动直接相关的最小检查，只有共享核心、跨模块契约、构建发布链路、影响范围不明或轻量检查不足时才扩大到全量测试。',
+    '同一目标、版本、功能区域和验收轮次中的连续 light 修改可以合并，并让 record_level 与最终 work_level 一致；无关目标、独立排期、发布或风险必须分开。无需跟踪的即时 light 工作可使用 task_short_id:: T000。Run 与任务状态相互独立：运行完成并通过验收才把任务改为 done；failed、cancelled 或 blocked 的终态运行必须把仍为 doing 的任务恢复为 todo，详细原因保留在 Run 中。',
     '运行环境支持时，以整体效率为准，可将边界清楚、彼此独立、可并行或适合专项调查的工作交给子 Agent；简单顺序工作不强行拆分，主 Agent 保留目标、验收、整合和最终验证责任。',
   ]
 }
@@ -131,6 +134,7 @@ export function dataSpecTemplate() {
 - 所有项目级和版本级记录必须写入 \`version:: Vxxx\`，用于标识产生或主要维护阶段，避免后续检索遗漏版本上下文；跨项目共享的全局知识除外。
 - 任务、想法、研究、问题、风险和工作记录按版本进入默认展示和检索范围；文档和项目约束是项目级资料，版本号只用于追溯，不决定是否可见。
 - 任务卡必须保留用户原话、执行定义和验收，并在执行前标注 \`work_level:: light | standard | deep\`。执行定义合并 Agent 对需求的理解与本次执行范围，避免重复段落。
+- 先判断输入属于普通对话、咨询澄清还是可执行工作。普通问候、解释和无需项目动作的咨询只留在会话中，不创建任务；只有存在明确可执行目标时才创建或关联任务。同一目标的后续消息复用原会话和任务，不重复建卡。
 - 简单明确的 light 工作直接执行；standard、deep 或范围不明确的工作先建立简洁可执行的当前计划，执行中按证据动态调整。用户目标和验收始终是稳定锚点，计划只是可替换的工作状态，不得静默改变目标。
 - 不把中间计划演变写成长期协作负担；只保留当前有效范围、实际关键判断、结果和验证。目标需要变化、不可行或与新约束冲突时，回到用户确认。
 - 以整体完成效率为优先。运行环境支持子 Agent 时，可并行委派边界清楚、彼此独立或适合专项调查的工作；简单顺序工作和协调成本高于收益的工作不拆分。主 Agent 负责目标、验收、依赖协调、结果整合和最终验证。
@@ -156,7 +160,7 @@ export function dataSpecTemplate() {
 - 问题状态表达下一位行动者：\`open\` 表示待用户回复，\`decided\` 表示待 Agent 跟进，\`resolved\` 表示线程已完成，\`expired\` 仅用于 Agent/系统归档已被替代或确实无关的线程，不作为用户日常操作。
 - 验证限制、技术风险和后续事项写入当前版本的 \`风险与后续.md\`，使用 \`Rxxx\`，不得塞入任务、想法或工作记录的“未确认事项”。
 - 工作记录仍是任务副产品，不是独立执行模块。
-- 执行任务前将状态改为 doing，完成验收后改为 done。
+- 执行任务前将状态改为 doing，完成验收后改为 done。Run 与任务状态相互独立；Run 以 failed、cancelled 或 blocked 结束时，仍为 doing 的任务恢复为 todo，失败详情和是否可恢复由 Run 保留。
 - 输入/想法被处理时，不能只修改 status；必须写入 \`### 回答\`，说明处理结论、关联任务或不处理原因。
 - 整理输入/想法时，只更新当前版本 \`想法与问题.md\` 的 \`### 回答\` 和必要任务卡；不要为单纯想法整理写 Agent 工作记录。
 - 只有执行工程任务、修改代码、配置、测试、文档、知识或协作规则，或完成研究验收后，才写入 Agent 工作记录；其中真实文件修改必须至少使用 \`record_level:: light\`，单纯想法整理和协作元数据维护不写工作记录。
@@ -170,7 +174,7 @@ ${workLevelRulesZh()}
 - 想法/输入是收集入口，不代表承诺执行。
 - 整理想法时只更新当前版本 \`想法与问题.md\` 的 \`### 回答\`，必要时创建或关联任务短 ID。
 - 任务是执行单位，必须有明确状态：\`todo\`、\`doing\`、\`done\` 或 \`abandoned\`。
-- Agent 开始执行任务前，把任务改为 \`doing\`；验收通过后改为 \`done\`。
+- Agent 开始执行任务前，把任务改为 \`doing\`；验收通过后改为 \`done\`。终态 Run 未完成验收时，把任务恢复为 \`todo\`，不得留下没有活跃 Run 的 \`doing\`。
 - Agent 工作记录只记录任务执行、代码/文档/规则修改和验收过程，不记录单纯想法整理。
 
 ## 工程任务格式
@@ -411,13 +415,13 @@ export function handoffTemplate(projectRoot: string) {
 9. 简单明确的 light 工作直接执行；standard、deep 或范围不明确的工作先建立简洁计划，执行时允许动态调整，但用户目标和验收必须始终保留为稳定锚点。
 10. 不记录无价值的计划演变；只保留当前有效范围、关键判断、结果和验证。目标本身需要变化时回到用户确认。
 11. 以整体完成效率为优先；环境支持时，可将边界清楚、彼此独立、可并行或适合专项调查的工作交给子 Agent。简单顺序工作不强行拆分，主 Agent 保留目标、验收、整合和最终验证责任。
-12. 执行任务前设为 doing，验收后设为 done；所有文件修改仍必须列入对应 Lxxx 的修改文件和验证结果。
+12. 执行任务前设为 doing，验收后设为 done；Run 以 failed、cancelled 或 blocked 结束时，把仍为 doing 的任务恢复为 todo；所有文件修改仍必须列入对应 Lxxx 的修改文件和验证结果。
 13. 任务状态、问题回复、研究状态和 brief/index/基线等派生缓存不单独触发日志；想法整理只补 ### 回答。
 
 ## 工作流顺序
 
 \`\`\`text
-想法/输入 -> 整理回答 -> 必要时产生任务 -> 任务进入 todo/doing/done -> 任务执行并验收后写 Agent 工作记录
+输入 -> 对话/咨询直接回答；可执行目标才创建或关联任务 -> todo/doing -> 验收通过后 done，未完成的终态 Run 回到 todo -> 有文件修改时写 Agent 工作记录
 \`\`\`
 
 
@@ -572,8 +576,10 @@ Use this skill when working on this project with Electron Manager initialized da
 ## Rules
 
 - Use the active version and the paths in \`agent-brief.json.currentDataPaths\` by default. Completed versions are read-only history; project documents, knowledge notes, and constraints remain project-wide.
+- Route input before creating work. Greetings, explanations, and consultations that require no project action stay in the conversation and do not create tasks. Create or link a task only for a concrete executable goal, and reuse the same conversation and task for follow-up messages about that goal.
 - Before executing a task, set its status to \`doing\`.
 - After verification, set its status to \`done\`.
+- Keep Run status separate from task status. When a Run terminates as \`failed\`, \`cancelled\`, or \`blocked\`, return a still-\`doing\` task to \`todo\`; retain the terminal reason and resumability details in the Run. Never leave a task \`doing\` without an active or resumable Run.
 - Keep entries in each aggregate Markdown file physically ordered by descending record ID: larger \`Txxx\`, \`Ixxx\`, \`Dxxx\`, \`Qxxx\`, \`Rxxx\`, \`Lxxx\`, \`Cxxx\`, and \`Vxxx\` entries appear above smaller IDs. \`Wxxx\` and \`Kxxx\` are separate files named by ID, so in-file ordering does not apply. Do not rely on UI sorting or parser reordering to fix record order.
 - Keep user wording, one combined execution definition, acceptance, and \`work_level\` explicit in tasks. Deep tasks additionally require \`depth_reason\`, \`### 关键约束\`, and \`### 方案与回退\`.
 - Any change to source, configuration, tests, project documents, knowledge notes, or collaboration rules requires one agent log with \`log_short_id:: Lxxx\` per task and acceptance cycle, not per changed file. Consolidate related tweaks before that cycle closes; after it closes, a new change gets a new log.

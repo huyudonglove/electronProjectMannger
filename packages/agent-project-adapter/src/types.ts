@@ -52,7 +52,7 @@ export interface ProjectTaskStatusUpdate {
   taskShortId: string
   expectedStatus: string
   expectedUpdated: string
-  nextStatus: 'doing' | 'done'
+  nextStatus: 'todo' | 'doing' | 'done'
 }
 
 export interface PreparedProjectRun {

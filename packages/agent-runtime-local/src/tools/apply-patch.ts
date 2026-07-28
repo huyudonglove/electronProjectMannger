@@ -1,18 +1,21 @@
 import type { ToolDescriptor, ToolModule } from '../tool-registry.js'
+import { toolPromptCopy } from '@electron-manager/agent-prompts'
 import { nativeAvailability, type LocalRuntimeServices } from '../runtime-services.js'
+
+const promptCopy = toolPromptCopy('apply_patch')
 
 export const applyPatchToolDescriptor: ToolDescriptor = {
       name: 'apply_patch',
       version: '1.0.0',
       title: '应用补丁',
-      description: 'Atomically apply exact text replacements across one or more existing UTF-8 project files.',
-      useWhen: 'Use for bounded exact replacements after inspecting current file content and hashes.',
-      avoidWhen: 'Do not use for fuzzy patches, shell patching, Git internals, or unreviewed broad rewrites.',
+      description: promptCopy.description,
+      useWhen: promptCopy.useWhen,
+      avoidWhen: promptCopy.avoidWhen,
       risk: 'project_write',
       riskCategory: 'project_write',
       baseRiskLevel: 'medium',
       recovery: 'reconcile_then_resume',
-      sideEffects: ['Modifies one or more existing project files'],
+      sideEffects: promptCopy.sideEffects,
       retryable: false,
       backends: [{ id: 'node-file-transaction', kind: 'native' }],
       preferredBackendId: 'node-file-transaction',
@@ -28,7 +31,7 @@ export const applyPatchToolDescriptor: ToolDescriptor = {
                 oldText: { type: 'string' },
                 newText: { type: 'string' },
                 expectedOccurrences: { type: 'number' },
-                expectedHash: { type: 'string', description: 'Optional SHA-256 hash of the file before any operation in this patch.' },
+                expectedHash: { type: 'string', description: promptCopy.fields?.expectedHash },
               },
               required: ['path', 'oldText', 'newText'],
               additionalProperties: false,

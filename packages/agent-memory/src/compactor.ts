@@ -10,7 +10,14 @@ import {
   type TokenEstimator,
 } from '@electron-manager/agent-context'
 
-import { SESSION_COMPACTION_SCHEMA_VERSION, type SessionCompactionPolicy, type SessionCompactorOptions } from './types.js'
+import {
+  SESSION_COMPACTION_SCHEMA_VERSION,
+  type ModelBackedSessionCompactorOptions,
+  type SessionCompactionPolicy,
+  type SessionCompactorOptions,
+  SessionSummarizerError,
+  type SessionSummarizerDiagnostic,
+} from './types.js'
 
 const MAX_OBSERVATIONS = 8
 const MAX_EXCERPT_CHARS = 160
@@ -161,6 +168,188 @@ export class DeterministicSessionCompactor {
       },
     })
   }
+}
+
+export class ModelBackedSessionCompactor {
+  readonly #deterministic: DeterministicSessionCompactor
+  readonly #summarizer: ModelBackedSessionCompactorOptions['summarizer']
+  readonly #estimator: TokenEstimator
+  readonly #onDiagnostic?: ModelBackedSessionCompactorOptions['onDiagnostic']
+  readonly #diagnostics: SessionSummarizerDiagnostic[] = []
+
+  constructor(options: ModelBackedSessionCompactorOptions) {
+    this.#deterministic = new DeterministicSessionCompactor(options)
+    this.#summarizer = options.summarizer
+    this.#estimator = options.tokenEstimator || new DeterministicTokenEstimator()
+    this.#onDiagnostic = options.onDiagnostic
+  }
+
+  diagnostics() {
+    return structuredClone(this.#diagnostics)
+  }
+
+  async compact(input: ContextCompactionInput): Promise<ContextCompactionResult> {
+    const fallback = this.#deterministic.compact(input)
+    const deterministicRecord = fallback.compaction
+    if (!deterministicRecord) return fallback
+    let attempted: Omit<SessionSummarizerDiagnostic, 'runId' | 'outcome' | 'reason'> | undefined
+    try {
+      const candidate = await this.#summarizer.summarize({
+        runId: input.runId,
+        objective: input.ledger.objective,
+        sourceRefs: [...deterministicRecord.sourceRefs],
+        observations: structuredClone(deterministicRecord.summary.observations),
+        deterministicSummary: structuredClone(deterministicRecord.summary),
+      })
+      attempted = {
+        routeId: candidate.routeId,
+        routeRevision: candidate.routeRevision,
+        attemptCount: candidate.attemptCount,
+        usage: structuredClone(candidate.usage),
+      }
+      const summary = validatedModelSummary(deterministicRecord.summary, candidate.summary)
+      const result = modelCompaction(
+        { ...fallback, compaction: deterministicRecord },
+        summary,
+        candidate.routeId,
+        candidate.routeRevision,
+        this.#estimator,
+      )
+      await this.#recordDiagnostic({
+        runId: input.runId,
+        outcome: 'succeeded',
+        routeId: candidate.routeId,
+        routeRevision: candidate.routeRevision,
+        attemptCount: candidate.attemptCount,
+        usage: structuredClone(candidate.usage),
+      })
+      return result
+    } catch (error) {
+      const reason = safeErrorMessage(error)
+      const failed = error instanceof SessionSummarizerError ? error.diagnostic : attempted
+      await this.#recordDiagnostic({
+        runId: input.runId,
+        outcome: 'fallback',
+        ...(failed?.routeId ? { routeId: failed.routeId } : {}),
+        ...(failed?.routeRevision ? { routeRevision: failed.routeRevision } : {}),
+        attemptCount: failed?.attemptCount ?? 0,
+        usage: structuredClone(failed?.usage ?? { inputTokens: 0, outputTokens: 0 }),
+        reason,
+      })
+      return {
+        ...fallback,
+        compaction: {
+          ...deterministicRecord,
+          fallbackReason: `summarizer_failed:${reason}`,
+        },
+      }
+    }
+  }
+
+  async #recordDiagnostic(diagnostic: SessionSummarizerDiagnostic) {
+    this.#diagnostics.push(structuredClone(diagnostic))
+    try {
+      await this.#onDiagnostic?.(structuredClone(diagnostic))
+    } catch {
+      // Diagnostics must never change compaction correctness or fallback behavior.
+    }
+  }
+}
+
+function validatedModelSummary(baseline: SessionSummary, candidate: SessionSummary): SessionSummary {
+  if (!candidate || !Array.isArray(candidate.observations) || candidate.observations.length > MAX_OBSERVATIONS) {
+    throw new AgentCoreError('INVALID_INPUT', 'Summarizer returned an invalid observations list')
+  }
+  const allowedRefs = new Set(baseline.sourceRefs)
+  const baselineTrust = new Map(baseline.observations.flatMap((observation) =>
+    observation.sourceRefs.map((sourceRef) => [sourceRef, observation.trust] as const)))
+  const observations = candidate.observations.map((observation) => {
+    if (!observation.sourceId?.trim() || !observation.excerpt?.trim() || !Array.isArray(observation.sourceRefs) || !observation.sourceRefs.length) {
+      throw new AgentCoreError('INVALID_INPUT', 'Summarizer observation is missing source identity')
+    }
+    if (observation.sourceRefs.some((sourceRef) => !allowedRefs.has(sourceRef))) {
+      throw new AgentCoreError('INVALID_INPUT', 'Summarizer observation references unknown source material')
+    }
+    const trusts = observation.sourceRefs.map((sourceRef) => baselineTrust.get(sourceRef)).filter(Boolean) as ContextTrust[]
+    const trust: ContextTrust = trusts.includes('untrusted')
+      ? 'untrusted'
+      : trusts.includes('trusted_project')
+        ? 'trusted_project'
+        : 'trusted_run'
+    return {
+      sourceId: observation.sourceId.trim(),
+      trust,
+      sourceRefs: uniqueSorted(observation.sourceRefs),
+      excerpt: boundedExcerpt(observation.excerpt),
+    }
+  })
+  return {
+    objective: baseline.objective,
+    knownFacts: [...baseline.knownFacts],
+    decisions: [...baseline.decisions],
+    failures: [...baseline.failures],
+    unresolved: [...baseline.unresolved],
+    observations,
+    sourceRefs: [...baseline.sourceRefs],
+    ...(baseline.nextAction ? { nextAction: baseline.nextAction } : {}),
+  }
+}
+
+function modelCompaction(
+  fallback: ContextCompactionResult & { compaction: CompactionRecord },
+  summary: SessionSummary,
+  routeId: string,
+  routeRevision: string,
+  estimator: TokenEstimator,
+): ContextCompactionResult {
+  if (!routeId.trim() || !routeRevision.trim()) throw new AgentCoreError('INVALID_INPUT', 'Summarizer route identity is required')
+  const compactedHistoryRevision = hash(canonicalJson(summary))
+  const revision = hash(canonicalJson({
+    baseRevision: fallback.compaction.revision,
+    strategy: 'model',
+    routeId,
+    routeRevision,
+    compactedHistoryRevision,
+  }))
+  const summaryFragmentId = `compaction-summary-${revision.slice(0, 16)}`
+  const content = summaryContent(summary)
+  const estimatedTokens = estimator.estimate(content)
+  const originalSummary = fallback.entries.find((entry) => entry.id === fallback.compaction.summaryFragmentId)
+  if (!originalSummary) throw new AgentCoreError('INVALID_INPUT', 'Deterministic compaction summary entry is missing')
+  const summaryEntry = {
+    ...originalSummary,
+    id: summaryFragmentId,
+    content,
+    sourceRefs: [...summary.sourceRefs],
+    sourceRevision: revision,
+    estimatedTokens,
+    trust: summaryTrust([], summary),
+  }
+  const entries = fallback.entries.map((entry) => entry.id === fallback.compaction!.summaryFragmentId ? summaryEntry : entry)
+  const afterTokens = sumTokens(entries)
+  if (afterTokens >= fallback.compaction.hardStopTokens) {
+    throw new AgentCoreError('CONTEXT_BUDGET_EXCEEDED', 'Model summary remains above the hard-stop; using deterministic fallback')
+  }
+  return {
+    entries,
+    compactionRevision: revision,
+    pressure: { ...fallback.pressure, afterTokens },
+    compaction: {
+      ...fallback.compaction,
+      revision,
+      strategy: 'model',
+      afterTokens,
+      retainedFragmentIds: fallback.compaction.retainedFragmentIds,
+      summaryFragmentId,
+      compactedHistoryRevision,
+      summary,
+      fallbackReason: undefined,
+    },
+  }
+}
+
+function safeErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500)
 }
 
 function restoreActiveEntries(

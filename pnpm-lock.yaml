@@ -26,6 +26,12 @@ importers:
       '@electron-manager/agent-desktop-coordinator':
         specifier: workspace:*
         version: link:../../packages/agent-desktop-coordinator
+      '@electron-manager/agent-model-router':
+        specifier: workspace:*
+        version: link:../../packages/agent-model-router
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../../packages/agent-prompts
       '@electron-manager/project-core':
         specifier: workspace:*
         version: link:../../packages/project-core
@@ -61,6 +67,9 @@ importers:
       '@electron-manager/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../agent-prompts
     devDependencies:
       '@types/node':
         specifier: ^24.13.2
@@ -71,12 +80,19 @@ importers:
       '@electron-manager/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../agent-prompts
     devDependencies:
       '@types/node':
         specifier: ^24.13.2
         version: 24.13.2
 
   packages/agent-core:
+    dependencies:
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../agent-prompts
     devDependencies:
       '@types/node':
         specifier: ^24.13.2
@@ -99,6 +115,9 @@ importers:
       '@electron-manager/agent-credential-vault':
         specifier: workspace:*
         version: link:../agent-credential-vault
+      '@electron-manager/agent-memory':
+        specifier: workspace:*
+        version: link:../agent-memory
       '@electron-manager/agent-provider-openai':
         specifier: workspace:*
         version: link:../agent-provider-openai
@@ -193,11 +212,20 @@ importers:
         specifier: ^24.13.2
         version: 24.13.2
 
+  packages/agent-prompts:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+
   packages/agent-provider-openai:
     dependencies:
       '@electron-manager/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../agent-prompts
     devDependencies:
       '@electron-manager/agent-runtime-local':
         specifier: workspace:*
@@ -214,6 +242,9 @@ importers:
       '@electron-manager/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../agent-prompts
     devDependencies:
       '@types/node':
         specifier: ^24.13.2
@@ -242,6 +273,9 @@ importers:
       '@electron-manager/agent-output':
         specifier: workspace:*
         version: link:../agent-output
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../agent-prompts
       '@electron-manager/agent-repo-map':
         specifier: workspace:*
         version: link:../agent-repo-map
@@ -258,6 +292,9 @@ importers:
       '@electron-manager/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@electron-manager/agent-prompts':
+        specifier: workspace:*
+        version: link:../agent-prompts
     devDependencies:
       '@types/node':
         specifier: ^24.13.2

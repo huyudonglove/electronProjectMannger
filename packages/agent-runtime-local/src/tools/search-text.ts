@@ -1,19 +1,22 @@
 import type { ToolDescriptor, ToolModule } from '../tool-registry.js'
+import { toolPromptCopy } from '@electron-manager/agent-prompts'
 import { cliAvailability, processToolResult, type LocalRuntimeServices } from '../runtime-services.js'
 import { optionalString, optionalStringArray, requiredString } from '../tool-input.js'
+
+const promptCopy = toolPromptCopy('search_text')
 
 export const searchTextToolDescriptor: ToolDescriptor = {
       name: 'search_text',
       version: '1.0.0',
       title: '搜索文本',
-      description: 'Search text with ripgrep inside a project-relative path.',
-      useWhen: 'Use to find exact text or regular-expression matches across project files.',
-      avoidWhen: 'Do not use for semantic symbol analysis or file modification.',
+      description: promptCopy.description,
+      useWhen: promptCopy.useWhen,
+      avoidWhen: promptCopy.avoidWhen,
       risk: 'read',
       riskCategory: 'read',
       baseRiskLevel: 'low',
       recovery: 'safe_replay',
-      sideEffects: [],
+      sideEffects: promptCopy.sideEffects,
       retryable: true,
       backends: [{ id: 'rg-cli', kind: 'cli', command: 'rg' }],
       preferredBackendId: 'rg-cli',

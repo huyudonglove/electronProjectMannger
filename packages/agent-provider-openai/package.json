@@ -15,7 +15,8 @@
     "smoke:live": "pnpm build && node tests/live-smoke.mjs"
   },
   "dependencies": {
-    "@electron-manager/agent-core": "workspace:*"
+    "@electron-manager/agent-core": "workspace:*",
+    "@electron-manager/agent-prompts": "workspace:*"
   },
   "devDependencies": {
     "@electron-manager/agent-runtime-local": "workspace:*",

@@ -1,26 +1,29 @@
 import type { ToolDescriptor, ToolModule } from '../tool-registry.js'
+import { toolPromptCopy } from '@electron-manager/agent-prompts'
 import { cliAvailability, processToolResult, type LocalRuntimeServices } from '../runtime-services.js'
 import { optionalString } from '../tool-input.js'
+
+const promptCopy = toolPromptCopy('list_files')
 
 export const listFilesToolDescriptor: ToolDescriptor = {
       name: 'list_files',
       version: '1.0.0',
       title: '列出文件',
-      description: 'List project files under a project-relative directory using ripgrep and project ignore rules.',
-      useWhen: 'Use to discover project files quickly before choosing specific files to inspect.',
-      avoidWhen: 'Do not use to read file contents or determine Git changes; use read_file or git_status instead.',
+      description: promptCopy.description,
+      useWhen: promptCopy.useWhen,
+      avoidWhen: promptCopy.avoidWhen,
       risk: 'read',
       riskCategory: 'read',
       baseRiskLevel: 'low',
       recovery: 'safe_replay',
-      sideEffects: [],
+      sideEffects: promptCopy.sideEffects,
       retryable: true,
       backends: [{ id: 'rg-cli', kind: 'cli', command: 'rg' }],
       preferredBackendId: 'rg-cli',
       inputSchema: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Project-relative directory. Defaults to the project root.' },
+          path: { type: 'string', description: promptCopy.fields?.path },
           includeHidden: { type: 'boolean' },
         },
         additionalProperties: false,

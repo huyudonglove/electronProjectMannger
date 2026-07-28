@@ -1,4 +1,11 @@
 import type { RunLedger, ToolDefinition } from '@electron-manager/agent-core'
+import {
+  CODER_ACTION_PROTOCOL_PROMPT,
+  NEXT_ACTION_PROMPT,
+  TOOL_CATALOG_PROMPT,
+  renderNextActionPrompt,
+  renderToolCatalogPrompt,
+} from '@electron-manager/agent-prompts'
 
 import { ContextAssembler } from './assembler.js'
 import { ContextSourceRegistry } from './registry.js'
@@ -20,7 +27,7 @@ function systemSource(): ContextSource {
   return {
     descriptor: {
       id: 'builtin.system-protocol',
-      revision: '2',
+      revision: CODER_ACTION_PROTOCOL_PROMPT.revision,
       region: 'stable_system_prefix',
       scope: 'system',
       trust: 'trusted_system',
@@ -32,13 +39,7 @@ function systemSource(): ContextSource {
     collect: () => [{
       id: 'agent-action-protocol',
       role: 'system',
-      content: [
-        'Return exactly one structured AgentTurnAction matching the response schema.',
-        'Run facts and tool results are authoritative; never invent an inspection, tool result, verification, approval, file change, or evidence reference.',
-        'Use inspect only during inspection and only with read tools. Use plan before standard or deep changes, and use plan again from acting or repairing when evidence materially invalidates the current plan.',
-        'Use tool for the next concrete action. Use verify only for a configured verification check and its exact command. Use finish only when every required acceptance criterion and final diff can cite successful evidence. Use blocked only for a genuine external or goal-level blocker, not for ordinary uncertainty or a failed attempt.',
-        'Give every tool request a unique stable id. Set absent optional tool fields to null; the runtime removes them before execution.',
-      ].join(' '),
+      content: CODER_ACTION_PROTOCOL_PROMPT.text,
       sourceRefs: ['agent-core:action-protocol'],
     }],
   }
@@ -48,7 +49,7 @@ function capabilitySource(): ContextSource {
   return {
     descriptor: {
       id: 'builtin.capabilities',
-      revision: '2',
+      revision: TOOL_CATALOG_PROMPT.revision,
       region: 'stable_capability_prefix',
       scope: 'capability',
       trust: 'trusted_system',
@@ -60,14 +61,14 @@ function capabilitySource(): ContextSource {
     collect: ({ tools }) => [{
       id: 'tool-catalog',
       role: 'system',
-      content: `Tool capabilities: ${canonicalJson([...tools]
+      content: renderToolCatalogPrompt(canonicalJson([...tools]
         .sort((left, right) => left.name.localeCompare(right.name))
         .map(({ name, description, risk, riskCategory, baseRiskLevel }) => ({
           name,
           description,
           riskCategory: riskCategory || risk,
           baseRiskLevel,
-        })))}`,
+        })))),
       sourceRefs: tools.map((tool) => `tool:${tool.name}`).sort(),
     }],
   }
@@ -133,7 +134,7 @@ function newestTurnSource(): ContextSource {
   return {
     descriptor: {
       id: 'builtin.newest-turn',
-      revision: '2',
+      revision: NEXT_ACTION_PROMPT.revision,
       region: 'newest_message',
       scope: 'session',
       trust: 'trusted_run',
@@ -145,7 +146,11 @@ function newestTurnSource(): ContextSource {
     collect: ({ ledger }) => [{
       id: `turn-${ledger.stepCount}`,
       role: 'user',
-      content: `Select the next valid action for phase ${ledger.phase} at step ${ledger.stepCount}. ${phaseGuidance(ledger)}`,
+      content: renderNextActionPrompt({
+        phase: ledger.phase,
+        step: ledger.stepCount,
+        workLevel: ledger.workLevel,
+      }),
       sourceRefs: [`run:${ledger.runId}:step:${ledger.stepCount}`],
       sequence: ledger.stepCount * 1_000 + 999,
     }],
@@ -167,28 +172,15 @@ function runFacts(ledger: RunLedger) {
     changes: ledger.changes,
     verifications: ledger.verifications,
     failures: ledger.failures,
+    successfulEvidenceRefs: [
+      ...ledger.toolExecutions
+        .filter((execution) => execution.result?.ok)
+        .map((execution) => execution.request.id),
+      ...ledger.verifications
+        .filter((verification) => verification.status === 'passed')
+        .map((verification) => verification.checkId),
+    ],
     nextAction: ledger.nextAction,
-  }
-}
-
-function phaseGuidance(ledger: RunLedger) {
-  switch (ledger.phase) {
-    case 'inspecting':
-      return ledger.workLevel === 'light'
-        ? 'Inspect relevant context, or act directly when the bounded task is already understood.'
-        : 'Inspect relevant context, then return a concise plan before any change.'
-    case 'planning':
-      return 'Return one concise plan that keeps the objective and acceptance criteria unchanged.'
-    case 'acting':
-      return 'Take the next concrete tool action, revise the plan if new evidence materially invalidated it, or start configured verification when implementation is complete.'
-    case 'repairing':
-      return 'Use failure evidence to repair, revise the plan when necessary, or block only when recovery depends on external input.'
-    case 'verifying':
-      return 'Complete configured checks, gather read-only evidence and the final diff, then finish with evidence references.'
-    case 'finalizing':
-      return 'Finish only with complete acceptance evidence and a successful final diff reference.'
-    default:
-      return 'Follow the phase rules in the execution protocol.'
   }
 }
 

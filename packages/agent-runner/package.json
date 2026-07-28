@@ -21,6 +21,7 @@
     "@electron-manager/agent-memory": "workspace:*",
     "@electron-manager/agent-model-router": "workspace:*",
     "@electron-manager/agent-output": "workspace:*",
+    "@electron-manager/agent-prompts": "workspace:*",
     "@electron-manager/agent-repo-map": "workspace:*",
     "@electron-manager/agent-runtime-local": "workspace:*"
   },

@@ -21,6 +21,7 @@ import { appendTask, getDashboard, initProject } from '@electron-manager/project
 import {
   DesktopAgentCoordinator,
   createHeadlessDesktopAgentBackend,
+  toDesktopRunView,
 } from '../dist/index.js'
 
 const exec = promisify(execFile)
@@ -106,7 +107,7 @@ test('desktop coordinator runs a project task, publishes persisted events and sy
   assert.equal(afterRetry.logs.filter((log) => log.source === 'agent-run:desktop-run-completed').length, 1)
 })
 
-test('blocked run with file changes writes one log but keeps the project task doing', async (t) => {
+test('blocked run with file changes writes one log and returns the project task to todo', async (t) => {
   const fixture = await createFixture(t, 'blocked')
   const coordinator = createCoordinator(fixture, provider([
     turn({ kind: 'inspect', request: request('read-1', 'read_file', { path: 'src/value.js' }) }),
@@ -126,14 +127,14 @@ test('blocked run with file changes writes one log but keeps the project task do
   })
   const blocked = await coordinator.advanceRun({ projectRoot: fixture.projectRoot, runId: 'desktop-run-blocked' })
   assert.equal(blocked.run.status, 'blocked', JSON.stringify(blocked, null, 2))
-  assert.equal(blocked.run.task.status, 'doing')
+  assert.equal(blocked.run.task.status, 'todo')
   assert.equal(blocked.run.recordSync, 'applied')
 
   const dashboard = await getDashboard(fixture.managerDataRoot, fixture.projectRoot)
   const logs = dashboard.logs.filter((log) => log.source === 'agent-run:desktop-run-blocked')
   assert.equal(logs.length, 1)
   assert.equal(logs[0].recordLevel, 'standard')
-  assert.match(logs[0].result, /任务保持进行中/)
+  assert.match(logs[0].result, /任务已回到 todo/)
   assert.deepEqual(logs[0].changedFiles, ['src/value.js'])
 })
 
@@ -219,6 +220,53 @@ test('coordinator claims a project run before loading it and rejects a concurren
   assert.equal(operationSignal?.aborted, true)
   assert.equal(firstResult.run.runId, 'shared-run-id')
   assert.equal(secondError?.code, 'RUN_OPERATION_ACTIVE')
+})
+
+test('desktop run memory view exposes bounded snapshot and compaction metadata without summary text', async (t) => {
+  const fixture = await createFixture(t, 'memory-view')
+  const backend = createBackend(fixture, provider([]))
+  const coordinator = new DesktopAgentCoordinator({ managerDataRoot: fixture.managerDataRoot, backend })
+  await coordinator.startTask({
+    projectRoot: fixture.projectRoot,
+    taskId: fixture.task.id,
+    runId: 'desktop-run-memory-view',
+  })
+  const repository = await backend.openRepository(fixture.projectRoot)
+  const checkpoint = await repository.load('desktop-run-memory-view')
+  repository.close()
+  assert.ok(checkpoint)
+  checkpoint.snapshot.memorySnapshot.data.projectMemoryRevision = 'r'.repeat(300)
+  checkpoint.snapshot.memorySnapshot.data.projectMemorySnapshotRef = 'output:sha256:fixture'
+  checkpoint.snapshot.ledger.compactions = [{
+    strategy: 'model',
+    trigger: 'compact_threshold',
+    beforeTokens: 75_000,
+    afterTokens: 49_000,
+    createdAt: '2026-07-28T10:00:00.000Z',
+    summary: {
+      knownFacts: ['sensitive fact'],
+      decisions: ['sensitive decision'],
+      failures: ['sensitive failure'],
+      unresolved: ['sensitive unresolved'],
+      observations: [{ excerpt: 'sensitive observation' }, { excerpt: 'another sensitive observation' }],
+      sourceRefs: ['private:one', 'private:two'],
+      nextAction: 'sensitive next action',
+    },
+  }]
+  const view = toDesktopRunView(checkpoint, await getDashboard(fixture.managerDataRoot, fixture.projectRoot))
+  assert.equal(view.memory.projectMemoryRevision.length, 128)
+  assert.equal(view.memory.hasProjectMemorySnapshot, true)
+  assert.equal(view.memory.compactions.count, 1)
+  assert.deepEqual(view.memory.compactions.latest.summary, {
+    knownFacts: 1,
+    decisions: 1,
+    failures: 1,
+    unresolved: 1,
+    observations: 2,
+    sourceRefs: 2,
+    hasNextAction: true,
+  })
+  assert.doesNotMatch(JSON.stringify(view.memory), /sensitive|private:one|output:sha256:fixture/)
 })
 
 function createCoordinator(fixture, modelProvider) {

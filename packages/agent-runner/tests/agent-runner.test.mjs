@@ -20,7 +20,12 @@ import {
 } from '@electron-manager/agent-config'
 import { computeActionDigest } from '@electron-manager/agent-runtime-local'
 
-import { createHeadlessAgentRunner } from '../dist/index.js'
+import {
+  composeHeadlessAgent,
+  createHeadlessAgentRunner,
+  decodeProjectMemorySnapshot,
+  encodeProjectMemorySnapshot,
+} from '../dist/index.js'
 
 const exec = promisify(execFile)
 const enabledTools = ['apply_patch', 'exec_command', 'git_diff', 'read_file']
@@ -105,6 +110,18 @@ function runnerOptions(root, checkpointPath, modelProvider, extraLayers = []) {
     runtimeOptions: { timeoutMs: 45_000 },
     outputPreviewCharacters: 80,
     projectRulesRevision: 'fixture-rules-v1',
+    projectMemoryDocuments: [{
+      id: 'fixture-verification-memory',
+      path: 'docs/fixture-verification.md',
+      title: 'Fixture values verification',
+      summary: 'How fixture updates are verified',
+      tags: ['fixture', 'verification'],
+      scope: 'project',
+      trust: 'trusted_project',
+      updatedAt: '2026-07-27T08:00:00.000Z',
+      content: 'After updating both fixture values, run the configured npm test check.',
+      sourceRefs: ['document:fixture-verification'],
+    }],
   }
 }
 
@@ -133,6 +150,9 @@ test('headless runner composes config, context, router, runtime and SQLite acros
   assert.ok(created.snapshot.modelRouteSnapshot)
   assert.ok(created.snapshot.toolRegistrySnapshot)
   assert.ok(created.snapshot.memorySnapshot)
+  assert.equal(created.snapshot.memorySnapshot.data.projectMemorySnapshotRef, runner.projectMemorySnapshotRef)
+  assert.match(runner.projectMemorySnapshotRef, /^output:sha256:[a-f0-9]{64}$/)
+  assert.match((await runner.readOutput(runner.projectMemorySnapshotRef)).content, /fixture-verification-memory/)
   assert.ok(runner.repoMap.paths.includes('src/a.js'))
   assert.ok(runner.repoMapOutputRef.startsWith('output:sha256:'))
   assert.equal((await runner.readOutput(runner.repoMapOutputRef)).content, runner.repoMap.content)
@@ -141,9 +161,13 @@ test('headless runner composes config, context, router, runtime and SQLite acros
   const inspected = await runner.advance('run-headless')
   assert.equal(inspected.decision.kind, 'continue')
   assert.equal(inspected.checkpoint.snapshot.ledger.inspectedFiles[0].path, 'src/a.js')
-  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /Use work level light/)
-  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /Repository map/)
+  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /当前工作等级为 light/)
+  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /先选择最小相关检查/)
+  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /仓库结构映射/)
   assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /a\.js/)
+  assert.match(firstProvider.requests[0].messages.map((message) => message.content).join('\n'), /fixture-verification\.md/)
+  assert.ok(created.snapshot.memorySnapshot.data.projectMemoryRevision)
+  assert.equal(created.snapshot.memorySnapshot.data.retrievalRevision, 'cjk-bigram-v1')
   assert.equal(firstProvider.requests[0].promptCacheBinding.capability, 'implicit')
   assert.ok(firstProvider.requests[0].promptCacheBinding.cacheKey)
   runner.close()
@@ -251,6 +275,66 @@ test('headless runner refuses to resume with a different resolved component snap
   runner.close()
 })
 
+test('legacy Project Memory checkpoints restore saved documents and lexical retrieval semantics', async (t) => {
+  const fixture = await createFixture(t)
+  const legacyOptions = runnerOptions(fixture.root, fixture.checkpointPath, provider([]))
+  legacyOptions.projectMemoryRetrievalRevision = 'lexical-v1'
+  legacyOptions.projectMemoryDocuments = [
+    {
+      id: 'legacy-exact',
+      path: 'docs/legacy-exact.md',
+      title: '旧版精确记忆',
+      tags: [],
+      scope: 'project',
+      trust: 'trusted_project',
+      content: '旧版精确标记：模型失败后的顺序回退规则。',
+    },
+    {
+      id: 'legacy-bigram-only',
+      path: 'docs/legacy-bigram.md',
+      title: '旧版二元候选',
+      tags: [],
+      scope: 'project',
+      trust: 'trusted_project',
+      content: '旧版二元标记：模型失败后，按配置顺序回退。',
+    },
+  ]
+  let runner = await createHeadlessAgentRunner(legacyOptions)
+  const created = await runner.createRun({
+    ...runInput('run-legacy-memory'),
+    goal: '模型失败后的顺序回退规则',
+  })
+  const legacyMemorySnapshot = structuredClone(created.snapshot.memorySnapshot)
+  assert.equal(legacyMemorySnapshot.data.retrievalRevision, undefined)
+  runner.close()
+
+  const resumedProvider = provider([turn({
+    kind: 'blocked',
+    summary: 'Captured legacy memory context',
+    reason: 'fixture',
+  })])
+  const changedOptions = runnerOptions(fixture.root, fixture.checkpointPath, resumedProvider)
+  changedOptions.projectMemoryDocuments = [{
+    id: 'changed-current-memory',
+    path: 'docs/changed-current.md',
+    title: '变化后的 W 文档',
+    tags: [],
+    scope: 'project',
+    trust: 'trusted_project',
+    content: '新版 W 标记：模型失败时会按顺序回退。',
+  }]
+  runner = await createHeadlessAgentRunner(changedOptions)
+  const resumed = await runner.advance('run-legacy-memory')
+  const context = resumedProvider.requests[0].messages.map((message) => message.content).join('\n')
+
+  assert.equal(resumed.step.disposition, 'blocked')
+  assert.match(context, /旧版精确标记/)
+  assert.doesNotMatch(context, /旧版二元标记/)
+  assert.doesNotMatch(context, /新版 W 标记/)
+  assert.deepEqual((await runner.load('run-legacy-memory')).snapshot.memorySnapshot, legacyMemorySnapshot)
+  runner.close()
+})
+
 test('minimal memory mode does not collect or persist a repo map', async (t) => {
   const fixture = await createFixture(t)
   const options = runnerOptions(fixture.root, fixture.checkpointPath, provider([]))
@@ -270,7 +354,99 @@ test('minimal memory mode does not collect or persist a repo map', async (t) => 
   const runner = await createHeadlessAgentRunner(options)
   assert.equal(runner.repoMap, undefined)
   assert.equal(runner.repoMapOutputRef, undefined)
+  assert.equal(runner.snapshots.memorySnapshot.data.projectMemoryRevision, undefined)
   runner.close()
+})
+
+test('configured summarizer ModelRoute is selected and reports routed usage', async (t) => {
+  const fixture = await createFixture(t)
+  const summary = {
+    objective: 'Update both fixture values',
+    knownFacts: [],
+    decisions: [],
+    failures: [],
+    unresolved: [],
+    observations: [{
+      sourceId: 'summary.fixture',
+      trust: 'trusted_run',
+      sourceRefs: ['tool:one'],
+      excerpt: 'Condensed fixture observation',
+    }],
+    sourceRefs: ['tool:one'],
+  }
+  const summaryProvider = provider([turn({
+    kind: 'finish',
+    summary: JSON.stringify(summary),
+    acceptanceEvidence: [],
+  })])
+  const options = runnerOptions(fixture.root, fixture.checkpointPath, provider([]))
+  const summaryModel = {
+    ...options.catalog.modelProfiles[0],
+    id: 'model.fixture.summary',
+    model: 'fixture-summary',
+  }
+  const summaryRoute = {
+    ...options.catalog.modelRoutes[0],
+    id: 'route.fixture.summary',
+    primaryProfileId: summaryModel.id,
+  }
+  const summaryMemory = {
+    ...options.catalog.memoryProfiles[0],
+    id: 'memory.fixture.summary',
+    revision: '2',
+    summarizerRouteId: summaryRoute.id,
+  }
+  options.catalog.modelProfiles.push(summaryModel)
+  options.catalog.modelRoutes.push(summaryRoute)
+  options.catalog.memoryProfiles = [summaryMemory]
+  options.layers.push({
+    scope: 'run',
+    revision: 'summary-memory-v1',
+    selections: { memoryProfileId: summaryMemory.id },
+  })
+  options.providers.push({ profileId: summaryModel.id, provider: summaryProvider })
+
+  const composition = await composeHeadlessAgent(options)
+  assert.equal(composition.summarizerRouter.snapshot().data.route.id, summaryRoute.id)
+  assert.equal(composition.snapshots.memorySnapshot.data.summarizerRoute.data.route.id, summaryRoute.id)
+  const result = await composition.sessionSummarizer.summarize({
+    runId: 'run-summary',
+    objective: summary.objective,
+    sourceRefs: ['tool:one'],
+    observations: summary.observations,
+    deterministicSummary: summary,
+  })
+
+  assert.equal(result.routeId, summaryRoute.id)
+  assert.equal(result.attemptCount, 1)
+  assert.deepEqual(result.usage, { inputTokens: 100, outputTokens: 20, cachedInputTokens: 40 })
+  assert.equal(summaryProvider.requests[0].tools.length, 0)
+  assert.match(summaryProvider.requests[0].turnId, /^run-summary:summary:/)
+  assert.deepEqual(result.summary, summary)
+})
+
+test('Project Memory snapshot codec rejects tampering and unsafe paths', () => {
+  const documents = [{
+    id: 'memory-one',
+    path: 'documents/W001.md',
+    title: 'One',
+    tags: ['memory'],
+    scope: 'project',
+    trust: 'untrusted',
+    content: 'Stable content',
+    sourceRefs: ['document:W001'],
+  }]
+  const encoded = encodeProjectMemorySnapshot(documents)
+  assert.deepEqual(decodeProjectMemorySnapshot(encoded.content, encoded.revision), documents)
+  assert.throws(
+    () => decodeProjectMemorySnapshot(encoded.content.replace('Stable content', 'Changed content'), encoded.revision),
+    /does not match its revision/,
+  )
+  const unsafe = encodeProjectMemorySnapshot([{ ...documents[0], path: '../outside.md' }])
+  assert.throws(
+    () => decodeProjectMemorySnapshot(unsafe.content, unsafe.revision),
+    /invalid schema or path/,
+  )
 })
 
 async function createFixture(t) {

@@ -1,19 +1,22 @@
 import type { ToolDescriptor, ToolModule } from '../tool-registry.js'
+import { toolPromptCopy } from '@electron-manager/agent-prompts'
 import { cliAvailability, processToolResult, type LocalRuntimeServices } from '../runtime-services.js'
 import { optionalStringArray } from '../tool-input.js'
+
+const promptCopy = toolPromptCopy('git_diff')
 
 export const gitDiffToolDescriptor: ToolDescriptor = {
       name: 'git_diff',
       version: '1.0.0',
       title: 'Git Diff',
-      description: 'Read the current unstaged Git diff, optionally restricted to project-relative paths.',
-      useWhen: 'Use to review actual project changes and provide final diff evidence.',
-      avoidWhen: 'Do not use for Git writes, staging, commits, checkout, or reset.',
+      description: promptCopy.description,
+      useWhen: promptCopy.useWhen,
+      avoidWhen: promptCopy.avoidWhen,
       risk: 'read',
       riskCategory: 'read',
       baseRiskLevel: 'low',
       recovery: 'safe_replay',
-      sideEffects: [],
+      sideEffects: promptCopy.sideEffects,
       retryable: true,
       backends: [{ id: 'git-cli', kind: 'cli', command: 'git' }],
       preferredBackendId: 'git-cli',

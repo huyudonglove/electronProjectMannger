@@ -20,7 +20,7 @@ for await (const event of provider.stream({
   turnId: 'live-smoke:step:1',
   contextRevision: 'live-smoke-context-1',
   messages: [
-    { role: 'system', content: 'Return exactly one structured action.' },
+    { role: 'system', content: '只返回一个结构化行动。' },
     { role: 'user', content: 'Return blocked because this smoke test intentionally provides no tools.' },
   ],
   tools: [],

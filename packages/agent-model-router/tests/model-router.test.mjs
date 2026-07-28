@@ -162,7 +162,12 @@ test('router suppresses failed partial output, records attempts and falls back i
   const primary = new ScriptedProvider('provider-primary', [rateLimited()])
   const fallback = new ScriptedProvider('provider-fallback', [completed(blocked('Fallback completed'))])
   const fixture = setup({ primary, fallback })
-  const router = new ModelRouter({ route: fixture.route, registry: fixture.registry })
+  const diagnostics = []
+  const router = new ModelRouter({
+    route: fixture.route,
+    registry: fixture.registry,
+    onAttempt: (diagnostic) => diagnostics.push(diagnostic),
+  })
   const events = await collect(router.stream(request()))
 
   assert.deepEqual(events.map((event) => event.type), [
@@ -195,6 +200,17 @@ test('router suppresses failed partial output, records attempts and falls back i
   assert.equal(events[1].attempt.cacheCapability, 'implicit')
   assert.equal(events[0].attempt.contextRevision, 'context-router-1')
   assert.equal(events[1].attempt.contextRevision, 'context-router-1')
+  assert.deepEqual(diagnostics.map((diagnostic) => ({
+    routeId: diagnostic.attempt.routeId,
+    profileId: diagnostic.attempt.profileId,
+    attempt: diagnostic.attempt.attempt,
+    order: diagnostic.order,
+    result: diagnostic.attempt.outcome,
+    errorCategory: diagnostic.attempt.error?.category,
+  })), [
+    { routeId: 'route.coding', profileId: 'model.primary', attempt: 1, order: 1, result: 'failed', errorCategory: 'rate_limit' },
+    { routeId: 'route.coding', profileId: 'model.fallback', attempt: 2, order: 2, result: 'succeeded', errorCategory: undefined },
+  ])
 })
 
 test('prompt cache keys isolate provider, credential and privacy scope deterministically', () => {

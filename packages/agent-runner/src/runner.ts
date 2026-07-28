@@ -9,8 +9,10 @@ import {
   type VersionedRunComponentSnapshot,
 } from '@electron-manager/agent-core'
 import { SqliteCheckpointStore } from '@electron-manager/agent-checkpoint-sqlite'
+import { LEGACY_PROJECT_MEMORY_RETRIEVAL_REVISION } from '@electron-manager/agent-memory'
 
 import { composeHeadlessAgent, type HeadlessComposition } from './composition.js'
+import { decodeProjectMemorySnapshot } from './project-memory-snapshot.js'
 import type { HeadlessAgentRunnerOptions, HeadlessAgentRunInput } from './types.js'
 
 export class HeadlessAgentRunner {
@@ -21,10 +23,16 @@ export class HeadlessAgentRunner {
   readonly outputStore: HeadlessComposition['outputStore']
   readonly repoMap: HeadlessComposition['repoMap']
   readonly repoMapOutputRef: HeadlessComposition['repoMapOutputRef']
+  readonly projectMemorySnapshotRef: HeadlessComposition['projectMemorySnapshotRef']
   readonly router: HeadlessComposition['router']
   readonly snapshots: HeadlessComposition['snapshots']
+  readonly #options: HeadlessAgentRunnerOptions
   readonly #store: SqliteCheckpointStore
   readonly #coordinator: PersistedRunCoordinator
+  readonly #legacyRuns = new Map<string, {
+    composition: HeadlessComposition
+    coordinator: PersistedRunCoordinator
+  }>()
   #closed = false
 
   private constructor(composition: HeadlessComposition, options: HeadlessAgentRunnerOptions) {
@@ -35,24 +43,30 @@ export class HeadlessAgentRunner {
     this.outputStore = composition.outputStore
     this.repoMap = composition.repoMap ? structuredClone(composition.repoMap) : undefined
     this.repoMapOutputRef = composition.repoMapOutputRef
+    this.projectMemorySnapshotRef = composition.projectMemorySnapshotRef
     this.router = composition.router
     this.snapshots = structuredClone(composition.snapshots)
+    this.#options = options
     this.#store = new SqliteCheckpointStore(options.checkpointPath)
+    this.#coordinator = this.#createCoordinator(composition)
+  }
+
+  #createCoordinator(composition: HeadlessComposition) {
     const stepper = new AgentStepper({
       provider: composition.router,
       runtime: composition.runtime,
-      permissionPolicy: options.permissionPolicy,
+      permissionPolicy: this.#options.permissionPolicy,
       tools: composition.tools,
       contextAssembler: composition.contextAssembler,
       promptCachePolicy: composition.promptCachePolicy,
       clock: composition.clock,
     })
-    this.#coordinator = new PersistedRunCoordinator({
+    return new PersistedRunCoordinator({
       stepper,
       store: this.#store,
       clock: composition.clock,
-      onCommitted: options.onCommitted,
-      onPublishError: options.onPublishError,
+      onCommitted: this.#options.onCommitted,
+      onPublishError: this.#options.onPublishError,
     })
   }
 
@@ -73,8 +87,8 @@ export class HeadlessAgentRunner {
 
   async advance(runId: string, signal?: AbortSignal): Promise<PersistedStepResult> {
     this.#assertOpen()
-    await this.#assertCompatible(runId)
-    return await this.#coordinator.advance(runId, signal)
+    const coordinator = await this.#compatibleCoordinator(runId)
+    return await coordinator.advance(runId, signal)
   }
 
   async runUntilPause(runId: string, signal?: AbortSignal): Promise<PersistedStepResult> {
@@ -85,8 +99,8 @@ export class HeadlessAgentRunner {
 
   async resolveApproval(runId: string, resolution: ApprovalResolution, signal?: AbortSignal): Promise<PersistedStepResult> {
     this.#assertOpen()
-    await this.#assertCompatible(runId)
-    return await this.#coordinator.resolveApproval(runId, resolution, signal)
+    const coordinator = await this.#compatibleCoordinator(runId)
+    return await coordinator.resolveApproval(runId, resolution, signal)
   }
 
   async load(runId: string): Promise<LoadedCheckpoint | null> {
@@ -110,20 +124,56 @@ export class HeadlessAgentRunner {
     this.#store.close()
   }
 
-  async #assertCompatible(runId: string) {
+  async #compatibleCoordinator(runId: string) {
     const loaded = await this.#store.load(runId)
     if (!loaded) throw new AgentCoreError('CHECKPOINT_ERROR', `Run checkpoint does not exist: ${runId}`)
+    const legacyMemory = legacyProjectMemorySnapshot(loaded.snapshot.memorySnapshot)
+    const legacyRun = legacyMemory ? await this.#legacyRun(runId, legacyMemory) : undefined
+    const legacyComposition = legacyRun?.composition
+    const snapshots = legacyComposition?.snapshots ?? this.snapshots
     const pairs = [
-      ['config', loaded.snapshot.configSnapshot, this.snapshots.configSnapshot],
-      ['model route', loaded.snapshot.modelRouteSnapshot, this.snapshots.modelRouteSnapshot],
-      ['tool registry', loaded.snapshot.toolRegistrySnapshot, this.snapshots.toolRegistrySnapshot],
-      ['memory', loaded.snapshot.memorySnapshot, this.snapshots.memorySnapshot],
+      ['config', loaded.snapshot.configSnapshot, snapshots.configSnapshot],
+      ['model route', loaded.snapshot.modelRouteSnapshot, snapshots.modelRouteSnapshot],
+      ['tool registry', loaded.snapshot.toolRegistrySnapshot, snapshots.toolRegistrySnapshot],
+      ['memory', loaded.snapshot.memorySnapshot, snapshots.memorySnapshot],
     ] as const
     for (const [name, saved, current] of pairs) assertRevision(name, saved, current)
+    return legacyRun?.coordinator ?? this.#coordinator
+  }
+
+  async #legacyRun(
+    runId: string,
+    memory: { revision: string; snapshotRef: string },
+  ) {
+    const cached = this.#legacyRuns.get(runId)
+    if (cached) return cached
+    const artifact = await this.outputStore.read(memory.snapshotRef)
+    const documents = decodeProjectMemorySnapshot(artifact.content, memory.revision)
+    const composition = await composeHeadlessAgent({
+      ...this.#options,
+      projectMemoryDocuments: documents,
+      projectMemoryRetrievalRevision: LEGACY_PROJECT_MEMORY_RETRIEVAL_REVISION,
+    })
+    const legacyRun = { composition, coordinator: this.#createCoordinator(composition) }
+    this.#legacyRuns.set(runId, legacyRun)
+    return legacyRun
   }
 
   #assertOpen() {
     if (this.#closed) throw new AgentCoreError('CHECKPOINT_ERROR', 'HeadlessAgentRunner is closed')
+  }
+}
+
+function legacyProjectMemorySnapshot(snapshot: VersionedRunComponentSnapshot | undefined) {
+  const data = snapshot?.data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined
+  const record = data as Record<string, unknown>
+  if (record.retrievalRevision !== undefined
+    || typeof record.projectMemoryRevision !== 'string'
+    || typeof record.projectMemorySnapshotRef !== 'string') return undefined
+  return {
+    revision: record.projectMemoryRevision,
+    snapshotRef: record.projectMemorySnapshotRef,
   }
 }
 

@@ -11,6 +11,7 @@ import {
   type ModelRequest,
   type ToolDefinition,
 } from '@electron-manager/agent-core'
+import { ACTION_SCHEMA_COPY } from '@electron-manager/agent-prompts'
 
 export interface HydrateActionOptions {
   clock?: () => string
@@ -27,7 +28,7 @@ export function createAgentTurnActionSchema(tools: ToolDefinition[]): Record<str
   branches.push(planBranch(), finishBranch(), blockedBranch())
   return {
     type: 'object',
-    description: 'Select exactly one valid action for the current run phase.',
+    description: ACTION_SCHEMA_COPY.root,
     properties: { action: { anyOf: branches } },
     required: ['action'],
     additionalProperties: false,
@@ -94,11 +95,11 @@ function toolActionBranches(kind: 'inspect' | 'tool' | 'verify', tools: ToolDefi
     type: 'object',
     properties: {
       kind: { type: 'string', const: kind, description: actionKindDescription(kind) },
-      ...(verification ? { checkId: { type: 'string', description: 'The configured verification check id whose command this request exactly implements.' } } : {}),
+      ...(verification ? { checkId: { type: 'string', description: ACTION_SCHEMA_COPY.verificationCheckId } } : {}),
       request: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'A unique stable request identifier for this run.' },
+          id: { type: 'string', description: ACTION_SCHEMA_COPY.requestId },
           name: { type: 'string', const: tool.name },
           input: strictToolSchema(tool.inputSchema),
         },
@@ -115,10 +116,10 @@ function planBranch() {
   return {
     type: 'object',
     properties: {
-      kind: { type: 'string', const: 'plan', description: 'Establish or materially revise the current execution plan.' },
-      id: { type: 'string', description: 'A stable plan identifier; reuse it when revising the same plan.' },
-      summary: { type: 'string', description: 'A concise ordered plan focused on the next useful steps.' },
-      rationale: { type: 'string', description: 'Why this plan fits the goal, acceptance criteria, constraints, and current evidence.' },
+      kind: { type: 'string', const: 'plan', description: ACTION_SCHEMA_COPY.plan },
+      id: { type: 'string', description: ACTION_SCHEMA_COPY.planId },
+      summary: { type: 'string', description: ACTION_SCHEMA_COPY.planSummary },
+      rationale: { type: 'string', description: ACTION_SCHEMA_COPY.planRationale },
     },
     required: ['kind', 'id', 'summary', 'rationale'],
     additionalProperties: false,
@@ -129,9 +130,9 @@ function finishBranch() {
   const diff = {
     type: 'object',
     properties: {
-      toolRequestId: { type: 'string', description: 'Request id of a successful git_diff tool result.' },
+      toolRequestId: { type: 'string', description: ACTION_SCHEMA_COPY.diffRequestId },
       changedFiles: { type: 'array', items: { type: 'string' } },
-      summary: { type: 'string', description: 'Concise completion result grounded in recorded evidence.' },
+      summary: { type: 'string', description: ACTION_SCHEMA_COPY.completionSummary },
     },
     required: ['toolRequestId', 'changedFiles', 'summary'],
     additionalProperties: false,
@@ -146,9 +147,9 @@ function finishBranch() {
         items: {
           type: 'object',
           properties: {
-            criterionId: { type: 'string', description: 'An acceptance criterion id from the run facts.' },
-            summary: { type: 'string', description: 'How the cited evidence satisfies this criterion.' },
-            refs: { type: 'array', items: { type: 'string' }, description: 'References to successful tool or verification evidence already present in the run facts.' },
+            criterionId: { type: 'string', description: ACTION_SCHEMA_COPY.criterionId },
+            summary: { type: 'string', description: ACTION_SCHEMA_COPY.criterionSummary },
+            refs: { type: 'array', items: { type: 'string' }, description: ACTION_SCHEMA_COPY.evidenceRefs },
           },
           required: ['criterionId', 'summary', 'refs'],
           additionalProperties: false,
@@ -165,9 +166,9 @@ function blockedBranch() {
   return {
     type: 'object',
     properties: {
-      kind: { type: 'string', const: 'blocked', description: 'Stop only for a genuine blocker that cannot be resolved with available tools or evidence.' },
-      summary: { type: 'string', description: 'Concise blocker summary.' },
-      reason: { type: 'string', description: 'The external input, unavailable capability, or goal conflict preventing further progress.' },
+      kind: { type: 'string', const: 'blocked', description: ACTION_SCHEMA_COPY.blocked },
+      summary: { type: 'string', description: ACTION_SCHEMA_COPY.blockedSummary },
+      reason: { type: 'string', description: ACTION_SCHEMA_COPY.blockedReason },
     },
     required: ['kind', 'summary', 'reason'],
     additionalProperties: false,
@@ -175,9 +176,9 @@ function blockedBranch() {
 }
 
 function actionKindDescription(kind: 'inspect' | 'tool' | 'verify') {
-  if (kind === 'inspect') return 'Read relevant project context during the inspection phase.'
-  if (kind === 'verify') return 'Run one configured verification check using its exact command.'
-  return 'Perform the next concrete execution or read-only evidence action allowed in the current phase.'
+  if (kind === 'inspect') return ACTION_SCHEMA_COPY.inspect
+  if (kind === 'verify') return ACTION_SCHEMA_COPY.verify
+  return ACTION_SCHEMA_COPY.tool
 }
 
 function strictToolSchema(schema: JsonSchema): Record<string, unknown> {

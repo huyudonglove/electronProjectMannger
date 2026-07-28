@@ -71,13 +71,14 @@ export interface ContextBudget {
   maxInputTokens: number
   reservedOutputTokens: number
   regionTokens: Record<ContextRegion, number>
+  scopeTokens?: Partial<Record<ContextScope, number>>
 }
 
 export interface ContextDrop {
   sourceId: string
   fragmentId: string
   estimatedTokens: number
-  reason: 'source_budget' | 'region_budget' | 'total_budget'
+  reason: 'source_budget' | 'scope_budget' | 'region_budget' | 'total_budget'
 }
 
 export interface ContextEnvelope extends AssembledModelContext {

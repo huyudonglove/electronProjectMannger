@@ -11,8 +11,14 @@ import type {
   AgentConfigLayer,
 } from '@electron-manager/agent-config'
 import type { ContextSource } from '@electron-manager/agent-context'
+import type {
+  ProjectMemoryDocument,
+  ProjectMemoryRetrievalRevision,
+  SessionSummarizerDiagnostic,
+} from '@electron-manager/agent-memory'
 import type { LocalRuntimeOptions } from '@electron-manager/agent-runtime-local'
 import type { RepoMapOptions } from '@electron-manager/agent-repo-map'
+import type { ModelRouteAttemptDiagnostic } from '@electron-manager/agent-model-router'
 
 export interface ModelProviderRegistration {
   profileId: string
@@ -33,6 +39,10 @@ export interface HeadlessAgentRunnerOptions {
   maxOutputArtifactBytes?: number
   repoMapOptions?: RepoMapOptions
   extraContextSources?: ContextSource[]
+  projectMemoryDocuments?: ProjectMemoryDocument[]
+  projectMemoryRetrievalRevision?: ProjectMemoryRetrievalRevision
+  onMemoryDiagnostic?: (diagnostic: SessionSummarizerDiagnostic) => void | Promise<void>
+  onModelAttempt?: (diagnostic: ModelRouteAttemptDiagnostic) => void | Promise<void>
   projectRulesRevision?: string
   privacyScopeRevision?: string
   actionSchemaRevision?: string

@@ -20,6 +20,7 @@ export class ModelRouter implements ModelProvider {
   readonly #bindings: ModelProviderBinding[]
   readonly #clock: () => string
   readonly #now: () => number
+  readonly #onAttempt?: ModelRouterOptions['onAttempt']
 
   constructor(options: ModelRouterOptions) {
     this.#route = structuredClone(options.route)
@@ -27,6 +28,7 @@ export class ModelRouter implements ModelProvider {
       .map((profile) => options.registry.resolve(profile.id))
     this.#clock = options.clock || (() => new Date().toISOString())
     this.#now = options.now || (() => Date.now())
+    this.#onAttempt = options.onAttempt
     this.profile = routedCapabilityProfile(this.#route.route.id, this.#route.route.revision, this.#bindings)
   }
 
@@ -101,6 +103,12 @@ export class ModelRouter implements ModelProvider {
         attempted = failedAttempt(attempted.record, error, this.#clock())
       }
       lastAttempt = attempted
+      await this.#reportAttempt({
+        runId: request.runId,
+        turnId: request.turnId,
+        order: this.#bindings.findIndex((candidate) => candidate.profile.id === binding.profile.id) + 1,
+        attempt: attempted.record,
+      })
       yield { type: 'model_attempt', attempt: attempted.record }
 
       if (!attempted.error) {
@@ -128,6 +136,15 @@ export class ModelRouter implements ModelProvider {
     const attempt = lastAttempt?.record.attempt || 0
     const error = lastAttempt?.error || invalidOutputError('Model route has no available provider attempts')
     yield { type: 'error', error: toModelStreamError(error, this.#route.route.id, profileId, attempt) }
+  }
+
+  async #reportAttempt(diagnostic: Parameters<NonNullable<ModelRouterOptions['onAttempt']>>[0]) {
+    if (!this.#onAttempt) return
+    try {
+      await this.#onAttempt(structuredClone(diagnostic))
+    } catch (error) {
+      console.warn('Unable to publish model route attempt diagnostic.', error instanceof Error ? error.message : String(error))
+    }
   }
 
   async #attempt(

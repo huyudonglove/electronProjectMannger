@@ -1,19 +1,22 @@
 import type { ToolDescriptor, ToolModule } from '../tool-registry.js'
+import { toolPromptCopy } from '@electron-manager/agent-prompts'
 import { nativeAvailability, type LocalRuntimeServices } from '../runtime-services.js'
 import { requiredString, stringValue } from '../tool-input.js'
+
+const promptCopy = toolPromptCopy('create_file')
 
 export const createFileToolDescriptor: ToolDescriptor = {
       name: 'create_file',
       version: '1.0.0',
       title: '创建文件',
-      description: 'Create a new UTF-8 text file. The target must not already exist and its parent must be inside the project.',
-      useWhen: 'Use only when a new project text file is required and the target does not exist.',
-      avoidWhen: 'Do not use to overwrite files, create Git internals, or write through symbolic links.',
+      description: promptCopy.description,
+      useWhen: promptCopy.useWhen,
+      avoidWhen: promptCopy.avoidWhen,
       risk: 'project_write',
       riskCategory: 'project_write',
       baseRiskLevel: 'medium',
       recovery: 'reconcile_then_resume',
-      sideEffects: ['Creates one project file'],
+      sideEffects: promptCopy.sideEffects,
       retryable: false,
       backends: [{ id: 'node-file-transaction', kind: 'native' }],
       preferredBackendId: 'node-file-transaction',

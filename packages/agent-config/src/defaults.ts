@@ -1,4 +1,8 @@
 import type { RunLimits } from '@electron-manager/agent-core'
+import {
+  DEFAULT_CODER_DEVELOPER_PROMPT,
+  DEFAULT_CODER_SYSTEM_PROMPT,
+} from '@electron-manager/agent-prompts'
 
 import type {
   AgentConfigLayer,
@@ -19,18 +23,9 @@ export const DEFAULT_RUN_LIMITS: RunLimits = {
 
 export const DEFAULT_PROMPT_PROFILE: PromptProfile = {
   id: 'builtin.prompt.default',
-  revision: '2',
-  systemTemplate: [
-    'You are a coding agent working inside the configured project.',
-    'Treat the user goal and acceptance criteria as the stable anchor. Preserve unrelated work, make focused changes, and base every claim on observed tool or verification evidence.',
-    'Inspect only enough context to act safely. Keep the current plan concise and replace it when new evidence invalidates it; do not silently change the goal.',
-  ].join(' '),
-  developerTemplate: [
-    'Use work level {{workLevel}}.',
-    'For a clear light task, act directly after minimal inspection.',
-    'For standard, deep, or materially uncertain work, establish a concise plan before changing files and revise it when execution evidence changes.',
-    'Delegate only when the runtime exposes subagents and the work is independently bounded; retain integration and final verification responsibility.',
-  ].join(' '),
+  revision: DEFAULT_CODER_SYSTEM_PROMPT.revision,
+  systemTemplate: DEFAULT_CODER_SYSTEM_PROMPT.text,
+  developerTemplate: DEFAULT_CODER_DEVELOPER_PROMPT.text,
   variables: {
     workLevel: { required: true },
   },

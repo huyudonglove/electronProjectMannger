@@ -19,8 +19,11 @@ export async function applyProjectRunUpdatePlan(
   projectRoot: string,
   plan: ProjectRunUpdatePlan,
 ): Promise<ProjectRunUpdateResult> {
-  if (plan.outcome !== 'ready' || !plan.log) {
+  if (plan.outcome !== 'ready' || (!plan.log && !plan.taskStatusUpdate)) {
     throw new Error(`Project run update plan is not writable: ${plan.outcome}`)
+  }
+  if (!plan.log) {
+    return applyProjectTaskStatusUpdate(managerDataRoot, projectRoot, plan.taskStatusUpdate!)
   }
   return applyProjectRunCompletionUpdate(managerDataRoot, projectRoot, {
     taskUpdate: plan.taskStatusUpdate,

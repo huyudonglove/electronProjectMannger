@@ -32,7 +32,7 @@ const allowedTransitions: Record<RunPhase, RunPhase[]> = {
   planning: ['acting', 'awaiting_approval', 'blocked', 'failed', 'cancelled'],
   acting: ['awaiting_approval', 'verifying', 'repairing', 'blocked', 'failed', 'cancelled'],
   awaiting_approval: ['inspecting', 'planning', 'acting', 'verifying', 'repairing', 'blocked', 'failed', 'cancelled'],
-  verifying: ['repairing', 'finalizing', 'blocked', 'failed', 'cancelled'],
+  verifying: ['awaiting_approval', 'repairing', 'finalizing', 'blocked', 'failed', 'cancelled'],
   repairing: ['acting', 'awaiting_approval', 'verifying', 'blocked', 'failed', 'cancelled'],
   finalizing: ['completed', 'repairing', 'blocked', 'failed', 'cancelled'],
   completed: [],

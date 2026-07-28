@@ -18,6 +18,7 @@ import {
 } from '@electron-manager/agent-runtime-local'
 import {
   FetchOpenAIResponsesTransport,
+  OpenAIChatCompletionsProvider,
   OpenAIResponsesProvider,
   parseServerSentEvents,
 } from '../dist/index.js'
@@ -124,6 +125,56 @@ test('Responses Provider maps messages, strict schemas, usage and hydrated tool 
   assert.equal(sent.input.length, 2)
   assert.match(sent.input[1].content, /tool_result request_id=previous-1/)
   assert.doesNotMatch(sent.input.map((message) => message.content).join('\n'), /Available tools/)
+})
+
+test('Chat Completions Provider submits one structured action through a backend proxy', async () => {
+  let captured
+  const action = {
+    action: {
+      kind: 'inspect',
+      request: {
+        id: 'read-chat-1',
+        name: 'read_file',
+        input: { path: 'README.md', startLine: null, endLine: null },
+      },
+    },
+  }
+  const provider = new OpenAIChatCompletionsProvider({
+    baseUrl: 'http://127.0.0.1:8787/provider/groq/',
+    model: 'llama-fixture',
+    providerId: 'sensenova',
+    toolChoice: 'named',
+    clock: () => '2026-07-27T15:00:00.000Z',
+    fetcher: async (url, init) => {
+      captured = { url, init, body: JSON.parse(init.body) }
+      return new Response(JSON.stringify({
+        choices: [{
+          finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            tool_calls: [{
+              id: 'call-fixture',
+              type: 'function',
+              function: { name: 'submit_agent_action', arguments: JSON.stringify({ action: JSON.stringify(action.action) }) },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 50, completion_tokens: 12 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+  const events = await collect(provider.stream(modelRequest()))
+
+  assert.equal(captured.url, 'http://127.0.0.1:8787/provider/groq/chat/completions')
+  assert.equal(captured.init.headers.authorization, undefined)
+  assert.equal(captured.body.tools[0].function.name, 'submit_agent_action')
+  assert.match(captured.body.messages[0].content, /选择且只选择下一项 Agent 动作/)
+  assert.match(captured.body.tools[0].function.description, /唯一的下一项动作/)
+  assert.match(captured.body.tools[0].function.parameters.description, /当前 Run 阶段/)
+  assert.deepEqual(captured.body.tool_choice, { type: 'function', function: { name: 'submit_agent_action' } })
+  assert.deepEqual(events.map((event) => event.type), ['usage', 'action', 'completed'])
+  assert.equal(events[1].action.request.requestedAt, '2026-07-27T15:00:00.000Z')
+  assert.deepEqual(events[1].action.request.input, { path: 'README.md' })
 })
 
 test('malformed, unknown and incomplete model output becomes explicit stream errors', async () => {

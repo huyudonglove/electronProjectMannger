@@ -1065,7 +1065,7 @@ function validateProjectTaskStatusUpdate(input: ProjectTaskStatusUpdateInput) {
   if (!String(input.taskId || '').trim()) throw new Error('任务 ID 不能为空')
   if (!String(input.expectedStatus || '').trim()) throw new Error('任务预期状态不能为空')
   if (!String(input.expectedUpdated || '').trim()) throw new Error('任务预期更新时间不能为空')
-  if (!['doing', 'done'].includes(input.nextStatus)) throw new Error(`Agent Run 不支持目标任务状态：${input.nextStatus}`)
+  if (!['todo', 'doing', 'done'].includes(input.nextStatus)) throw new Error(`Agent Run 不支持目标任务状态：${input.nextStatus}`)
 }
 
 async function readVersionLogs(dataRoot: string) {

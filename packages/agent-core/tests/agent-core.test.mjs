@@ -109,6 +109,29 @@ test('light runs can skip planning while invalid phase transitions are rejected'
   )
 })
 
+test('verification may pause for tool approval and preserve its resume phase', () => {
+  let ledger = createRunLedger(input(), at(0))
+  ledger = transitionLedger(ledger, 'loading_context', at(1))
+  ledger = transitionLedger(ledger, 'inspecting', at(2))
+  ledger = transitionLedger(ledger, 'acting', at(3))
+  ledger = transitionLedger(ledger, 'verifying', at(4))
+  ledger = setPendingAction(ledger, {
+    id: 'verification-approval',
+    kind: 'tool_approval',
+    summary: 'Approve repository verification',
+    createdAt: at(5),
+    actionDigest: 'verify-v1',
+    approvalScope: 'tool',
+    resumePhase: 'verifying',
+    toolRequestId: 'verify-1',
+    verificationCheckId: 'check-1',
+  }, at(5))
+
+  ledger = transitionLedger(ledger, 'awaiting_approval', at(6))
+  assert.equal(ledger.phase, 'awaiting_approval')
+  assert.equal(ledger.pendingAction?.resumePhase, 'verifying')
+})
+
 test('standard runs require planning and deep runs require explicit plan approval', () => {
   let standard = createRunLedger(input({ workLevel: 'standard' }), at(0))
   standard = transitionLedger(standard, 'loading_context', at(1))
@@ -344,6 +367,47 @@ test('AgentStepper completes a light change from ledger-backed tool and verifica
   assert.equal(provider.requests.length, 5)
   assert.deepEqual(result.events.map((event) => event.sequence), result.events.map((_, index) => index + 1))
   assert.match(provider.requests.at(-1).messages[1].content, /"phase":"verifying"/)
+})
+
+test('invalid model evidence refs enter repair and can recover on the next finish', async () => {
+  const provider = new FakeModelProvider([
+    modelTurn({ kind: 'inspect', request: toolRequest('read-1', 'read_file', { path: 'package.json' }, 'read-digest', 3) }),
+    modelTurn({
+      kind: 'finish',
+      summary: 'Inspected manifest',
+      acceptanceEvidence: [{ criterionId: 'acceptance-1', summary: 'Manifest inspected', refs: ['acceptance-1'] }],
+    }),
+    modelTurn({
+      kind: 'finish',
+      summary: 'Inspected manifest',
+      acceptanceEvidence: [{ criterionId: 'acceptance-1', summary: 'Manifest inspected', refs: ['read-1'] }],
+    }),
+  ])
+  const runtime = new FakeAgentRuntime().on('read_file', (tool) => ({
+    requestId: tool.id,
+    ok: true,
+    summary: 'Read package.json',
+    output: '{"name":"fixture"}',
+    startedAt: at(3),
+    completedAt: at(4),
+  }))
+  const stepper = new AgentStepper({
+    provider,
+    runtime,
+    permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'read only' }),
+    tools,
+    clock: advancingClock(1),
+  })
+
+  const result = await stepper.runUntilPause(createRunLedger(input({
+    intent: 'analysis',
+    verificationPlan: { checks: [] },
+  }), at(0)))
+
+  assert.equal(result.disposition, 'completed', result.summary)
+  assert.equal(result.ledger.status, 'completed')
+  assert.equal(provider.requests.length, 3)
+  assert.match(provider.requests.at(-1).messages.find((message) => message.role === 'user').content, /successfulEvidenceRefs[^\]]*read-1/)
 })
 
 test('deep plan and tool approvals pause and resume without repeating side effects', async () => {

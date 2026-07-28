@@ -66,7 +66,7 @@ test('repo map applies deterministic file, depth and byte budgets', async (t) =>
   assert.equal(snapshot.mappedFiles, 8)
   assert.equal(snapshot.truncated, true)
   assert.ok(Buffer.byteLength(snapshot.content, 'utf8') <= 300)
-  assert.match(snapshot.content, /map lines omitted/)
+  assert.match(snapshot.content, /已省略 \d+ 行仓库映射/)
   assert.equal((await buildRepoMap(root, { maxFiles: 8, maxDepth: 2, maxOutputBytes: 300 })).revision, snapshot.revision)
 })
 

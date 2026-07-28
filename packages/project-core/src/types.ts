@@ -300,7 +300,7 @@ export type ProjectTaskStatusUpdateInput = {
   taskShortId?: string
   expectedStatus: string
   expectedUpdated: string
-  nextStatus: 'doing' | 'done'
+  nextStatus: 'todo' | 'doing' | 'done'
 }
 
 export type ProjectRunLogInput = {

@@ -72,8 +72,26 @@ function planSettlement(
     ledger.updatedAt,
     ledger.diffSnapshot?.outputRef || '',
   ])
+  const taskStatusUpdate = settlementTaskStatusUpdate(task, ledger.status)
   const existing = dashboard.logs.find((log) => log.source === source)
   if (existing) {
+    if (taskStatusUpdate) {
+      return {
+        ok: true,
+        warnings: [],
+        value: {
+          schemaVersion: PROJECT_ADAPTER_SCHEMA_VERSION,
+          outcome: 'ready',
+          idempotencyKey,
+          source,
+          runId: ledger.runId,
+          taskId: task.id,
+          taskShortId: task.shortId,
+          taskStatusUpdate,
+          existingLogShortId: existing.shortId,
+        },
+      }
+    }
     return {
       ok: true,
       warnings: [],
@@ -90,7 +108,7 @@ function planSettlement(
     }
   }
 
-  if (ledger.status !== 'completed' && ledger.changes.length === 0) {
+  if (ledger.status !== 'completed' && ledger.changes.length === 0 && !taskStatusUpdate) {
     return {
       ok: true,
       warnings: [],
@@ -114,18 +132,29 @@ function planSettlement(
     runId: ledger.runId,
     taskId: task.id,
     taskShortId: task.shortId,
-    ...(ledger.status !== 'completed' || task.status === 'done' ? {} : {
-      taskStatusUpdate: {
-        taskId: task.id,
-        taskShortId: task.shortId,
-        expectedStatus: task.status,
-        expectedUpdated: task.updated,
-        nextStatus: 'done',
-      },
+    ...(taskStatusUpdate ? { taskStatusUpdate } : {}),
+    ...(ledger.status !== 'completed' && ledger.changes.length === 0 ? {} : {
+      log: completionLog(task, ledger, source),
     }),
-    log: completionLog(task, ledger, source),
   }
   return { ok: true, value: plan, warnings: [] }
+}
+
+function settlementTaskStatusUpdate(
+  task: ProjectTask,
+  runStatus: ProjectCompletionInput['ledger']['status'],
+): ProjectRunUpdatePlan['taskStatusUpdate'] {
+  const nextStatus = runStatus === 'completed'
+    ? (task.status === 'done' ? undefined : 'done')
+    : (task.status === 'doing' ? 'todo' : undefined)
+  if (!nextStatus) return undefined
+  return {
+    taskId: task.id,
+    taskShortId: task.shortId,
+    expectedStatus: task.status,
+    expectedUpdated: task.updated,
+    nextStatus,
+  }
 }
 
 function completionLog(task: ProjectTask, ledger: ProjectCompletionInput['ledger'], source: string): ProjectLogDraft {
@@ -140,7 +169,9 @@ function completionLog(task: ProjectTask, ledger: ProjectCompletionInput['ledger
     : change.path))
   const result = deduplicate([
     ledger.diffSnapshot?.summary || '',
-    ...(ledger.status === 'completed' ? [] : [`Agent Run ${ledger.status}，任务保持进行中。`]),
+    ...(ledger.status === 'completed' ? [] : [task.status === 'doing'
+      ? `Agent Run ${ledger.status}，任务已回到 todo。`
+      : `Agent Run ${ledger.status}，任务保持 ${task.status}。`]),
     ...(ledger.status === 'completed' ? [] : ledger.failures.slice(-2).map((failure) => failure.error.message)),
     ...(ledger.status === 'completed' || !ledger.nextAction ? [] : [`后续：${ledger.nextAction}`]),
     ...ledger.acceptanceEvidence.filter((evidence) => evidence.passed).map((evidence) => evidence.summary),

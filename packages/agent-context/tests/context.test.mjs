@@ -158,6 +158,51 @@ test('optional context is selected by priority and reports deterministic budget 
   assert.equal(envelope.budget.usedInputTokens, 14)
 })
 
+test('project sources share one hard scope budget without consuming required run facts', async () => {
+  const estimator = { estimate: (text) => Number(text) }
+  const sources = baseSources([
+    source('run-facts', 'recent_dynamic_context', [
+      { id: 'run-facts-1', role: 'user', content: '7', sourceRefs: ['run:fact'], sequence: 1 },
+    ], { scope: 'run', priority: 100, required: true, compressible: false, maxTokens: 20 }),
+    source('project-memory-trusted', 'recent_dynamic_context', [
+      { id: 'project-trusted-1', role: 'user', content: '6', sourceRefs: ['project:trusted'], sequence: 2 },
+    ], { scope: 'project', priority: 75, required: false, maxTokens: 10 }),
+    source('project-repo-map', 'recent_dynamic_context', [
+      { id: 'project-repo-map-1', role: 'user', content: '5', sourceRefs: ['project:repo-map'], sequence: 3 },
+    ], { scope: 'project', priority: 60, required: false, maxTokens: 10 }),
+    source('project-memory-untrusted', 'recent_dynamic_context', [
+      { id: 'project-untrusted-1', role: 'user', content: '4', sourceRefs: ['project:untrusted'], sequence: 4 },
+    ], { scope: 'project', priority: 55, required: false, maxTokens: 10 }),
+    source('newest', 'newest_message', [
+      { id: 'newest-scope-budget', role: 'user', content: '2', sourceRefs: ['newest'], sequence: 5 },
+    ], { priority: 100, compressible: false, maxTokens: 5 }),
+  ]).map((item) => {
+    if (item.descriptor.id === 'system' || item.descriptor.id === 'capabilities') {
+      return { ...item, collect: async () => [{ id: `${item.descriptor.id}-scope`, role: 'system', content: '2', sourceRefs: [item.descriptor.id] }] }
+    }
+    return item
+  })
+  const envelope = await assemble(sources, {
+    tokenEstimator: estimator,
+    budget: budget({
+      scopeTokens: { project: 10 },
+      regionTokens: { ...budget().regionTokens, recent_dynamic_context: 100 },
+    }),
+  })
+
+  assert.deepEqual(
+    envelope.regions.recent_dynamic_context.map((entry) => entry.id),
+    ['run-facts-1', 'project-trusted-1', 'project-untrusted-1'],
+  )
+  assert.equal(envelope.regions.recent_dynamic_context.find((entry) => entry.id === 'run-facts-1').required, true)
+  assert.deepEqual(envelope.dropped, [{
+    sourceId: 'project-repo-map',
+    fragmentId: 'project-repo-map-1',
+    estimatedTokens: 5,
+    reason: 'scope_budget',
+  }])
+})
+
 test('required context fails clearly instead of truncating authoritative facts', async () => {
   const estimator = { estimate: (text) => Number(text) }
   const sources = [
@@ -243,7 +288,7 @@ test('default ledger assembler keeps stable prefixes fixed while dynamic revisio
 
   assert.equal(first.stablePrefixRevision, second.stablePrefixRevision)
   assert.notEqual(first.revision, second.revision)
-  assert.match(second.messages.at(-1).content, /step 1/)
+  assert.match(second.messages.at(-1).content, /步骤：1/)
   assert.equal(second.regions.recent_dynamic_context[0].compressible, false)
 })
 
@@ -287,7 +332,7 @@ test('AgentStepper sends an assembled context revision and preserves newest-mess
   assert.equal(result.ledger.contextEnvelopes[0].revision, request.contextRevision)
   assert.equal(result.events.filter((event) => event.type === 'context.assembled').length, 1)
   assert.match(request.contextRevision, /^[a-f0-9]{64}$/)
-  assert.match(request.messages.at(-1).content, /Select the next valid action for phase inspecting/)
+  assert.match(request.messages.at(-1).content, /当前阶段：inspecting；步骤：1/)
   assert.equal(request.turnId, 'run-context:step:1')
   assert.equal(request.promptCache.stablePrefixRevision, result.ledger.contextEnvelopes[0].stablePrefixRevision)
 })
@@ -319,12 +364,21 @@ test('default ledger context keeps tool guidance compact and excludes operationa
       },
     }],
   })
-  const capability = envelope.messages.find((message) => message.content.startsWith('Tool capabilities:'))
+  const capability = envelope.messages.find((message) => message.content.startsWith('以下是当前可用工具及其风险信息：'))
   const facts = envelope.regions.recent_dynamic_context.find((entry) => entry.id.startsWith('run-facts-step-'))
 
   assert.match(capability.content, /read_file/)
   assert.doesNotMatch(capability.content, /inputSchema|properties/)
   assert.doesNotMatch(facts.content, /modelAttempts|compactions|contextEnvelopes/)
+  assert.match(facts.content, /"successfulEvidenceRefs":\[\]/)
+  assert.match(
+    envelope.regions.stable_system_prefix.map((entry) => entry.content).join('\n'),
+    /每个 standard 或 deep Run[\s\S]*即使任务只读也不得跳过计划门禁/,
+  )
+  assert.match(
+    envelope.regions.stable_system_prefix.map((entry) => entry.content).join('\n'),
+    /acceptanceEvidence\.refs[\s\S]*successfulEvidenceRefs/,
+  )
 })
 
 test('deterministic estimator is stable for ASCII and multibyte text', () => {

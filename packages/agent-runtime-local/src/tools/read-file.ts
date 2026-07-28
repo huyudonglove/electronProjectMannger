@@ -1,19 +1,22 @@
 import type { ToolDescriptor, ToolModule } from '../tool-registry.js'
+import { toolPromptCopy } from '@electron-manager/agent-prompts'
 import { nativeAvailability, type LocalRuntimeServices } from '../runtime-services.js'
 import { optionalNumber, requiredString } from '../tool-input.js'
+
+const promptCopy = toolPromptCopy('read_file')
 
 export const readFileToolDescriptor: ToolDescriptor = {
       name: 'read_file',
       version: '1.0.0',
       title: '读取文件',
-      description: 'Read a bounded line range from a project text file.',
-      useWhen: 'Use after locating a relevant project text file and only request the needed line range.',
-      avoidWhen: 'Do not use for binary files, paths outside the project, or unbounded full-repository reads.',
+      description: promptCopy.description,
+      useWhen: promptCopy.useWhen,
+      avoidWhen: promptCopy.avoidWhen,
       risk: 'read',
       riskCategory: 'read',
       baseRiskLevel: 'low',
       recovery: 'safe_replay',
-      sideEffects: [],
+      sideEffects: promptCopy.sideEffects,
       retryable: true,
       backends: [{ id: 'node-native', kind: 'native' }],
       preferredBackendId: 'node-native',

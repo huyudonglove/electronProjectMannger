@@ -10,6 +10,8 @@ import { DEFAULT_LOCAL_AGENT_TOOLS } from './defaults.js'
 import { desktopAgentProjectStoragePaths } from './paths.js'
 import { DesktopModelProviderFactory } from './provider-factory.js'
 import { DesktopAgentSettingsStore } from './settings-store.js'
+import { projectMemoryDocumentsFromDashboard } from './project-memory-documents.js'
+import { desktopProjectMemoryStatus } from './project-memory-status.js'
 import type { DesktopResolvedAgentConfiguration } from './types.js'
 
 export interface DesktopAgentConfigServiceOptions {
@@ -35,26 +37,52 @@ export class DesktopAgentConfigService {
       this.#store.loadOrCreate(),
       getDashboard(this.#managerDataRoot, projectRoot),
     ])
+    const runtimeSettings = structuredClone(settings)
+    for (const route of runtimeSettings.catalog.modelRoutes) {
+      if (!route.retry.retryableErrors.includes('invalid_output')) route.retry.retryableErrors.push('invalid_output')
+    }
     if (runLayer && runLayer.scope !== 'run') throw new Error('Desktop Agent run override must use run scope')
-    const builtinRoute = settings.catalog.modelRoutes[0]
+    const builtinRoute = runtimeSettings.catalog.modelRoutes[0]
     if (!builtinRoute) throw new Error('Desktop Agent settings have no model route')
-    const userLayer = structuredClone(settings.userLayer)
+    const userLayer = structuredClone(runtimeSettings.userLayer)
     const layers = [
       createBuiltinConfigLayer(builtinRoute.id, [...DEFAULT_LOCAL_AGENT_TOOLS]),
       userLayer,
-      ...(settings.projectLayers[dashboard.config.projectId]
-        ? [structuredClone(settings.projectLayers[dashboard.config.projectId])]
+      ...(runtimeSettings.projectLayers[dashboard.config.projectId]
+        ? [structuredClone(runtimeSettings.projectLayers[dashboard.config.projectId])]
         : []),
       ...(runLayer ? [structuredClone(runLayer)] : []),
     ]
-    userLayer.revision = effectiveUserLayerRevision(settings, layers)
+    userLayer.revision = effectiveUserLayerRevision(runtimeSettings, layers)
     return {
       settingsRevision: settings.revision,
-      catalog: structuredClone(settings.catalog),
+      catalog: structuredClone(runtimeSettings.catalog),
       layers,
-      providers: await this.#providers.createRegistrations(settings, layers),
+      providers: await this.#providers.createRegistrations(runtimeSettings, layers),
       projectRulesRevision: projectRulesRevision(dashboard),
+      projectMemoryDocuments: projectMemoryDocumentsFromDashboard(dashboard),
     }
+  }
+
+  async getProjectMemoryStatus(projectRoot: string) {
+    const [settings, dashboard] = await Promise.all([
+      this.#store.loadOrCreate(),
+      getDashboard(this.#managerDataRoot, projectRoot),
+    ])
+    const builtinRoute = settings.catalog.modelRoutes[0]
+    if (!builtinRoute) throw new Error('Desktop Agent settings have no model route')
+    const layers = [
+      createBuiltinConfigLayer(builtinRoute.id, [...DEFAULT_LOCAL_AGENT_TOOLS]),
+      structuredClone(settings.userLayer),
+      ...(settings.projectLayers[dashboard.config.projectId]
+        ? [structuredClone(settings.projectLayers[dashboard.config.projectId])]
+        : []),
+    ]
+    return desktopProjectMemoryStatus({
+      catalog: settings.catalog,
+      layers,
+      documents: projectMemoryDocumentsFromDashboard(dashboard),
+    })
   }
 
   async storageFor(projectRoot: string) {

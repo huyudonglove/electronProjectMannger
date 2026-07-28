@@ -21,6 +21,7 @@
     "@electron-manager/agent-credential-vault": "workspace:*",
     "@electron-manager/agent-config": "workspace:*",
     "@electron-manager/agent-core": "workspace:*",
+    "@electron-manager/agent-memory": "workspace:*",
     "@electron-manager/agent-provider-openai": "workspace:*",
     "@electron-manager/agent-runner": "workspace:*",
     "@electron-manager/project-core": "workspace:*"

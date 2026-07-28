@@ -1,4 +1,9 @@
 import { completeLedger, evaluateCompletion } from './completion.js'
+import {
+  CODER_LEDGER_FALLBACK_PROMPT,
+  renderCompletionRepairPrompt,
+  renderInvalidEvidenceRepairPrompt,
+} from '@electron-manager/agent-prompts'
 import { AgentCoreError, toAgentError } from './errors.js'
 import { assertJsonSchemaValue, parseAgentTurnAction } from './schema.js'
 import {
@@ -583,7 +588,16 @@ export class AgentStepper {
     if (state.ledger.phase !== 'verifying' && state.ledger.phase !== 'finalizing') {
       throw new AgentCoreError('INVALID_TRANSITION', 'Finish action is not valid in the current phase')
     }
-    for (const evidence of action.acceptanceEvidence) this.#recordProposedEvidence(state, evidence)
+    try {
+      for (const evidence of action.acceptanceEvidence) this.#recordProposedEvidence(state, evidence)
+    } catch (error) {
+      if (!(error instanceof AgentCoreError) || error.code !== 'MODEL_ERROR') throw error
+      const validRefs = successfulEvidenceRefs(state.ledger)
+      const summary = renderInvalidEvidenceRepairPrompt(error.message, validRefs)
+      state.ledger = setNextAction(state.ledger, summary, this.#clock())
+      this.#phase(state, 'repairing')
+      return state.result('continue', summary)
+    }
     if (action.diff) {
       const execution = state.ledger.toolExecutions.find((item) => item.request.id === action.diff!.toolRequestId)
       if (!execution?.result?.ok || execution.request.name !== 'git_diff') {
@@ -600,9 +614,9 @@ export class AgentStepper {
     const evaluation = evaluateCompletion(state.ledger)
     if (!evaluation.eligible) {
       const blockers = evaluation.blockers.map((item) => item.code).join(', ')
-      state.ledger = setNextAction(state.ledger, `Resolve completion blockers: ${blockers}`, this.#clock())
+      state.ledger = setNextAction(state.ledger, renderCompletionRepairPrompt(evaluation.blockers), this.#clock())
       this.#phase(state, 'repairing')
-      return state.result('continue', `Completion blocked: ${blockers}`)
+      return state.result('continue', `完成门禁未通过：${blockers}`)
     }
     state.ledger = completeLedger(state.ledger, this.#clock())
     state.event('run.completed', action.summary, this.#clock())
@@ -690,12 +704,13 @@ export function projectLedgerMessages(ledger: RunLedger): ModelMessage[] {
     changes: ledger.changes,
     verifications: ledger.verifications,
     failures: ledger.failures,
+    successfulEvidenceRefs: successfulEvidenceRefs(ledger),
     nextAction: ledger.nextAction,
   }
   const messages: ModelMessage[] = [
     {
       role: 'system',
-      content: 'Return exactly one structured AgentTurnAction. RunLedger and tool results are authoritative; never invent tool results, verification, approval, changes, or evidence. Plan before standard or deep changes and revise the plan from acting or repairing when evidence materially invalidates it. Finish only with recorded acceptance evidence and a successful final diff.',
+      content: CODER_LEDGER_FALLBACK_PROMPT.text,
     },
     { role: 'user', content: JSON.stringify(snapshot) },
   ]
@@ -719,6 +734,17 @@ function evidenceRefPassed(ledger: RunLedger, ref: string) {
   const execution = ledger.toolExecutions.find((item) => item.request.id === ref)
   if (execution) return execution.result?.ok === true
   return ledger.verifications.some((verification) => verification.checkId === ref && verification.status === 'passed')
+}
+
+function successfulEvidenceRefs(ledger: RunLedger) {
+  return [
+    ...ledger.toolExecutions
+      .filter((execution) => execution.result?.ok)
+      .map((execution) => execution.request.id),
+    ...ledger.verifications
+      .filter((verification) => verification.status === 'passed')
+      .map((verification) => verification.checkId),
+  ]
 }
 
 function deniedToolResult(request: ToolRequest, at: string, reason: string): ToolResult {

@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@electron-manager/agent-context": "workspace:*",
-    "@electron-manager/agent-core": "workspace:*"
+    "@electron-manager/agent-core": "workspace:*",
+    "@electron-manager/agent-prompts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.13.2"

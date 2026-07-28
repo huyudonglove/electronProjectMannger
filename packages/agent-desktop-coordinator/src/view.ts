@@ -31,6 +31,10 @@ export function toDesktopRunView(checkpoint: LoadedCheckpoint, dashboard: Dashbo
     : change.path))
   const requiresRecord = ledger.status === 'completed'
     || (['blocked', 'failed', 'cancelled'].includes(ledger.status) && ledger.changes.length > 0)
+  const memoryData = record(snapshot.memorySnapshot?.data)
+  const projectMemoryRevision = boundedString(memoryData?.projectMemoryRevision, 128)
+  const hasProjectMemorySnapshot = Boolean(boundedString(memoryData?.projectMemorySnapshotRef, 256))
+  const latestCompaction = ledger.compactions.at(-1)
   return {
     schemaVersion: DESKTOP_AGENT_SCHEMA_VERSION,
     runId: ledger.runId,
@@ -63,6 +67,31 @@ export function toDesktopRunView(checkpoint: LoadedCheckpoint, dashboard: Dashbo
       verificationFailed: ledger.verifications.filter((item) => item.status === 'failed').length,
       modelAttempts: ledger.modelAttempts.length,
     },
+    memory: {
+      ...(projectMemoryRevision ? { projectMemoryRevision } : {}),
+      hasProjectMemorySnapshot,
+      compactions: {
+        count: ledger.compactions.length,
+        ...(latestCompaction ? {
+          latest: {
+            strategy: latestCompaction.strategy,
+            trigger: latestCompaction.trigger,
+            beforeTokens: latestCompaction.beforeTokens,
+            afterTokens: latestCompaction.afterTokens,
+            createdAt: boundedString(latestCompaction.createdAt, 64),
+            summary: {
+              knownFacts: latestCompaction.summary.knownFacts.length,
+              decisions: latestCompaction.summary.decisions.length,
+              failures: latestCompaction.summary.failures.length,
+              unresolved: latestCompaction.summary.unresolved.length,
+              observations: latestCompaction.summary.observations.length,
+              sourceRefs: latestCompaction.summary.sourceRefs.length,
+              hasNextAction: Boolean(latestCompaction.summary.nextAction),
+            },
+          },
+        } : {}),
+      },
+    },
     ...(ledger.diffSnapshot ? {
       diff: {
         summary: ledger.diffSnapshot.summary,
@@ -88,4 +117,14 @@ export function toDesktopRunEvent(event: AgentEvent): DesktopRunEvent {
 
 function unique(values: string[]) {
   return [...new Set(values.filter(Boolean))]
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function boundedString(value: unknown, maxCharacters: number) {
+  return typeof value === 'string' ? value.trim().slice(0, maxCharacters) : ''
 }

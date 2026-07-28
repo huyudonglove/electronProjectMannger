@@ -31,6 +31,7 @@ export interface DesktopAgentRunRepository {
 export interface DesktopAgentBackend {
   openRunner(input: {
     projectRoot: string
+    runId: string
     workLevel: WorkLevel
     onCommitted: (checkpoint: LoadedCheckpoint, events: AgentEvent[]) => void | Promise<void>
     onPublishError: (error: unknown, checkpoint: LoadedCheckpoint) => void | Promise<void>
@@ -107,6 +108,29 @@ export interface DesktopRunView {
     verificationPassed: number
     verificationFailed: number
     modelAttempts: number
+  }
+  memory: {
+    projectMemoryRevision?: string
+    hasProjectMemorySnapshot: boolean
+    compactions: {
+      count: number
+      latest?: {
+        strategy: 'deterministic' | 'model'
+        trigger: 'compact_threshold' | 'hard_stop'
+        beforeTokens: number
+        afterTokens: number
+        createdAt: string
+        summary: {
+          knownFacts: number
+          decisions: number
+          failures: number
+          unresolved: number
+          observations: number
+          sourceRefs: number
+          hasNextAction: boolean
+        }
+      }
+    }
   }
   diff?: {
     summary: string

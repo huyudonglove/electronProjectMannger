@@ -1,18 +1,21 @@
 import type { ToolDescriptor, ToolModule } from '../tool-registry.js'
+import { toolPromptCopy } from '@electron-manager/agent-prompts'
 import { cliAvailability, commandEnvironment, processToolResult, type LocalRuntimeServices } from '../runtime-services.js'
+
+const promptCopy = toolPromptCopy('exec_command')
 
 export const execCommandToolDescriptor: ToolDescriptor = {
       name: 'exec_command',
       version: '1.0.0',
       title: '运行验证命令',
-      description: 'Run an approved repository-defined package verification script without an outer shell. Scripts may have project-local side effects and must be followed by Git inspection.',
-      useWhen: 'Use for an existing allowlisted package verification script after code changes.',
-      avoidWhen: 'Do not use for arbitrary shell, dependency installation, network tools, Git writes, or forwarded script arguments.',
+      description: promptCopy.description,
+      useWhen: promptCopy.useWhen,
+      avoidWhen: promptCopy.avoidWhen,
       risk: 'process',
       riskCategory: 'process',
       baseRiskLevel: 'high',
       recovery: 'never_auto_replay',
-      sideEffects: ['Starts a project process', 'The project script may modify project-local files'],
+      sideEffects: promptCopy.sideEffects,
       retryable: false,
       backends: [
         { id: 'pnpm-cli', kind: 'cli', command: 'pnpm' },
@@ -24,8 +27,8 @@ export const execCommandToolDescriptor: ToolDescriptor = {
         properties: {
           command: { type: 'string', enum: ['pnpm', 'npm'] },
           args: { type: 'array', items: { type: 'string' } },
-          cwd: { type: 'string', description: 'Existing project-relative directory. Defaults to the project root.' },
-          timeoutMs: { type: 'number', description: 'Positive timeout bounded by the runtime maximum.' },
+          cwd: { type: 'string', description: promptCopy.fields?.cwd },
+          timeoutMs: { type: 'number', description: promptCopy.fields?.timeoutMs },
         },
         required: ['command', 'args'],
         additionalProperties: false,

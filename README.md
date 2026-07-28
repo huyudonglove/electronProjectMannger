@@ -22,11 +22,13 @@ This project is early but usable. The local project-management flow and the firs
 - agent handoff context
 - research-to-knowledge workflows
 - Markdown data portability
-- OpenAI Responses model settings with OS-encrypted API-key storage
+- a background-managed provider catalog for OpenAI-compatible Chat Completions endpoints, including SenseNova; the renderer only selects an available provider and model
+- an Agent Chatbot workspace for persistent model-only conversations, task-oriented conversations, and run control
 - task-level Agent runs with local checkpoints, progress events, approval handling, cancellation, and project-record synchronization
+- renderer views for run phase/status, approvals, verification, diffs, and full `OutputRef` artifacts
 - a project-scoped local tool runtime for inspection, file edits, Git status/diff, and repository verification scripts
 
-The product shape is still evolving through real usage. Expect data format, Agent policy, and UI changes before a stable release. Automated tests do not replace a live OpenAI run or packaged-app verification on the target Mac.
+The product shape is still evolving through real usage. Expect data format, Agent policy, and UI changes before a stable release. Automated tests do not replace a live Provider run or packaged-app verification on the target Mac.
 
 ## Screens and Concepts
 
@@ -64,7 +66,7 @@ apps/desktop/
   preload.cjs
     Explicit IPC bridge exposed to the renderer
   renderer-src/
-    Vue UI, including Agent settings and task-run controls
+    Vue UI, including the Agent Chatbot, footer settings, and task-run controls
   renderer-vue/
     Generated Vite build output, ignored by git
 
@@ -81,7 +83,7 @@ packages/agent-runtime-local/      Project-scoped files, Git reads, and restrict
 packages/agent-output/             Durable large-output artifacts
 packages/agent-repo-map/           Repository map context
 packages/agent-checkpoint-sqlite/  SQLite run checkpoints
-packages/agent-provider-openai/    OpenAI Responses provider and SSE transport
+packages/agent-provider-openai/    OpenAI Responses and compatible Chat Completions providers
 packages/agent-runner/             Headless composition and run repository
 packages/agent-project-adapter/    Project task input and completion synchronization
 packages/agent-credential-vault/   Encrypted credential persistence
@@ -138,6 +140,14 @@ An optional live provider smoke test requires `OPENAI_API_KEY` and makes a real 
 pnpm --filter @electron-manager/agent-provider-openai smoke:live
 ```
 
+To verify the complete coding path with the model selected in Desktop Settings, run:
+
+```bash
+pnpm smoke:agent-coding
+```
+
+This creates an isolated temporary Git project, copies only the non-sensitive Agent settings, asks the real model to edit one source file, approves the fixture's test script, and requires passing verification plus scoped Git Diff evidence. A successful fixture is removed automatically; a failed fixture is retained under `/tmp` for diagnosis. The command does not modify the current repository.
+
 ## How Data Is Stored
 
 For each selected project, Electron Manager creates managed data under Electron's app data directory.
@@ -151,6 +161,7 @@ On macOS this is usually:
   agent/
     settings.json
     credentials.json
+    model-diagnostics.jsonl
     runs/
       <projectId>/
         runs.sqlite
@@ -190,15 +201,15 @@ The selected project folder only receives a lightweight pointer file:
 
 The full management data is not stored in your project source tree. Markdown is the primary source of truth. JSON files are used for configuration, generated indexes, and agent sync caches.
 
-Agent settings, encrypted credentials, SQLite checkpoints, and output artifacts live under the app-data `agent/` directory. API keys are encrypted and decrypted only in the Electron main process through the operating system's secure-storage facility; the renderer can only read credential presence and metadata.
+Agent selections, persistent Chatbot conversations (`agent/chat-conversations.json`), SQLite checkpoints, output artifacts, and redacted model diagnostics live under the app-data `agent/` directory. Provider connection addresses and API keys are managed by the Chrome Extension Telance local provider backend. Electron Manager's renderer receives only the safe provider catalog, model names, and configuration status; it does not receive backend connection addresses or plaintext secrets. The Provider layer also retains the direct OpenAI Responses transport for programmatic and smoke-test use.
 
 New projects are initialized directly with the current structure. Runtime reads do not migrate or repair old Markdown. If an existing project needs migration, follow [旧项目迁移说明](docs/旧项目迁移说明.md) separately.
 
 ## Desktop Agent Flow
 
-Configure the OpenAI profile from the **Agent** screen, then open an active task from the current version and choose **交给 Agent**. A task must have an execution definition and acceptance criteria; deep tasks also require their depth reason, constraints, and rollback plan. Blocking project questions prevent a run from starting.
+Choose a configured provider and model from the footer **Settings** page, then open the **Agent** Chatbot or an active task from the current version. A task must have an execution definition and acceptance criteria; deep tasks also require their depth reason, constraints, and rollback plan. Blocking project questions prevent a run from starting. Non-task messages use the selected model without execution tools, receive a bounded read-only project overview, and persist across app restarts; execution requests continue to use task Runs.
 
-The desktop coordinator turns the task and active project constraints into a versioned run, stores every committed step in SQLite, publishes progress to the renderer, and can continue a persisted run after the app is reopened. The task detail shows its phase, file progress, recent events, approval requests, continue/cancel controls, and terminal state. On successful completion, the project adapter updates the task and writes the corresponding work log idempotently.
+The desktop coordinator turns the task and active project constraints into a versioned run, stores every committed step in SQLite, publishes progress to the renderer, and can continue a persisted run after the app is reopened. The Chatbot shows phase/status, file progress, recent events, approval requests, continue/cancel controls, verification, diffs, terminal state, and full artifacts loaded through `OutputRef`. On successful completion, the project adapter updates the task and writes the corresponding work log idempotently. If a run ends as failed, cancelled, or blocked, a task that is still `doing` returns to `todo`; the run keeps the failure and recovery details.
 
 ## Agent Permission Boundary
 
@@ -246,6 +257,7 @@ Electron Manager intentionally keeps data rules explicit so humans and agents ca
 - `light` means one local, reversible goal. `standard` means an understood normal feature or fix. `deep` is reserved for architecture, migration, cross-system contracts, security boundaries, irreversible work, or high-impact decisions. Deep tasks require one primary `depth_reason`, constraints, and a plan with rollback; size or duration alone does not make work deep. An internal IPC change that ships atomically without old/new peers coexisting remains standard.
 - Clear light work executes directly. Standard, deep, or materially uncertain work starts with a concise current plan that may change as evidence changes. The user goal and acceptance criteria remain the stable anchor; changing the goal requires returning to the user.
 - Intermediate plan churn is not durable collaboration data. Keep the current effective scope, actual key decisions, result, and verification; preserve an intermediate attempt only when it creates a high-impact decision, risk, or follow-up.
+- Run configured, acceptance-required, and explicitly requested verification. Otherwise begin with the smallest relevant test, package check, type check, or smoke test; use the full suite only for shared foundations, cross-module contracts, build/release paths, unclear blast radius, or insufficient focused evidence.
 - Optimize for overall completion time. When subagents are available, delegate clearly bounded, independent parallel work or specialist investigation. Keep simple sequential work local, and let the main agent retain the goal, acceptance, integration, and final verification.
 - Consecutive light changes may share one task and log only when they belong to the same user goal, version, functional area, and acceptance cycle. Unrelated goals or work requiring separate scheduling, rollout, acceptance, or risk tracking stay separate. Immediate light work with no tracking need may use `task_short_id:: T000`.
 - Priority is urgency, not complexity: `high` is reserved for current blockers, security/data-loss issues, and release-critical work.
@@ -349,11 +361,13 @@ Electron Manager 是一个本地优先的桌面工作台，用来管理项目上
 - Agent 交接上下文
 - 研究记录到知识库的沉淀流程
 - Markdown 数据可读性和可移植性
-- OpenAI Responses 模型设置，以及由操作系统加密保存的 API Key
+- 从 Chrome Extension 本机 Provider 后台读取安全清单，在桌面端仅下拉选择提供商与模型
+- Agent Chatbot 已提供可持久化的纯模型对话、任务对话和 Run 控制入口
 - 任务级 Agent Run，支持本地检查点、进度事件、审批、取消和项目记录同步
+- 桌面端已展示 Run 阶段/状态、审批、验证、Diff 和按 `OutputRef` 读取的完整输出
 - 项目范围内的本地工具运行时，支持检查、文件修改、Git 状态/差异读取和仓库验证脚本
 
-产品形态还会随着真实使用继续变化。稳定发布前，数据格式、Agent 策略和 UI 都可能继续调整。自动化测试不能替代真实 OpenAI Run，也不能替代目标 Mac 上的打包应用验证。
+产品形态还会随着真实使用继续变化。稳定发布前，数据格式、Agent 策略和 UI 都可能继续调整。自动化测试不能替代真实 Provider Run，也不能替代目标 Mac 上的打包应用验证。
 
 ## 核心概念
 
@@ -391,7 +405,7 @@ apps/desktop/
   preload.cjs
     显式暴露给渲染层的 IPC 桥
   renderer-src/
-    Vue UI，包括 Agent 设置和任务 Run 控件
+    Vue UI，包括 Agent Chatbot、底部设置和任务 Run 控件
   renderer-vue/
     Vite 构建产物，已被 git 忽略
 
@@ -408,7 +422,7 @@ packages/agent-runtime-local/      项目范围文件、Git 读取和受限命�
 packages/agent-output/             持久化大输出产物
 packages/agent-repo-map/           仓库映射上下文
 packages/agent-checkpoint-sqlite/  SQLite Run 检查点
-packages/agent-provider-openai/    OpenAI Responses Provider 和 SSE 传输
+packages/agent-provider-openai/    OpenAI Responses 与兼容 Chat Completions Provider
 packages/agent-runner/             无界面编排和 Run 仓库
 packages/agent-project-adapter/    项目任务输入和完成同步
 packages/agent-credential-vault/   加密凭据持久化
@@ -465,6 +479,14 @@ pnpm test:agent
 pnpm --filter @electron-manager/agent-provider-openai smoke:live
 ```
 
+要使用桌面设置中当前选择的模型验证完整编码链路，可运行：
+
+```bash
+pnpm smoke:agent-coding
+```
+
+它会创建隔离的临时 Git 项目，只复制非敏感 Agent 设置，让真实模型修改一个源码文件，批准 fixture 自带的测试脚本，并要求测试通过及 Git Diff 证据。成功后自动清理，失败时保留 `/tmp` 现场供排查；当前仓库不会被该 smoke 修改。
+
 ## 数据存储方式
 
 每个被打开的项目，都会在 Electron 的应用数据目录下创建一份管理数据。
@@ -478,6 +500,7 @@ macOS 下通常是：
   agent/
     settings.json
     credentials.json
+    model-diagnostics.jsonl
     runs/
       <projectId>/
         runs.sqlite
@@ -517,15 +540,15 @@ macOS 下通常是：
 
 完整管理数据不会写进你的项目源码目录。Markdown 是主要数据源；JSON 主要用于配置、索引和 Agent 同步缓存。
 
-Agent 设置、加密凭据、SQLite 检查点和输出产物都保存在应用数据目录的 `agent/` 下。API Key 只会在 Electron 主进程中通过操作系统安全存储能力加密和解密；渲染层只能读取凭据是否存在及其元数据。
+Agent 选择、持久化 Chatbot 会话（`agent/chat-conversations.json`）、SQLite 检查点和输出产物都保存在应用数据目录的 `agent/` 下。模型连接地址与 API Key 由 Chrome Extension 的 Telance 本机 Provider 后台维护；Electron Manager 渲染层只读取提供商名称、模型列表和是否已配置，不接收连接地址或明文密钥。脱敏的模型诊断记录写入 `agent/model-diagnostics.jsonl`，设置页与失败 Run 会显示请求阶段、HTTP 状态、耗时、工具调用名称、响应结构和错误摘要，不记录请求头、密钥或完整提示词。
 
 新项目会直接使用当前结构初始化。运行时读取不会迁移或修复旧 Markdown；已有项目需要迁移时，请单独参阅[旧项目迁移说明](docs/旧项目迁移说明.md)。
 
 ## 桌面 Agent 流程
 
-先在 **Agent** 页面配置 OpenAI Profile，再打开当前版本中的活动任务并选择 **交给 Agent**。任务必须包含执行定义和验收标准；deep 任务还必须提供深度原因、约束和回退方案。项目存在阻塞中的协作问题时，不能启动 Run。
+先在底部 **设置** 页面从后台已配置项中选择 Provider 与模型，再进入 **Agent** Chatbot 或打开当前版本中的活动任务。任务必须包含执行定义和验收标准；deep 任务还必须提供深度原因、约束和回退方案。项目存在阻塞中的协作问题时，不能启动 Run。非任务消息使用所选模型、不开启执行工具，只注入有界的只读项目概览并跨重启持久化；执行请求仍进入任务 Run。
 
-桌面 Coordinator 会把任务和当前项目约束转换为带版本的 Run，将每个已提交步骤保存到 SQLite，并向渲染层发布进度；应用重新打开后也能继续持久化的 Run。任务详情会显示阶段、文件进度、最近事件、审批请求、继续/取消控件和终态。成功完成后，项目适配器会以幂等方式更新任务并写入对应工作记录。
+桌面 Coordinator 会把任务和当前项目约束转换为带版本的 Run，将每个已提交步骤保存到 SQLite，并向渲染层发布进度；应用重新打开后也能继续持久化的 Run。Chatbot 会显示阶段/状态、文件进度、最近事件、审批请求、继续/取消控件、验证、Diff、终态，以及通过 `OutputRef` 按需读取的完整输出。成功完成后，项目适配器会以幂等方式更新任务并写入对应工作记录；Run 以 failed、cancelled 或 blocked 结束时，仍为 `doing` 的任务恢复为 `todo`，失败原因和恢复信息保留在 Run 中。
 
 ## Agent 权限边界
 
@@ -573,6 +596,7 @@ Electron Manager 会尽量把数据规则写清楚，让人和 Agent 都能理�
 - `light` 是单一、局部、易回退的修改；`standard` 是方案明确的常规功能或修复；`deep` 只用于架构、迁移、跨系统契约、权限安全边界、不可逆操作或高影响方案取舍。deep 必须写一个主 `depth_reason`、关键约束和方案与回退；文件多、步骤多或耗时长本身不构成 deep。同一应用内可原子升级且无需新旧端共存的普通 IPC 调整仍是 standard。
 - 简单明确的 light 工作直接执行；standard、deep 或范围不明确的工作先建立简洁的当前计划，执行中可按证据动态调整。用户目标和验收始终作为稳定锚点，目标本身需要变化时必须回到用户确认。
 - 中间计划演变不作为长期协作数据。只保留当前有效范围、实际关键判断、结果和验证；只有产生高影响决策、风险或后续事项时才记录中间尝试。
+- 已配置、验收要求和用户指定的验证必须执行；其他情况先跑与改动直接相关的单测、单包检查、类型检查或 smoke test。只有涉及共享核心、跨模块契约、构建发布链路、影响范围不明，或轻量证据不足时才扩大到全量测试。
 - 以整体完成效率为优先。环境支持子 Agent 时，可委派边界清楚、彼此独立、可并行或适合专项调查的工作；简单顺序工作不强行拆分，主 Agent 保留目标、验收、整合和最终验证责任。
 - 同一用户目标、版本、功能区域和验收轮次内的连续 light 修改可共用一张任务和一条日志；无关目标或需要独立排期、发布、验收、风险跟踪的工作必须分开。无需跟踪的即时 light 修改可使用 `task_short_id:: T000`。
 - priority 只表示紧急程度，不表示复杂度；`high` 仅用于当前阻塞、安全或数据损坏、发布关键问题。
@@ -636,6 +660,7 @@ pnpm dmg:mac
 - `renderer-vue/` 是 Vite 构建产物，已被 git 忽略。
 - `packages/project-core` 负责 Markdown 数据层和协作文件生成。
 - `scripts/smoke-test.mjs` 用于验证核心数据流程。
+- `scripts/live-agent-coding-smoke.mjs` 使用当前桌面模型验证真实编辑、审批、测试、Diff 和结算闭环。
 - 应用是本地优先设计，不依赖后端服务。
 
 ## 后续方向

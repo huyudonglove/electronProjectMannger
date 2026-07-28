@@ -123,6 +123,7 @@ test('completed ledger maps to one idempotent task and log update plan', () => {
     relatedTasks: [],
     content: '',
   })
+  dashboard.tasks[0].status = 'done'
   const repeated = planProjectRunCompletion(dashboard, { taskId: 'T002', ledger })
   assert.equal(repeated.ok, true)
   assert.equal(repeated.value.outcome, 'already_applied')
@@ -148,8 +149,9 @@ test('completion plan rejects unfinished or mismatched run facts', () => {
   ]))
 })
 
-test('terminal non-completed run records changed files without marking the task done', () => {
+test('terminal non-completed run returns a doing task to todo and records changed files', () => {
   const dashboard = fixtureDashboard()
+  dashboard.tasks[0].status = 'doing'
   const ledger = completedLedger(dashboard.tasks[0])
   ledger.status = 'blocked'
   ledger.phase = 'blocked'
@@ -158,15 +160,50 @@ test('terminal non-completed run records changed files without marking the task 
   const result = planProjectRunSettlement(dashboard, { taskId: 'T002', ledger })
   assert.equal(result.ok, true)
   assert.equal(result.value.outcome, 'ready')
-  assert.equal(result.value.taskStatusUpdate, undefined)
+  assert.equal(result.value.taskStatusUpdate.nextStatus, 'todo')
   assert.equal(result.value.log.recordLevel, 'deep')
-  assert.match(result.value.log.result.join('\n'), /任务保持进行中/)
+  assert.match(result.value.log.result.join('\n'), /任务已回到 todo/)
   assert.deepEqual(result.value.log.changedFiles, ['src/a.ts'])
 
   ledger.changes = []
   const noChanges = planProjectRunSettlement(dashboard, { taskId: 'T002', ledger })
   assert.equal(noChanges.ok, true)
-  assert.equal(noChanges.value.outcome, 'not_required')
+  assert.equal(noChanges.value.outcome, 'ready')
+  assert.equal(noChanges.value.taskStatusUpdate.nextStatus, 'todo')
+  assert.equal(noChanges.value.log, undefined)
+})
+
+test('existing run log does not prevent recovery of a doing task', () => {
+  const dashboard = fixtureDashboard()
+  dashboard.tasks[0].status = 'doing'
+  dashboard.logs.push({
+    shortId: 'L100',
+    title: 'Earlier failed run',
+    created: '',
+    status: 'done',
+    source: 'agent-run:run-1',
+    recordLevel: 'deep',
+    version: 'V001',
+    userGoal: '',
+    result: '',
+    decisions: [],
+    changedFiles: [],
+    verification: [],
+    relatedTasks: [],
+    content: '',
+  })
+  const ledger = completedLedger(dashboard.tasks[0])
+  ledger.status = 'failed'
+  ledger.phase = 'failed'
+  ledger.changes = []
+  ledger.diffSnapshot = undefined
+
+  const result = planProjectRunSettlement(dashboard, { taskId: 'T002', ledger })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.outcome, 'ready')
+  assert.equal(result.value.taskStatusUpdate.nextStatus, 'todo')
+  assert.equal(result.value.log, undefined)
+  assert.equal(result.value.existingLogShortId, 'L100')
 })
 
 test('project run updates task and creates exactly one log across retries', async () => {
@@ -213,6 +250,48 @@ test('project run updates task and creates exactly one log across retries', asyn
     assert.equal(runLogs.length, 1)
     assert.equal(runLogs[0].recordLevel, 'standard')
     assert.deepEqual(runLogs[0].relatedTasks.map((item) => item.shortId), [task.shortId])
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true })
+  }
+})
+
+test('failed run without file changes returns its task to todo without creating a log', async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'electron-manager-project-adapter-failed-'))
+  const managerDataRoot = path.join(fixtureRoot, 'manager')
+  const projectRoot = path.join(fixtureRoot, 'project')
+  await mkdir(projectRoot, { recursive: true })
+  try {
+    await initProject(managerDataRoot, projectRoot, 'adapter-failed-fixture')
+    const dashboard = await appendTask(managerDataRoot, projectRoot, {
+      title: 'Recover failed task',
+      workLevel: 'standard',
+      executionDefinition: 'Return a failed Agent Run task to todo.',
+      acceptance: '- Failed task is retryable',
+    })
+    const task = dashboard.tasks.find((item) => item.title === 'Recover failed task')
+    assert.ok(task)
+
+    const prepared = prepareProjectTaskRun(dashboard, { runId: 'failed-run-1', taskId: task.id })
+    assert.equal(prepared.ok, true)
+    const started = await applyPreparedProjectRunStart(managerDataRoot, prepared.value)
+    const doingTask = started.dashboard.tasks.find((item) => item.id === task.id)
+    assert.equal(doingTask?.status, 'doing')
+
+    const ledger = completedLedger(doingTask, projectRoot, 'failed-run-1')
+    ledger.status = 'failed'
+    ledger.phase = 'failed'
+    ledger.changes = []
+    ledger.diffSnapshot = undefined
+    const settlement = planProjectRunSettlement(started.dashboard, { taskId: task.id, ledger })
+    assert.equal(settlement.ok, true)
+    assert.equal(settlement.value.outcome, 'ready')
+    assert.equal(settlement.value.log, undefined)
+
+    const applied = await applyProjectRunUpdatePlan(managerDataRoot, projectRoot, settlement.value)
+    assert.equal(applied.taskUpdated, true)
+    assert.equal(applied.logCreated, false)
+    assert.equal(applied.dashboard.tasks.find((item) => item.id === task.id)?.status, 'todo')
+    assert.equal(applied.dashboard.logs.filter((log) => log.source === 'agent-run:failed-run-1').length, 0)
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true })
   }

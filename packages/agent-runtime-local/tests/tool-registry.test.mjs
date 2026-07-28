@@ -90,6 +90,7 @@ test('all built-in tools expose risk, recovery and backend metadata', () => {
   ])
   for (const tool of localToolDescriptors) {
     assert.ok(tool.version)
+    assert.match(`${tool.description}${tool.useWhen}${tool.avoidWhen}`, /[\u3400-\u9fff]/u)
     assert.ok(tool.useWhen)
     assert.ok(tool.avoidWhen)
     assert.ok(tool.baseRiskLevel)
