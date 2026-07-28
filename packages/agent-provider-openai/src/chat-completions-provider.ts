@@ -121,6 +121,7 @@ export class OpenAIChatCompletionsProvider implements ModelProvider {
       const message = objectValue(choice.message)
       if (!message) throw new AgentCoreError('MODEL_ERROR', 'Chat Completions response is missing choices[0].message')
       const submitted = submittedAction(message)
+      const action = hydrateAgentTurnAction(submitted.payload, request, { clock: this.#clock })
       await this.#diagnostic({
         level: 'info',
         event: 'response.parsed',
@@ -131,7 +132,6 @@ export class OpenAIChatCompletionsProvider implements ModelProvider {
         toolCallNames: toolCallNames(message),
         actionShape: submitted.shape,
       })
-      const action = hydrateAgentTurnAction(submitted.payload, request, { clock: this.#clock })
       const usage = usageEvent(payload.usage)
       if (usage) yield usage
       yield { type: 'action', action }

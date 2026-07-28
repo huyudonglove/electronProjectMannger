@@ -40,6 +40,8 @@ declare global {
       replyOpenQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
       getAgentSettings: (projectRoot?: string) => Promise<any>
       getModelDiagnostics: (projectRoot?: string) => Promise<any[]>
+      getProjectMaps: (projectRoot: string) => Promise<any>
+      getDiagnosticReport: (input: AnyRecord) => Promise<any>
       listAgentChats: (projectRoot: string) => Promise<any[]>
       sendAgentChat: (payload: AnyRecord) => Promise<any>
       updateOpenAIModel: (payload: AnyRecord) => Promise<any>
@@ -53,6 +55,7 @@ declare global {
       readAgentOutput: (projectRoot: string, ref: string) => Promise<any>
       onProjectDataChanged?: (callback: (payload: AnyRecord) => void) => () => void
       onAgentRunChanged?: (callback: (payload: AnyRecord) => void) => () => void
+      onAgentMapsChanged?: (callback: (payload: AnyRecord) => void) => () => void
     }
   }
 }
@@ -186,6 +189,8 @@ const state = reactive({
   highlightedLog: -1,
   agentSettings: null as AnyRecord | null,
   agentDiagnostics: [] as AnyRecord[],
+  agentProjectMaps: null as AnyRecord | null,
+  agentDiagnosticReportBusy: false,
   agentRuns: [] as AnyRecord[],
   agentRunDetails: {} as Record<string, AnyRecord>,
   agentRunBusy: false,
@@ -348,6 +353,7 @@ onMounted(() => {
   applyTheme(localStorage.getItem('electron-manager-theme') || 'dark')
   setupAutoRefresh()
   setupAgentRunUpdates()
+  setupAgentMapUpdates()
   const initialSection = location.hash.replace('#', '') || 'overview'
   setActiveSection(initialSection)
   if (window.electronManager) {
@@ -369,6 +375,7 @@ function setActiveSection(section: string) {
   if (state.section === 'settings' || state.section === 'agent-chat') void loadAgentSettings()
   if (state.section === 'agent-chat') {
     void loadAgentChats()
+    void loadAgentProjectMaps()
     state.taskDetailOpen = false
     if (!state.selectedTask && !state.selectedAgentChatId) {
       state.selectedTask = agentChatTasks.value.find((task: AnyRecord) => ['doing', 'todo'].includes(task.status)) || agentChatTasks.value[0] || null
@@ -410,7 +417,15 @@ function setupAgentRunUpdates() {
     if (['completed', 'blocked', 'failed', 'cancelled'].includes(payload.run.status)) {
       void refreshDashboard({ quiet: true })
       void loadAgentDiagnostics()
+      void loadAgentProjectMaps()
     }
+  })
+}
+
+function setupAgentMapUpdates() {
+  if (!window.electronManager?.onAgentMapsChanged) return
+  window.electronManager.onAgentMapsChanged((payload) => {
+    if (payload?.projectRoot === state.projectRoot && state.initialized) void loadAgentProjectMaps()
   })
 }
 
@@ -478,6 +493,44 @@ async function loadAgentChats() {
     console.error(error)
     if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
     state.status = error?.message || 'Agent 对话记录读取失败。'
+  }
+}
+
+async function loadAgentProjectMaps() {
+  if (!state.projectRoot || !state.initialized) {
+    state.agentProjectMaps = null
+    return
+  }
+  const projectRoot = state.projectRoot
+  const projectRevision = agentProjectRevision
+  try {
+    const maps = await ensureApi().getProjectMaps(projectRoot)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.agentProjectMaps = maps
+  } catch (error: any) {
+    console.error(error)
+    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.status = error?.message || '项目地图读取失败。'
+  }
+}
+
+async function copyAgentDiagnosticReport() {
+  if (!state.projectRoot || state.agentDiagnosticReportBusy) return
+  state.agentDiagnosticReportBusy = true
+  try {
+    const result = await ensureApi().getDiagnosticReport({
+      projectRoot: state.projectRoot,
+      ...(selectedTaskRun.value?.runId ? { runId: selectedTaskRun.value.runId } : {}),
+    })
+    if (!result?.text) throw new Error('诊断报告内容为空。')
+    await navigator.clipboard.writeText(result.text)
+    showToast('脱敏诊断报告已复制')
+    state.status = ''
+  } catch (error: any) {
+    console.error(error)
+    state.status = error?.message || '复制诊断报告失败。'
+  } finally {
+    state.agentDiagnosticReportBusy = false
   }
 }
 
@@ -625,6 +678,7 @@ async function sendAgentChatMessage(message: string) {
       state.selectedTask = null
       state.taskDetailOpen = false
       state.status = ''
+      void loadAgentProjectMaps()
     } catch (error: any) {
       console.error(error)
       await Promise.all([loadAgentChats(), loadAgentDiagnostics()])
@@ -1218,6 +1272,7 @@ function updateState(result: AnyRecord) {
   state.initialized = result.initialized
   state.dashboard = result.dashboard
   state.agentRuns = []
+  state.agentProjectMaps = null
   state.agentRunDetails = {}
   state.agentChats = []
   state.selectedAgentChatId = ''
@@ -1229,6 +1284,7 @@ function updateState(result: AnyRecord) {
     void loadAgentRuns()
     void loadAgentChats()
     void loadAgentSettings()
+    void loadAgentProjectMaps()
   }
 }
 
@@ -2249,6 +2305,8 @@ function escapeHtml(value: any) {
         :diagnostics="state.agentDiagnostics"
         :local-messages="agentChatMessages"
         :memory-status="state.agentSettings?.projectMemory"
+        :project-maps="state.agentProjectMaps"
+        :diagnostic-report-busy="state.agentDiagnosticReportBusy"
         @select-chat="selectAgentChatConversation"
         @select-task="selectAgentChatTaskById"
         @start="startAgentChatTask"
@@ -2259,6 +2317,7 @@ function escapeHtml(value: any) {
         @open-output="openAgentOutput"
         @new-chat="startNewAgentChat"
         @send="sendAgentChatMessage"
+        @copy-diagnostics="copyAgentDiagnosticReport"
       />
 
       <AgentSettingsView

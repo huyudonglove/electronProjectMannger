@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -10,8 +10,10 @@ import {
   commitFileTransaction,
   computeActionDigest,
   contentHash,
+  fileTransactionManifestPath,
   limitText,
   preparePatch,
+  recoverFileTransactions,
   runProcess,
 } from '../dist/index.js'
 
@@ -264,11 +266,133 @@ test('a concurrent change during commit rolls back files already replaced', asyn
   await writeFile(secondPath, 'export const concurrent = true\n', 'utf8')
 
   await assert.rejects(
-    () => commitFileTransaction(changes),
+    () => commitFileTransaction(root, changes),
     (error) => error.code === 'PATCH_CONFLICT',
   )
   assert.equal(await readFile(firstPath, 'utf8'), firstBefore)
   assert.equal(await readFile(secondPath, 'utf8'), 'export const concurrent = true\n')
+})
+
+test('runtime startup rolls back an interrupted multi-file replacement before tools execute', async () => {
+  const { root } = await fixture()
+  const changes = await preparePatch(root, [
+    { path: 'src/example.ts', oldText: 'return 42', newText: 'return 43', expectedOccurrences: 1 },
+    { path: 'src/second.ts', oldText: 'second = 10', newText: 'second = 11', expectedOccurrences: 1 },
+  ], 1_000_000)
+  const transactionId = 'fixture-interrupted-replacement'
+  await writeInterruptedManifest(root, transactionId, 'replacing', changes)
+  const [first, second] = changes.map((change) => transactionArtifacts(change, transactionId))
+  await writeFile(first.temporaryPath, changes[0].afterContent, 'utf8')
+  await writeFile(second.temporaryPath, changes[1].afterContent, 'utf8')
+  await rename(changes[0].absolutePath, first.backupPath)
+  await rename(first.temporaryPath, changes[0].absolutePath)
+  await rename(changes[1].absolutePath, second.backupPath)
+
+  const runtime = new LocalAgentRuntime(root)
+  const read = await runtime.execute(request('recovered-read', 'read_file', {
+    path: 'src/example.ts',
+    startLine: 1,
+    endLine: 3,
+  }), context(root))
+  const recovery = await runtime.recoverPendingTransactions()
+
+  assert.equal(read.ok, true)
+  assert.match(read.output, /return 42/)
+  assert.deepEqual(recovery, {
+    scanned: 1,
+    recovered: [{
+      transactionId,
+      outcome: 'rolled_back',
+      paths: ['src/example.ts', 'src/second.ts'],
+    }],
+  })
+  assert.match(await readFile(changes[1].absolutePath, 'utf8'), /second = 10/)
+  await assertNoTransactionArtifacts(root, changes, transactionId)
+})
+
+test('startup recovery finalizes a fully replaced transaction that crashed before commit marking', async () => {
+  const { root } = await fixture()
+  const changes = await preparePatch(root, [
+    { path: 'src/example.ts', oldText: 'return 42', newText: 'return 43', expectedOccurrences: 1 },
+    { path: 'src/second.ts', oldText: 'second = 10', newText: 'second = 11', expectedOccurrences: 1 },
+  ], 1_000_000)
+  const transactionId = 'fixture-complete-before-marker'
+  await writeInterruptedManifest(root, transactionId, 'replacing', changes)
+  for (const change of changes) {
+    const artifacts = transactionArtifacts(change, transactionId)
+    await writeFile(artifacts.temporaryPath, change.afterContent, 'utf8')
+    await rename(change.absolutePath, artifacts.backupPath)
+    await rename(artifacts.temporaryPath, change.absolutePath)
+  }
+
+  const recovery = await recoverFileTransactions(root)
+
+  assert.equal(recovery.recovered[0].outcome, 'committed')
+  assert.match(await readFile(changes[0].absolutePath, 'utf8'), /return 43/)
+  assert.match(await readFile(changes[1].absolutePath, 'utf8'), /second = 11/)
+  await assertNoTransactionArtifacts(root, changes, transactionId)
+})
+
+test('startup recovery cleans staged files when no target replacement began', async () => {
+  const { root } = await fixture()
+  const changes = await preparePatch(root, [
+    { path: 'src/example.ts', oldText: 'return 42', newText: 'return 43', expectedOccurrences: 1 },
+  ], 1_000_000)
+  const transactionId = 'fixture-staged-only'
+  await writeInterruptedManifest(root, transactionId, 'preparing', changes)
+  const artifacts = transactionArtifacts(changes[0], transactionId)
+  await writeFile(artifacts.temporaryPath, changes[0].afterContent, 'utf8')
+
+  const recovery = await recoverFileTransactions(root)
+
+  assert.equal(recovery.recovered[0].outcome, 'rolled_back')
+  assert.match(await readFile(changes[0].absolutePath, 'utf8'), /return 42/)
+  await assertNoTransactionArtifacts(root, changes, transactionId)
+})
+
+test('startup recovery fails closed when a transaction target was modified externally', async () => {
+  const { root } = await fixture()
+  const changes = await preparePatch(root, [
+    { path: 'src/example.ts', oldText: 'return 42', newText: 'return 43', expectedOccurrences: 1 },
+  ], 1_000_000)
+  const transactionId = 'fixture-external-change'
+  await writeInterruptedManifest(root, transactionId, 'replacing', changes)
+  const artifacts = transactionArtifacts(changes[0], transactionId)
+  await writeFile(artifacts.temporaryPath, changes[0].afterContent, 'utf8')
+  await rename(changes[0].absolutePath, artifacts.backupPath)
+  await writeFile(changes[0].absolutePath, 'external edit must survive\n', 'utf8')
+
+  await assert.rejects(
+    () => recoverFileTransactions(root),
+    (error) => error.code === 'TOOL_EXECUTION_FAILED' && /modified externally/.test(error.message),
+  )
+  assert.equal(await readFile(changes[0].absolutePath, 'utf8'), 'external edit must survive\n')
+  assert.equal(await readFile(artifacts.backupPath, 'utf8'), changes[0].beforeContent)
+  assert.equal(await readFile(artifacts.temporaryPath, 'utf8'), changes[0].afterContent)
+})
+
+test('startup recovery rejects a tampered manifest path without touching files outside the project', async () => {
+  const { root, outside } = await fixture()
+  const transactionId = 'fixture-path-escape'
+  const outsidePath = path.join(outside, 'secret.txt')
+  const outsideContent = await readFile(outsidePath, 'utf8')
+  await writeFile(fileTransactionManifestPath(root, transactionId), `${JSON.stringify({
+    schemaVersion: 1,
+    transactionId,
+    phase: 'replacing',
+    files: [{
+      relativePath: path.relative(root, outsidePath),
+      beforeHash: contentHash(outsideContent),
+      afterHash: contentHash('tampered\n'),
+      mode: 0o644,
+    }],
+  })}\n`, 'utf8')
+
+  await assert.rejects(
+    () => recoverFileTransactions(root),
+    (error) => error.code === 'PATH_OUTSIDE_PROJECT',
+  )
+  assert.equal(await readFile(outsidePath, 'utf8'), outsideContent)
 })
 
 test('apply_patch rejects symlink targets and stable digests ignore object key insertion order', async () => {
@@ -407,6 +531,40 @@ async function run(command, args, cwd) {
   const result = await runProcess(command, args, { cwd, timeoutMs: 10_000, maxOutputChars: 20_000 })
   if (result.exitCode !== 0) throw new Error(result.output || `${command} failed`)
   return result.output
+}
+
+async function writeInterruptedManifest(root, transactionId, phase, changes) {
+  await writeFile(fileTransactionManifestPath(root, transactionId), `${JSON.stringify({
+    schemaVersion: 1,
+    transactionId,
+    phase,
+    files: changes.map((change) => ({
+      relativePath: change.relativePath,
+      beforeHash: change.beforeHash,
+      afterHash: change.afterHash,
+      mode: change.mode,
+    })),
+  })}\n`, 'utf8')
+}
+
+function transactionArtifacts(change, transactionId) {
+  const directory = path.dirname(change.absolutePath)
+  const basename = path.basename(change.absolutePath)
+  return {
+    temporaryPath: path.join(directory, `.${basename}.agent-tmp-${transactionId}`),
+    backupPath: path.join(directory, `.${basename}.agent-backup-${transactionId}`),
+  }
+}
+
+async function assertNoTransactionArtifacts(root, changes, transactionId) {
+  const rootNames = await readdir(root)
+  assert.equal(rootNames.includes(path.basename(fileTransactionManifestPath(root, transactionId))), false)
+  for (const change of changes) {
+    const names = await readdir(path.dirname(change.absolutePath))
+    const artifacts = transactionArtifacts(change, transactionId)
+    assert.equal(names.includes(path.basename(artifacts.temporaryPath)), false)
+    assert.equal(names.includes(path.basename(artifacts.backupPath)), false)
+  }
 }
 
 function escapeRegex(value) {

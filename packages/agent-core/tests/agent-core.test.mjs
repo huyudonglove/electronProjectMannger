@@ -164,6 +164,43 @@ test('standard runs require planning and deep runs require explicit plan approva
   assert.equal(deep.phase, 'acting')
 })
 
+test('a structurally valid action in the wrong phase is rejected and can recover', async () => {
+  const provider = new FakeModelProvider([
+    modelTurn({
+      kind: 'verify',
+      checkId: 'unit',
+      request: toolRequest('premature-verify', 'exec_command', { command: 'pnpm', args: ['test'] }),
+    }),
+    modelTurn({
+      kind: 'plan',
+      id: 'recovered-plan',
+      summary: 'Plan before verification',
+      rationale: 'The standard workflow requires a plan',
+      actionDigest: 'recovered-plan-digest',
+    }),
+  ])
+  const stepper = new AgentStepper({
+    provider,
+    runtime: new FakeAgentRuntime(),
+    permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture' }),
+    tools,
+    clock: advancingClock(1),
+  })
+  const initial = createRunLedger(input({ workLevel: 'standard' }), at(0))
+
+  const rejected = await stepper.step(initial)
+  assert.equal(rejected.disposition, 'continue')
+  assert.equal(rejected.ledger.status, 'running')
+  assert.equal(rejected.ledger.phase, 'inspecting')
+  assert.match(rejected.ledger.nextAction, /当前必须返回 plan/)
+  assert.equal(rejected.events.at(-1).type, 'model.rejected')
+
+  const recovered = await stepper.step(rejected.ledger)
+  assert.equal(recovered.disposition, 'continue')
+  assert.equal(recovered.ledger.phase, 'acting')
+  assert.equal(recovered.ledger.decisions.at(-1).id, 'recovered-plan')
+})
+
 test('completion gate requires evidence, verification and a fresh diff', () => {
   let ledger = createRunLedger(input(), at(0))
   let evaluation = evaluateCompletion(ledger)

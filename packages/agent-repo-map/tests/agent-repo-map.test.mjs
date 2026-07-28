@@ -8,6 +8,8 @@ import { promisify } from 'node:util'
 
 import {
   buildRepoMap,
+  CodeMapService,
+  createCodeMapContextSource,
   createRepoMapContextSource,
 } from '../dist/index.js'
 
@@ -81,6 +83,29 @@ test('repo map context source is optional, untrusted and ordered before tool res
   assert.equal(source.descriptor.required, false)
   assert.equal(fragment.sequence, 3_150)
   assert.deepEqual(fragment.sourceRefs, [`repo-map:${snapshot.revision}`])
+})
+
+test('persistent code map reuses an existing snapshot and reconciles changed modules', async (t) => {
+  const managerRoot = await temporaryDirectory(t)
+  const root = await temporaryDirectory(t)
+  await mkdir(path.join(root, 'src'), { recursive: true })
+  await writeFile(path.join(root, 'src', 'main.ts'), "import { value } from './value.js'\nexport const main = value\n", 'utf8')
+  await writeFile(path.join(root, 'src', 'value.ts'), 'export const value = 1\n', 'utf8')
+  const service = new CodeMapService(managerRoot)
+
+  const first = await service.ensure(root)
+  const reused = await service.ensure(root)
+  assert.equal(reused.revision, first.revision)
+  assert.equal(first.stats.sourceFiles, 2)
+  assert.equal(first.stats.dependencyEdges, 1)
+  assert.ok(first.files.find((file) => file.path === 'src/value.ts').exports.includes('value'))
+
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  await writeFile(path.join(root, 'src', 'value.ts'), 'export const changedValue = 2\n', 'utf8')
+  const reconciled = await service.reconcile(root)
+  assert.notEqual(reconciled.revision, first.revision)
+  assert.ok(reconciled.files.find((file) => file.path === 'src/value.ts').exports.includes('changedValue'))
+  assert.equal(createCodeMapContextSource(reconciled, 2_000).descriptor.id, 'project.code-map')
 })
 
 async function temporaryDirectory(t) {

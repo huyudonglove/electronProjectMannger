@@ -32,6 +32,9 @@ importers:
       '@electron-manager/agent-prompts':
         specifier: workspace:*
         version: link:../../packages/agent-prompts
+      '@electron-manager/agent-repo-map':
+        specifier: workspace:*
+        version: link:../../packages/agent-repo-map
       '@electron-manager/project-core':
         specifier: workspace:*
         version: link:../../packages/project-core

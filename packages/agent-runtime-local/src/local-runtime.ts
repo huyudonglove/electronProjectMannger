@@ -15,6 +15,7 @@ import {
 } from '@electron-manager/agent-core'
 
 import { createLocalToolModules } from './local-tools.js'
+import { recoverFileTransactions, type FileTransactionRecoveryReport } from './file-transaction.js'
 import { resolveProjectPath } from './path-guard.js'
 import { LocalRuntimeServices } from './runtime-services.js'
 import { ToolRegistry, type ToolModule, type ToolRegistrySnapshot } from './tool-registry.js'
@@ -37,6 +38,7 @@ export class LocalAgentRuntime implements AgentRuntime {
   readonly services: LocalRuntimeServices
   readonly registry: ToolRegistry
   readonly #clock: () => string
+  readonly #transactionRecovery: Promise<FileTransactionRecoveryReport>
 
   constructor(projectRoot: string, options: LocalRuntimeOptions = {}) {
     this.projectRoot = path.resolve(projectRoot)
@@ -53,14 +55,21 @@ export class LocalAgentRuntime implements AgentRuntime {
       clock: this.#clock,
     })
     this.registry = new ToolRegistry(options.modules || createLocalToolModules(this.services))
+    this.#transactionRecovery = recoverFileTransactions(this.projectRoot)
+    void this.#transactionRecovery.catch(() => undefined)
   }
 
   toolDefinitions(): ToolDefinition[] {
     return this.registry.definitions()
   }
 
-  probeTools(): Promise<ToolRegistrySnapshot> {
-    return this.registry.probe()
+  async probeTools(): Promise<ToolRegistrySnapshot> {
+    await this.#transactionRecovery
+    return await this.registry.probe()
+  }
+
+  async recoverPendingTransactions(): Promise<FileTransactionRecoveryReport> {
+    return structuredClone(await this.#transactionRecovery)
   }
 
   async snapshotTools(): Promise<RuntimeToolSnapshot> {
@@ -105,6 +114,7 @@ export class LocalAgentRuntime implements AgentRuntime {
   }
 
   async #assertContext(context: RuntimeContext) {
+    await this.#transactionRecovery
     const configured = await resolveProjectPath(this.projectRoot)
     const requested = await resolveProjectPath(context.projectRoot)
     if (configured.projectRoot !== requested.projectRoot) {

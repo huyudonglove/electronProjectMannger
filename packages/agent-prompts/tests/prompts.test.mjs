@@ -8,6 +8,7 @@ import {
   TOOL_PROMPT_COPY,
   renderNextActionPrompt,
   renderCompletionRepairPrompt,
+  renderInvalidPhaseActionRepairPrompt,
   renderReadonlyProjectOverviewPrompt,
   renderRepositoryMapHeader,
   renderRepositoryMapOmittedLines,
@@ -36,6 +37,12 @@ test('dynamic prompt renderers keep protocol values while using Chinese instruct
   ])
   assert.equal(renderRepositoryMapOmittedLines(12), '… 已省略 12 行仓库映射')
   assert.match(renderCompletionRepairPrompt([{ code: 'VERIFICATION_MISSING', ref: 'unit' }]), /必须先返回 verify/)
+  assert.match(renderInvalidPhaseActionRepairPrompt({
+    actionKind: 'verify',
+    phase: 'inspecting',
+    workLevel: 'standard',
+    reason: 'invalid phase',
+  }), /当前必须返回 plan/)
 })
 
 test('every local runtime tool has centrally managed Chinese prompt copy', () => {

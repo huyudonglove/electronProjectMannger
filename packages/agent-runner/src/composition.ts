@@ -43,6 +43,7 @@ import {
 } from '@electron-manager/agent-output'
 import {
   buildRepoMap,
+  createCodeMapContextSource,
   createRepoMapContextSource,
   resolveRepoMapOptions,
   type RepoMapOptions,
@@ -89,10 +90,11 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
     maxOutputArtifactBytes,
     options.repoMapOptions,
   )
+  const codeMap = repoMapConfig.enabled ? options.codeMapSnapshot : undefined
   const repoMap = repoMapConfig.enabled
-    ? await buildRepoMap(projectRoot, repoMapConfig.options)
+    ? codeMap?.repoMap || await buildRepoMap(projectRoot, repoMapConfig.options)
     : undefined
-  const repoMapArtifact = repoMap ? await outputStore.put(repoMap.content) : undefined
+  const repoMapArtifact = repoMap ? await outputStore.put(codeMap?.content || repoMap.content) : undefined
 
   const toolsByName = new Map(localRuntime.toolDefinitions().map((tool) => [tool.name, tool]))
   const tools = resolved.config.tools.enabledToolNames.map((name) => {
@@ -162,7 +164,11 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
   const sources = [
     configuredPromptSource(resolved.config),
     ...createLedgerContextSources().map((source) => applySourceBudget(source, resolved.config)),
-    ...(repoMap && repoMapConfig.enabled ? [createRepoMapContextSource(
+    ...(repoMap && repoMapConfig.enabled ? [codeMap ? createCodeMapContextSource(
+      codeMap,
+      repoMapConfig.maxTokens,
+      repoMapArtifact ? [repoMapArtifact.ref] : [],
+    ) : createRepoMapContextSource(
       repoMap,
       repoMapConfig.maxTokens,
       repoMapArtifact ? [repoMapArtifact.ref] : [],
@@ -209,6 +215,7 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
     localRuntime,
     outputStore,
     repoMap,
+    codeMap,
     repoMapOutputRef: repoMapArtifact?.ref,
     projectMemorySnapshotRef: projectMemorySnapshotArtifact?.ref,
     tools,

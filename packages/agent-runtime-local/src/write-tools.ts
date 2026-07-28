@@ -96,7 +96,7 @@ export async function preparePatch(
 
 export async function applyProjectPatch(projectRoot: string, operations: PatchReplaceOperation[], maxWriteChars: number) {
   const changes = await preparePatch(projectRoot, operations, maxWriteChars)
-  await commitFileTransaction(changes)
+  await commitFileTransaction(projectRoot, changes)
   return changes.map((change) => ({
     path: change.relativePath,
     beforeHash: change.beforeHash,

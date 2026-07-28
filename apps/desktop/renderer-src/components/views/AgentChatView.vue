@@ -70,6 +70,11 @@ type RunView = {
       }
     }
   }
+  diagnostics?: {
+    rejectedActions: number
+    failedModelAttempts: number
+    recentErrors: Array<{ sequence: number; at: string; type: string; phase: string; summary: string; errorCategory?: string }>
+  }
 }
 
 type ProjectMemoryStatus = {
@@ -87,12 +92,61 @@ type ProjectMemoryStatus = {
   }
 }
 
+type ProjectMaps = {
+  codeMap: {
+    revision: string
+    generatedAt: string
+    updatedAt: string
+    totalFiles: number
+    analyzedFiles: number
+    sourceFiles: number
+    testFiles: number
+    configFiles: number
+    dependencyEdges: number
+    exportedSymbols: number
+    languages: Record<string, number>
+  }
+  taskMap: {
+    revision: string
+    updatedAt: string
+    taskCount: number
+    runCount: number
+    conversationCount: number
+    activeCount: number
+    completedCount: number
+    tasks: Array<{
+      taskId: string
+      shortId: string
+      title: string
+      status: string
+      rounds: Array<{
+        runId: string
+        status: string
+        phase?: string
+        updatedAt?: string
+        stepCount: number
+        eventCount: number
+        changedFiles: string[]
+        verificationPassed: number
+        verificationFailed: number
+        result?: string
+        diagnostics?: {
+          rejectedActions: number
+          failedModelAttempts: number
+          recentErrors: Array<{ sequence: number; at: string; type: string; phase: string; summary: string; errorCategory?: string }>
+        }
+      }>
+    }>
+  }
+}
+
 type RunEvent = {
   sequence: number
   at?: string
   type?: string
   phase?: string
   summary: string
+  payload?: Record<string, unknown>
 }
 
 type RunDetail = {
@@ -118,6 +172,8 @@ type ModelDiagnostic = {
   status?: number
   actionShape?: string
   error?: string
+  attempt?: number
+  errorCategory?: string
 }
 
 type LocalChatMessage = {
@@ -148,6 +204,8 @@ const props = withDefaults(defineProps<{
   diagnostics?: ModelDiagnostic[]
   localMessages?: LocalChatMessage[]
   memoryStatus?: ProjectMemoryStatus | null
+  projectMaps?: ProjectMaps | null
+  diagnosticReportBusy?: boolean
 }>(), {
   tasks: () => [],
   chats: () => [],
@@ -157,6 +215,8 @@ const props = withDefaults(defineProps<{
   diagnostics: () => [],
   localMessages: () => [],
   memoryStatus: null,
+  projectMaps: null,
+  diagnosticReportBusy: false,
 })
 
 const emit = defineEmits<{
@@ -170,6 +230,7 @@ const emit = defineEmits<{
   openOutput: [ref: string, label: string]
   newChat: []
   send: [message: string]
+  copyDiagnostics: []
 }>()
 
 const draft = ref('')
@@ -182,9 +243,22 @@ const waiting = computed(() => run.value?.waiting || null)
 const canCompose = computed(() => props.credentialStatus === 'configured' && !props.busy && !waiting.value)
 const outputRefs = computed(() => run.value?.outputRefs || [])
 const runMemory = computed(() => run.value?.memory || null)
-const runDiagnostics = computed(() => (props.diagnostics || [])
-  .filter((entry) => !run.value?.runId || entry.runId === run.value.runId)
-  .slice(0, 8))
+const currentTaskMap = computed(() => {
+  if (!props.currentTask || !props.projectMaps) return null
+  return props.projectMaps.taskMap.tasks.find((task) => task.taskId === props.currentTask?.id || task.shortId === props.currentTask?.shortId) || null
+})
+const codeMapLanguages = computed(() => Object.entries(props.projectMaps?.codeMap.languages || {})
+  .filter(([language]) => language !== 'other')
+  .sort((left, right) => right[1] - left[1])
+  .slice(0, 5)
+  .map(([language, count]) => `${language} ${count}`)
+  .join(' · '))
+const runDiagnostics = computed(() => {
+  const matching = (props.diagnostics || [])
+    .filter((entry) => !run.value?.runId || entry.runId === run.value.runId)
+  const routeAttempts = matching.filter((entry) => entry.event.startsWith('route.attempt.'))
+  return (routeAttempts.length ? routeAttempts : matching).slice(0, 8)
+})
 const canRestartTerminal = computed(() => !!run.value
   && ['blocked', 'failed', 'cancelled'].includes(run.value.status)
   && !!props.currentTask
@@ -318,10 +392,19 @@ function formatTime(value?: string) {
 }
 
 function diagnosticSummary(entry: ModelDiagnostic) {
+  if (entry.event === 'route.attempt.failed') {
+    return `第 ${entry.attempt || '?'} 次结构化响应无效${entry.errorCategory ? `（${entry.errorCategory}）` : ''}${entry.error ? `：${entry.error}` : ''}`
+  }
+  if (entry.event === 'route.attempt.succeeded') return `第 ${entry.attempt || '?'} 次结构化动作已接收`
+  if (entry.event === 'route.attempt.cancelled') return `第 ${entry.attempt || '?'} 次模型尝试已取消`
   if (entry.error) return entry.error
   if (entry.actionShape) return `响应结构：${entry.actionShape}`
   if (entry.status) return `HTTP ${entry.status}${entry.durationMs !== undefined ? ` · ${entry.durationMs} ms` : ''}`
   return entry.event === 'request.started' ? '请求已发送到本机 Provider' : entry.event
+}
+
+function eventPayload(event: RunEvent) {
+  return event.payload ? JSON.stringify(event.payload, null, 2) : ''
 }
 
 function memoryModeLabel(mode?: ProjectMemoryStatus['profile']['mode']) {
@@ -463,6 +546,40 @@ function shortRevision(value?: string) {
           </div>
         </details>
 
+        <details v-if="props.projectMaps" class="agent-chat-memory agent-chat-project-maps">
+          <summary>
+            <span class="agent-chat-memory-mark">MAP</span>
+            <strong>项目地图</strong>
+            <small>代码 {{ props.projectMaps.codeMap.totalFiles }} 文件 · 任务 {{ props.projectMaps.taskMap.taskCount }} 节点 · Run {{ props.projectMaps.taskMap.runCount }}</small>
+          </summary>
+          <div class="agent-chat-memory-body">
+            <section>
+              <strong>代码地图</strong>
+              <p>已分析 {{ props.projectMaps.codeMap.analyzedFiles }} 个文件 · 源码 {{ props.projectMaps.codeMap.sourceFiles }} · 测试 {{ props.projectMaps.codeMap.testFiles }} · 配置 {{ props.projectMaps.codeMap.configFiles }}</p>
+              <p>依赖边 {{ props.projectMaps.codeMap.dependencyEdges }} · 导出符号 {{ props.projectMaps.codeMap.exportedSymbols }}</p>
+              <p v-if="codeMapLanguages">语言：{{ codeMapLanguages }}</p>
+              <p>索引 {{ shortRevision(props.projectMaps.codeMap.revision) }} · 更新于 {{ formatTime(props.projectMaps.codeMap.updatedAt) }}</p>
+            </section>
+            <section>
+              <strong>任务地图</strong>
+              <p>进行中 {{ props.projectMaps.taskMap.activeCount }} · 已完成 {{ props.projectMaps.taskMap.completedCount }} · 持久化对话 {{ props.projectMaps.taskMap.conversationCount }}</p>
+              <template v-if="currentTaskMap">
+                <p>当前任务包含 {{ currentTaskMap.rounds.length }} 轮 Run；执行步骤、变更文件、验证和结果均从 checkpoint 恢复。</p>
+                <p v-for="round in currentTaskMap.rounds.slice(0, 4)" :key="round.runId">
+                  {{ round.runId.slice(0, 8) }} · {{ runStatusLabel(round.status) }} · {{ round.stepCount }} 步 · {{ round.changedFiles.length }} 文件 · 验证 {{ round.verificationPassed }}/{{ round.verificationFailed }}
+                </p>
+                <p v-for="error in currentTaskMap.rounds.flatMap((round) => round.diagnostics?.recentErrors || []).slice(0, 4)" :key="`${error.sequence}-${error.at}`" class="agent-chat-memory-note">
+                  错误链 #{{ error.sequence }} · {{ error.type }} · {{ error.summary }}
+                </p>
+              </template>
+              <p v-else>选择任务后显示它的多轮执行过程和结果。</p>
+              <button class="btn btn-outline-secondary btn-sm" type="button" :disabled="props.diagnosticReportBusy" @click="emit('copyDiagnostics')">
+                {{ props.diagnosticReportBusy ? '正在生成…' : '复制脱敏诊断报告' }}
+              </button>
+            </section>
+          </div>
+        </details>
+
         <div v-if="!props.currentTask && !props.localMessages.length" class="agent-chat-empty">
           <span class="agent-chat-empty-mark">AI</span>
           <h3>和 Agent 说说要做什么</h3>
@@ -500,6 +617,10 @@ function shortRevision(value?: string) {
                 <time>{{ formatTime(event.at) }}</time>
               </header>
               <p>{{ event.summary }}</p>
+              <details v-if="event.payload && ['model.rejected', 'run.failed', 'run.blocked', 'verification.completed'].includes(event.type || '')" class="agent-chat-event-payload">
+                <summary>错误详情</summary>
+                <pre>{{ eventPayload(event) }}</pre>
+              </details>
             </div>
           </article>
 
@@ -1259,6 +1380,29 @@ function shortRevision(value?: string) {
 .agent-chat-thinking p {
   margin: 0;
   font-size: 10px;
+}
+
+.agent-chat-event-payload {
+  margin-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding-top: 6px;
+}
+
+.agent-chat-event-payload summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.agent-chat-event-payload pre {
+  margin: 7px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted-strong);
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .agent-chat-composer {

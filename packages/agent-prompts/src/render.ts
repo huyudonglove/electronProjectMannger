@@ -2,6 +2,7 @@ import {
   COMPLETION_REPAIR_PROMPT,
   DESKTOP_PROJECT_OVERVIEW_PROMPT,
   INVALID_EVIDENCE_REPAIR_PROMPT,
+  INVALID_PHASE_ACTION_REPAIR_PROMPT,
   NEXT_ACTION_PROMPT,
   REPOSITORY_MAP_PROMPT,
   TOOL_CATALOG_PROMPT,
@@ -72,6 +73,25 @@ export function renderInvalidEvidenceRepairPrompt(errorMessage: string, validRef
     `错误：${errorMessage}。`,
     `当前有效引用：${validRefs.join('、') || '无'}。`,
   ].join(' ')
+}
+
+export function renderInvalidPhaseActionRepairPrompt(input: {
+  actionKind: string
+  phase: PromptRunPhase
+  workLevel: PromptWorkLevel
+  reason: string
+}) {
+  const instructions = [
+    INVALID_PHASE_ACTION_REPAIR_PROMPT.text,
+    `被拒绝动作：${input.actionKind}；当前阶段：${input.phase}；工作等级：${input.workLevel}。`,
+    `原因：${input.reason}。`,
+  ]
+  if (input.phase === 'inspecting' && input.workLevel !== 'light') {
+    instructions.push('当前必须返回 plan；在计划被状态机接受前，不得返回 tool、verify 或 finish。')
+  } else {
+    instructions.push(`下一项动作必须满足 ${input.phase} 阶段规则。`)
+  }
+  return instructions.join(' ')
 }
 
 export function phaseGuidance(phase: PromptRunPhase, workLevel: PromptWorkLevel) {

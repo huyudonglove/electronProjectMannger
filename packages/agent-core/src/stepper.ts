@@ -3,6 +3,7 @@ import {
   CODER_LEDGER_FALLBACK_PROMPT,
   renderCompletionRepairPrompt,
   renderInvalidEvidenceRepairPrompt,
+  renderInvalidPhaseActionRepairPrompt,
 } from '@electron-manager/agent-prompts'
 import { AgentCoreError, toAgentError } from './errors.js'
 import { assertJsonSchemaValue, parseAgentTurnAction } from './schema.js'
@@ -130,6 +131,7 @@ export class AgentStepper {
 
   async step(initialLedger: RunLedger, signal?: AbortSignal, hooks?: AgentStepHooks): Promise<AgentStepResult> {
     const state = new StepState(initialLedger)
+    let selectedAction: AgentTurnAction | undefined
     try {
       if (signal?.aborted) throw new AgentCoreError('CANCELLED', 'Agent run was cancelled')
       if (isTerminalLedger(state.ledger)) {
@@ -143,11 +145,25 @@ export class AgentStepper {
 
       state.ledger = recordAgentStep(state.ledger, this.#clock())
       state.event('model.started', 'Model turn started', this.#clock())
-      const action = await this.#requestAction(state, signal)
-      state.event('model.completed', `Model selected ${action.kind}`, this.#clock(), { action: action.kind })
-      return await this.#applyAction(state, action, signal, hooks)
+      selectedAction = await this.#requestAction(state, signal)
+      state.event('model.completed', `Model selected ${selectedAction.kind}`, this.#clock(), { action: selectedAction.kind })
+      return await this.#applyAction(state, selectedAction, signal, hooks)
     } catch (error) {
       if (error instanceof AgentCoreError && error.code === 'CHECKPOINT_ERROR') throw error
+      if (selectedAction && error instanceof AgentCoreError && error.code === 'INVALID_TRANSITION') {
+        const summary = renderInvalidPhaseActionRepairPrompt({
+          actionKind: selectedAction.kind,
+          phase: state.ledger.phase,
+          workLevel: state.ledger.workLevel,
+          reason: error.message,
+        })
+        state.ledger = setNextAction(state.ledger, summary, this.#clock())
+        state.event('model.rejected', summary, this.#clock(), {
+          action: selectedAction.kind,
+          errorCode: error.code,
+        })
+        return state.result('continue', summary)
+      }
       const serialized = toAgentError(error, 'INTERNAL_ERROR')
       if (serialized.code === 'CANCELLED') {
         this.#terminalTransition(state, 'cancelled', 'run.cancelled', serialized.message)

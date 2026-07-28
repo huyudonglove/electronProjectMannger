@@ -17,7 +17,7 @@ import type {
   SessionSummarizerDiagnostic,
 } from '@electron-manager/agent-memory'
 import type { LocalRuntimeOptions } from '@electron-manager/agent-runtime-local'
-import type { RepoMapOptions } from '@electron-manager/agent-repo-map'
+import type { CodeMapSnapshot, RepoMapOptions } from '@electron-manager/agent-repo-map'
 import type { ModelRouteAttemptDiagnostic } from '@electron-manager/agent-model-router'
 
 export interface ModelProviderRegistration {
@@ -38,6 +38,7 @@ export interface HeadlessAgentRunnerOptions {
   outputPreviewCharacters?: number
   maxOutputArtifactBytes?: number
   repoMapOptions?: RepoMapOptions
+  codeMapSnapshot?: CodeMapSnapshot
   extraContextSources?: ContextSource[]
   projectMemoryDocuments?: ProjectMemoryDocument[]
   projectMemoryRetrievalRevision?: ProjectMemoryRetrievalRevision

@@ -129,6 +129,7 @@ test('Responses Provider maps messages, strict schemas, usage and hydrated tool 
 
 test('Chat Completions Provider submits one structured action through a backend proxy', async () => {
   let captured
+  const diagnostics = []
   const action = {
     action: {
       kind: 'inspect',
@@ -144,6 +145,7 @@ test('Chat Completions Provider submits one structured action through a backend 
     model: 'llama-fixture',
     providerId: 'sensenova',
     toolChoice: 'named',
+    onDiagnostic: (entry) => diagnostics.push(entry),
     clock: () => '2026-07-27T15:00:00.000Z',
     fetcher: async (url, init) => {
       captured = { url, init, body: JSON.parse(init.body) }
@@ -175,6 +177,36 @@ test('Chat Completions Provider submits one structured action through a backend 
   assert.deepEqual(events.map((event) => event.type), ['usage', 'action', 'completed'])
   assert.equal(events[1].action.request.requestedAt, '2026-07-27T15:00:00.000Z')
   assert.deepEqual(events[1].action.request.input, { path: 'README.md' })
+  assert.deepEqual(diagnostics.map((entry) => entry.event), ['request.started', 'response.received', 'response.parsed'])
+})
+
+test('Chat Completions diagnostics only mark actions parsed after schema hydration', async () => {
+  const diagnostics = []
+  const provider = new OpenAIChatCompletionsProvider({
+    baseUrl: 'http://127.0.0.1:8787/provider/sensenova/',
+    model: 'sensenova-fixture',
+    onDiagnostic: (entry) => diagnostics.push(entry),
+    fetcher: async () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: 'tool_calls',
+        message: {
+          tool_calls: [{
+            type: 'function',
+            function: {
+              name: 'submit_agent_action',
+              arguments: JSON.stringify({ action: JSON.stringify({ request: {} }) }),
+            },
+          }],
+        },
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  })
+
+  const events = await collect(provider.stream(modelRequest()))
+
+  assert.equal(events.at(-1).type, 'error')
+  assert.match(events.at(-1).error.message, /action\.kind must be a non-empty string/)
+  assert.deepEqual(diagnostics.map((entry) => entry.event), ['request.started', 'response.received', 'request.failed'])
 })
 
 test('malformed, unknown and incomplete model output becomes explicit stream errors', async () => {

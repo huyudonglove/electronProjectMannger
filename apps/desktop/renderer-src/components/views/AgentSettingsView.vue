@@ -193,10 +193,10 @@ function diagnosticLabel(entry: ModelDiagnostic) {
   return ({
     'request.started': '开始请求',
     'response.received': entry.status ? `收到 HTTP ${entry.status}` : '收到响应',
-    'response.parsed': '解析响应',
+    'response.parsed': '动作解析成功',
     'request.failed': '请求失败',
-    'route.attempt.failed': '模型尝试失败',
-    'route.attempt.succeeded': '模型尝试成功',
+    'route.attempt.failed': '结构化响应无效',
+    'route.attempt.succeeded': '结构化动作已接收',
     'route.attempt.cancelled': '模型尝试取消',
   } as Record<string, string>)[entry.event] || entry.event
 }

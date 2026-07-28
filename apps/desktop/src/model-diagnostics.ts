@@ -118,6 +118,8 @@ function bounded(value: unknown, length: number) {
 function redactDiagnosticError(value: unknown) {
   return bounded(value, 1_000)
     .replace(/\bhttps?:\/\/[^\s"'<>]+/gi, '[已隐藏连接地址]')
+    .replace(/(?:\/Users\/[^/\s]+|\/home\/[^/\s]+)(?:\/[^\s"'<>]*)?/g, '[已隐藏本机路径]')
+    .replace(/\b[A-Za-z]:\\Users\\[^\\\s]+(?:\\[^\s"'<>]*)?/g, '[已隐藏本机路径]')
     .replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}\b/g, '[已隐藏密钥]')
     .replace(/\b(api[_ -]?key|authorization|bearer)\s*[:=]\s*\S+/gi, '$1=[已隐藏密钥]')
 }

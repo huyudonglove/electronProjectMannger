@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('electronManager', {
   replyOpenQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:reply-open-question', projectRoot, payload),
   getAgentSettings: (projectRoot) => ipcRenderer.invoke('agent:settings:get', projectRoot),
   getModelDiagnostics: (projectRoot) => ipcRenderer.invoke('agent:model-diagnostics:list', projectRoot),
+  getProjectMaps: (projectRoot) => ipcRenderer.invoke('agent:project-maps:get', projectRoot),
+  getDiagnosticReport: (input) => ipcRenderer.invoke('agent:diagnostics:report', input),
   listAgentChats: (projectRoot) => ipcRenderer.invoke('agent:chats:list', projectRoot),
   sendAgentChat: (payload) => ipcRenderer.invoke('agent:chats:send', payload),
   updateOpenAIModel: (payload) => ipcRenderer.invoke('agent:settings:update-openai', payload),
@@ -51,5 +53,10 @@ contextBridge.exposeInMainWorld('electronManager', {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('agent:runs:changed', listener)
     return () => ipcRenderer.removeListener('agent:runs:changed', listener)
+  },
+  onAgentMapsChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('agent:project-maps:changed', listener)
+    return () => ipcRenderer.removeListener('agent:project-maps:changed', listener)
   },
 })

@@ -35,6 +35,7 @@ export function toDesktopRunView(checkpoint: LoadedCheckpoint, dashboard: Dashbo
   const projectMemoryRevision = boundedString(memoryData?.projectMemoryRevision, 128)
   const hasProjectMemorySnapshot = Boolean(boundedString(memoryData?.projectMemorySnapshotRef, 256))
   const latestCompaction = ledger.compactions.at(-1)
+  const diagnosticEvents = checkpoint.events.filter((event) => isDiagnosticEvent(event)).slice(-8).reverse()
   return {
     schemaVersion: DESKTOP_AGENT_SCHEMA_VERSION,
     runId: ledger.runId,
@@ -66,6 +67,18 @@ export function toDesktopRunView(checkpoint: LoadedCheckpoint, dashboard: Dashbo
       verificationPassed: ledger.verifications.filter((item) => item.status === 'passed').length,
       verificationFailed: ledger.verifications.filter((item) => item.status === 'failed').length,
       modelAttempts: ledger.modelAttempts.length,
+    },
+    diagnostics: {
+      rejectedActions: checkpoint.events.filter((event) => event.type === 'model.rejected').length,
+      failedModelAttempts: checkpoint.events.filter((event) => event.type === 'model.attempted' && event.payload?.outcome === 'failed').length,
+      recentErrors: diagnosticEvents.map((event) => ({
+        sequence: event.sequence,
+        at: event.at,
+        type: event.type,
+        phase: event.phase,
+        summary: redact(event.summary, 1_000),
+        ...(typeof event.payload?.errorCategory === 'string' ? { errorCategory: redact(event.payload.errorCategory, 80) } : {}),
+      })),
     },
     memory: {
       ...(projectMemoryRevision ? { projectMemoryRevision } : {}),
@@ -112,7 +125,39 @@ export function toDesktopRunEvent(event: AgentEvent): DesktopRunEvent {
     type: event.type,
     phase: event.phase,
     summary: event.summary,
+    ...(event.payload ? { payload: sanitizePayload(event.payload) } : {}),
   }
+}
+
+function isDiagnosticEvent(event: AgentEvent) {
+  if (['model.rejected', 'run.failed', 'run.blocked', 'run.cancelled'].includes(event.type)) return true
+  if (event.type === 'model.attempted' && event.payload?.outcome === 'failed') return true
+  if (event.type === 'verification.completed' && event.payload?.status === 'failed') return true
+  return false
+}
+
+function sanitizePayload(payload: NonNullable<AgentEvent['payload']>) {
+  return Object.fromEntries(Object.entries(payload).slice(0, 30).map(([key, value]) => [key, sanitizeJsonValue(value)]))
+}
+
+function sanitizeJsonValue(value: import('@electron-manager/agent-core').JsonValue): import('@electron-manager/agent-core').JsonValue {
+  if (typeof value === 'string') return redact(value, 2_000)
+  if (Array.isArray(value)) return value.slice(0, 40).map(sanitizeJsonValue)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).slice(0, 40).map(([key, item]) => [key, sanitizeJsonValue(item)]))
+  }
+  return value
+}
+
+function redact(value: string, maxCharacters: number) {
+  return value
+    .replace(/-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/gi, '[已隐藏私钥]')
+    .replace(/\bhttps?:\/\/[^\s"'<>]+/gi, '[已隐藏连接地址]')
+    .replace(/(?:\/Users\/[^/\s]+|\/home\/[^/\s]+)(?:\/[^\s"'<>]*)?/g, '[已隐藏本机路径]')
+    .replace(/\b[A-Za-z]:\\Users\\[^\\\s]+(?:\\[^\s"'<>]*)?/g, '[已隐藏本机路径]')
+    .replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}\b/g, '[已隐藏密钥]')
+    .replace(/\b(api[_ -]?key|authorization|bearer|password|secret|token)\s*[:=]\s*\S+/gi, '$1=[已隐藏敏感值]')
+    .slice(0, maxCharacters)
 }
 
 function unique(values: string[]) {

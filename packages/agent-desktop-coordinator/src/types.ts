@@ -1,5 +1,6 @@
 import type {
   AgentEvent,
+  JsonValue,
   ApprovalResolution,
   LoadedCheckpoint,
   PersistedStepResult,
@@ -69,6 +70,7 @@ export interface DesktopRunEvent {
   type: AgentEvent['type']
   phase: AgentEvent['phase']
   summary: string
+  payload?: Record<string, JsonValue>
 }
 
 export interface DesktopRunView {
@@ -108,6 +110,18 @@ export interface DesktopRunView {
     verificationPassed: number
     verificationFailed: number
     modelAttempts: number
+  }
+  diagnostics: {
+    rejectedActions: number
+    failedModelAttempts: number
+    recentErrors: Array<{
+      sequence: number
+      at: string
+      type: AgentEvent['type']
+      phase: AgentEvent['phase']
+      summary: string
+      errorCategory?: string
+    }>
   }
   memory: {
     projectMemoryRevision?: string

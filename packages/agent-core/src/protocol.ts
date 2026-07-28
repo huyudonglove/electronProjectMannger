@@ -488,6 +488,7 @@ export type AgentEventType =
   | 'model.started'
   | 'model.attempted'
   | 'model.completed'
+  | 'model.rejected'
   | 'context.assembled'
   | 'context.compacted'
   | 'tool.requested'

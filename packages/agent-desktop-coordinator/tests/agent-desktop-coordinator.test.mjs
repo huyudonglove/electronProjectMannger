@@ -21,11 +21,26 @@ import { appendTask, getDashboard, initProject } from '@electron-manager/project
 import {
   DesktopAgentCoordinator,
   createHeadlessDesktopAgentBackend,
+  toDesktopRunEvent,
   toDesktopRunView,
 } from '../dist/index.js'
 
 const exec = promisify(execFile)
 const enabledTools = ['apply_patch', 'exec_command', 'git_diff', 'read_file']
+
+test('desktop run events expose bounded payloads with sensitive values redacted', () => {
+  const event = toDesktopRunEvent({
+    id: 'event-1', runId: 'run-1', sequence: 3, at: '2026-01-01T00:00:00.000Z',
+    type: 'run.failed', phase: 'failed', summary: 'Provider failed',
+    payload: {
+      error: 'POST https://models.example.test/v1 apiKey=sk-secretvalue123',
+      localPath: '/Users/example/private/source.ts',
+    },
+  })
+  assert.equal(event.payload.error.includes('models.example.test'), false)
+  assert.equal(event.payload.error.includes('sk-secretvalue123'), false)
+  assert.equal(event.payload.localPath.includes('/Users/example'), false)
+})
 
 test('desktop coordinator runs a project task, publishes persisted events and synchronizes one log', async (t) => {
   const fixture = await createFixture(t, 'completed')

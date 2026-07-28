@@ -81,6 +81,12 @@ export const INVALID_EVIDENCE_REPAIR_PROMPT = definePrompt(
   '验收证据引用无效。重新结束时，只能逐字使用 Run 事实 successfulEvidenceRefs 中已有的引用。',
 )
 
+export const INVALID_PHASE_ACTION_REPAIR_PROMPT = definePrompt(
+  'coder.invalid-phase-action-repair',
+  '1',
+  '上一项模型动作不符合当前 Run 阶段，未被执行。请根据当前阶段纠正下一项动作，不要重复同一错误。',
+)
+
 export const SESSION_SUMMARIZER_PROMPT = definePrompt(
   'memory.session-summarizer',
   '2',
@@ -133,6 +139,7 @@ export const PROMPT_CATALOG = Object.freeze([
   NEXT_ACTION_PROMPT,
   COMPLETION_REPAIR_PROMPT,
   INVALID_EVIDENCE_REPAIR_PROMPT,
+  INVALID_PHASE_ACTION_REPAIR_PROMPT,
   SESSION_SUMMARIZER_PROMPT,
   MODEL_ACTION_SUBMISSION_PROMPT,
   DESKTOP_CHAT_SYSTEM_PROMPT,
