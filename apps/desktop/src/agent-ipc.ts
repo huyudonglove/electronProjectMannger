@@ -171,6 +171,9 @@ export function registerAgentIpc(
   })
   handle(AGENT_IPC.listChats.channel, async (_event, projectRootValue: unknown) => chat.list(requiredString(projectRootValue, 'projectRoot')))
   handle(AGENT_IPC.sendChat.channel, async (_event, input: unknown) => chat.send(input as Parameters<typeof chat.send>[0]))
+  handle(AGENT_IPC.deleteChat.channel, async (_event, projectRootValue: unknown, conversationIdValue: unknown) => {
+    return chat.delete(requiredString(projectRootValue, 'projectRoot'), requiredString(conversationIdValue, 'conversationId'))
+  })
   handle(AGENT_IPC.updateOpenAIModel.channel, async (_event, input: unknown) => {
     return service.updateOpenAIModel(input as DesktopOpenAIModelSettingsPatch)
   })
@@ -201,7 +204,7 @@ export function registerAgentIpc(
     return coordinator.resolveApproval(input as Parameters<typeof coordinator.resolveApproval>[0])
   })
   handle(AGENT_IPC.cancelRun.channel, async (_event, projectRootValue: unknown, runIdValue: unknown) => {
-    return coordinator.cancelActiveRun(requiredString(runIdValue, 'runId'), requiredString(projectRootValue, 'projectRoot'))
+    return await coordinator.cancelRun(requiredString(runIdValue, 'runId'), requiredString(projectRootValue, 'projectRoot'))
   })
   handle(AGENT_IPC.readOutput.channel, async (_event, projectRootValue: unknown, refValue: unknown) => {
     return coordinator.readOutput(requiredString(projectRootValue, 'projectRoot'), requiredString(refValue, 'ref'))

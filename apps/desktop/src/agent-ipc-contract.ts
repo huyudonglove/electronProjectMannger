@@ -7,6 +7,7 @@ export const AGENT_IPC = {
   getDiagnosticReport: { channel: 'agent:diagnostics:report', risk: 'low' },
   listChats: { channel: 'agent:chats:list', risk: 'low' },
   sendChat: { channel: 'agent:chats:send', risk: 'medium' },
+  deleteChat: { channel: 'agent:chats:delete', risk: 'medium' },
   updateOpenAIModel: { channel: 'agent:settings:update-openai', risk: 'medium' },
   updateProjectModelRoute: { channel: 'agent:settings:update-project-model-route', risk: 'medium' },
   listRuns: { channel: 'agent:runs:list', risk: 'low' },

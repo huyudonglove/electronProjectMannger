@@ -8,6 +8,9 @@ import {
   FakeModelProvider,
   FakePermissionPolicy,
   clearPendingAction,
+  DEFAULT_AGENT_GRAPH,
+  beginWorkItem,
+  checklistProgress,
   completeLedger,
   createRunLedger,
   detectRepeatedFailure,
@@ -19,6 +22,8 @@ import {
   recordToolRequest,
   recordToolResult,
   recordVerification,
+  replaceWorkChecklist,
+  finishWorkItem,
   parseAgentTurnAction,
   assertJsonSchemaValue,
   setPendingAction,
@@ -107,6 +112,45 @@ test('light runs can skip planning while invalid phase transitions are rejected'
     () => transitionLedger(ledger, 'completed', at(4)),
     (error) => error instanceof AgentCoreError && error.code === 'INVALID_TRANSITION',
   )
+})
+
+test('explicit Agent graph records every valid transition and rejects undeclared edges', () => {
+  assert.equal(DEFAULT_AGENT_GRAPH.entryNode, 'created')
+  assert.ok(DEFAULT_AGENT_GRAPH.nodes.some((node) => node.id === 'awaiting_approval' && node.kind === 'interrupt'))
+
+  let ledger = createRunLedger(input(), at(0))
+  ledger = transitionLedger(ledger, 'loading_context', at(1))
+  ledger = transitionLedger(ledger, 'inspecting', at(2))
+  assert.equal(ledger.graph.currentNode, 'inspecting')
+  assert.deepEqual(ledger.graph.history.map((item) => `${item.from}->${item.to}`), [
+    'created->loading_context',
+    'loading_context->inspecting',
+  ])
+  assert.throws(() => transitionLedger(ledger, 'completed', at(3)), /no edge/)
+})
+
+test('versioned checklist preserves plan dependencies and records attempts and evidence', () => {
+  let ledger = createRunLedger(input(), at(0))
+  ledger = replaceWorkChecklist(ledger, {
+    id: 'plan-1',
+    summary: 'Modify then verify',
+    items: [
+      { id: 'change-1', title: 'Modify the fixture', kind: 'change', dependsOn: [] },
+      { id: 'verify-1', title: 'Run the focused test', kind: 'verify', dependsOn: ['change-1'] },
+    ],
+  }, at(1))
+
+  const premature = beginWorkItem(ledger, 'verify', at(2))
+  assert.equal(premature.itemId, undefined)
+  assert.throws(() => beginWorkItem(ledger, 'change', at(2), 'verify-1'), /not ready/)
+  const change = beginWorkItem(ledger, 'change', at(2), 'change-1')
+  ledger = finishWorkItem(change.ledger, change.itemId, { ok: true, summary: 'Changed', evidenceRef: 'tool-1' }, at(3))
+  const verification = beginWorkItem(ledger, 'verify', at(4))
+  ledger = finishWorkItem(verification.ledger, verification.itemId, { ok: true, summary: 'Passed', evidenceRef: 'unit' }, at(5))
+
+  assert.deepEqual(checklistProgress(ledger.checklist), { total: 2, todo: 0, doing: 0, done: 2, blocked: 0, skipped: 0 })
+  assert.equal(ledger.checklist.revision, 5)
+  assert.deepEqual(ledger.checklist.items[1].evidenceRefs, ['unit'])
 })
 
 test('verification may pause for tool approval and preserve its resume phase', () => {
@@ -199,6 +243,121 @@ test('a structurally valid action in the wrong phase is rejected and can recover
   assert.equal(recovered.disposition, 'continue')
   assert.equal(recovered.ledger.phase, 'acting')
   assert.equal(recovered.ledger.decisions.at(-1).id, 'recovered-plan')
+})
+
+test('an empty light-run checklist cannot be used as a false blocking reason', async () => {
+  const provider = new FakeModelProvider([
+    modelTurn({
+      kind: 'blocked',
+      summary: 'No checklist item can be selected',
+      reason: 'The checklist is empty even though evidence exists',
+    }),
+  ])
+  const stepper = new AgentStepper({
+    provider,
+    runtime: new FakeAgentRuntime(),
+    permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture' }),
+    tools,
+    clock: advancingClock(1),
+  })
+
+  const result = await stepper.step(createRunLedger(input(), at(0)))
+
+  assert.equal(result.disposition, 'continue')
+  assert.equal(result.ledger.status, 'running')
+  assert.match(result.ledger.nextAction, /空 checklist 对 light Run 是合法状态/)
+  assert.equal(result.events.at(-1).type, 'model.rejected')
+})
+
+test('an analysis run cannot treat an empty verification plan as an external blocker', async () => {
+  const provider = new FakeModelProvider([
+    modelTurn({
+      kind: 'blocked',
+      summary: 'Inspection is complete but verification evidence is unavailable',
+      reason: 'verificationPlan is empty, so no successfulEvidenceRefs can satisfy acceptance evidence',
+    }),
+  ])
+  const stepper = new AgentStepper({
+    provider,
+    runtime: new FakeAgentRuntime(),
+    permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture' }),
+    tools,
+    clock: advancingClock(1),
+  })
+  const ledger = createRunLedger(input({
+    intent: 'analysis',
+    acceptanceCriteria: [{ id: 'acceptance-1', description: 'Inspection is complete' }],
+    verificationPlan: { checks: [] },
+  }), at(0))
+
+  const result = await stepper.step(ledger)
+
+  assert.equal(result.disposition, 'continue')
+  assert.equal(result.ledger.status, 'running')
+  assert.match(result.ledger.nextAction, /analysis Run 没有发生改动/)
+  assert.equal(result.events.at(-1).type, 'model.rejected')
+})
+
+test('response schema confusion can never terminate a run as blocked', async () => {
+  const provider = new FakeModelProvider([
+    modelTurn({
+      kind: 'blocked',
+      summary: 'Cannot legally submit finish under the response Schema',
+      reason: 'The finish branch does not contain the action envelope',
+    }),
+  ])
+  const stepper = new AgentStepper({
+    provider,
+    runtime: new FakeAgentRuntime(),
+    permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture' }),
+    tools,
+    clock: advancingClock(1),
+  })
+
+  const result = await stepper.step(createRunLedger(input({
+    intent: 'analysis',
+    acceptanceCriteria: [],
+    verificationPlan: { checks: [] },
+  }), at(0)))
+
+  assert.equal(result.disposition, 'continue')
+  assert.equal(result.ledger.status, 'running')
+  assert.match(result.ledger.nextAction, /Schema 明确允许 finish/)
+  assert.equal(result.events.at(-1).type, 'model.rejected')
+})
+
+test('a generic tool action matching a configured check is recorded as verification evidence', async () => {
+  const provider = new FakeModelProvider([
+    modelTurn({
+      kind: 'tool',
+      request: toolRequest('generic-unit', 'exec_command', { command: 'pnpm', args: ['test'] }),
+    }),
+  ])
+  const runtime = new FakeAgentRuntime().on('exec_command', (toolRequest) => ({
+    requestId: toolRequest.id,
+    ok: true,
+    summary: 'Unit tests passed',
+    startedAt: at(5),
+    completedAt: at(6),
+    exitCode: 0,
+  }))
+  const stepper = new AgentStepper({
+    provider,
+    runtime,
+    permissionPolicy: new FakePermissionPolicy({ effect: 'allow', reason: 'fixture' }),
+    tools,
+    clock: advancingClock(4),
+  })
+  let ledger = createRunLedger(input(), at(0))
+  ledger = transitionLedger(ledger, 'loading_context', at(1))
+  ledger = transitionLedger(ledger, 'inspecting', at(2))
+  ledger = transitionLedger(ledger, 'acting', at(3))
+
+  const result = await stepper.step(ledger)
+
+  assert.equal(result.disposition, 'continue')
+  assert.equal(result.ledger.phase, 'verifying')
+  assert.deepEqual(result.ledger.verifications.map((item) => [item.checkId, item.status]), [['unit', 'passed']])
 })
 
 test('completion gate requires evidence, verification and a fresh diff', () => {

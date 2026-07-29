@@ -8,7 +8,7 @@ import {
   DESKTOP_CHAT_SYSTEM_PROMPT,
   renderReadonlyProjectOverviewPrompt,
 } from '@electron-manager/agent-prompts'
-import { getDashboard, type Dashboard } from '@electron-manager/project-core'
+import { appendTaskSourceRefs, getDashboard, type Dashboard } from '@electron-manager/project-core'
 
 import { modelDiagnosticProjectKey, type ModelDiagnosticLog } from './model-diagnostics.js'
 import { AgentChatStore, type AgentChatConversation } from './agent-chat-store.js'
@@ -20,6 +20,7 @@ export class AgentChatService {
   readonly #config: DesktopAgentConfigService
   readonly #diagnostics: ModelDiagnosticLog
   readonly #loadProjectOverview: (projectRoot: string) => Promise<unknown>
+  readonly #managerDataRoot?: string
 
   constructor(options: {
     store: AgentChatStore
@@ -31,6 +32,7 @@ export class AgentChatService {
     this.#store = options.store
     this.#config = options.config
     this.#diagnostics = options.diagnostics
+    this.#managerDataRoot = String(options.managerDataRoot || '').trim() || undefined
     if (options.loadProjectOverview) this.#loadProjectOverview = options.loadProjectOverview
     else {
       if (!String(options.managerDataRoot || '').trim()) throw new Error('Manager data root is required for Agent Chat project context')
@@ -39,11 +41,22 @@ export class AgentChatService {
   }
 
   async list(projectRoot: string) {
+    if (this.#managerDataRoot) {
+      const legacyLinks = await this.#store.legacyTaskLinks(projectRoot)
+      for (const link of legacyLinks) {
+        await appendTaskSourceRefs(this.#managerDataRoot, projectRoot, link.taskId, [chatMessageSourceRef(link.conversationId, link.messageId)]).catch(() => false)
+      }
+    }
     return await this.#store.list(projectRoot)
   }
 
-  async send(input: { projectRoot: string; conversationId?: string; message: string }) {
+  async delete(projectRoot: string, conversationId: string) {
+    return await this.#store.delete(projectRoot, conversationId)
+  }
+
+  async send(input: { projectRoot: string; conversationId?: string; message: string; executionOnly?: boolean }) {
     const saved = await this.#store.appendUser(input.projectRoot, input.conversationId, input.message)
+    if (input.executionOnly) return { conversation: saved.conversation, message: saved.message }
     const runId = `chat:${saved.conversation.id}`
     const turnId = `${runId}:${saved.message.id}`
     let router: ModelRouter
@@ -155,6 +168,7 @@ async function requestFinishAnswer(
     ],
     tools: [],
     maxOutputTokens: Math.min(4_096, provider.profile.maxOutputTokens),
+    allowedActions: ['finish'],
   })) {
     if (event.type === 'action') {
       if (answer) throw new Error('Chat model returned more than one action')
@@ -258,4 +272,8 @@ function boundedText(value: unknown, length: number) {
 
 function scopeRank(scope: 'built_in' | 'user' | 'project' | 'run') {
   return scope === 'built_in' ? 0 : scope === 'user' ? 1 : scope === 'project' ? 2 : 3
+}
+
+function chatMessageSourceRef(conversationId: string, messageId: string) {
+  return `chat:${conversationId}#message:${messageId}`
 }

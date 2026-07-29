@@ -18,8 +18,14 @@ export interface AgentChatConversation {
   messages: AgentChatMessage[]
 }
 
+export interface LegacyAgentChatTaskLink {
+  conversationId: string
+  taskId: string
+  messageId: string
+}
+
 interface AgentChatStoreFile {
-  schemaVersion: 1
+  schemaVersion: 2
   conversations: AgentChatConversation[]
 }
 
@@ -27,6 +33,7 @@ export class AgentChatStore {
   readonly filePath: string
   readonly #clock: () => string
   #queue: Promise<void> = Promise.resolve()
+  #migrationChecked = false
 
   constructor(managerDataRoot: string, options: { clock?: () => string } = {}) {
     if (!String(managerDataRoot || '').trim()) throw new Error('Manager data root is required')
@@ -35,6 +42,7 @@ export class AgentChatStore {
   }
 
   async list(projectRoot: string): Promise<AgentChatConversation[]> {
+    await this.#ensureCurrentSchema()
     await this.#queue
     const root = normalizeProjectRoot(projectRoot)
     const data = await this.#load()
@@ -42,6 +50,25 @@ export class AgentChatStore {
       .filter((conversation) => conversation.projectRoot === root)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map((conversation) => structuredClone(conversation))
+  }
+
+  async legacyTaskLinks(projectRoot: string): Promise<LegacyAgentChatTaskLink[]> {
+    await this.#queue
+    const root = normalizeProjectRoot(projectRoot)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await readFile(this.filePath, 'utf8'))
+    } catch (error) {
+      if (isNotFound(error)) return []
+      throw error
+    }
+    if (!isObject(parsed) || Number(parsed.schemaVersion) !== 1 || !Array.isArray(parsed.conversations)) return []
+    return parsed.conversations.flatMap((value) => {
+      if (!isObject(value) || value.projectRoot !== root || typeof value.id !== 'string' || typeof value.taskId !== 'string' || !Array.isArray(value.messages)) return []
+      const message = [...value.messages].reverse().find((candidate) => isObject(candidate) && candidate.role === 'user' && typeof candidate.id === 'string')
+      if (!isObject(message) || typeof message.id !== 'string') return []
+      return [{ conversationId: value.id, taskId: value.taskId, messageId: message.id }]
+    })
   }
 
   async appendUser(projectRoot: string, conversationId: string | undefined, content: string) {
@@ -88,12 +115,25 @@ export class AgentChatStore {
     })
   }
 
+  async delete(projectRoot: string, conversationId: string) {
+    const root = normalizeProjectRoot(projectRoot)
+    const id = requiredString(conversationId, 'conversation.id')
+    return await this.#exclusive(async () => {
+      const data = await this.#load()
+      const index = data.conversations.findIndex((candidate) => candidate.id === id && candidate.projectRoot === root)
+      if (index < 0) throw new Error('Chat conversation does not exist')
+      data.conversations.splice(index, 1)
+      await this.#write(data)
+      return true
+    })
+  }
+
   async #load(): Promise<AgentChatStoreFile> {
     let raw = ''
     try {
       raw = await readFile(this.filePath, 'utf8')
     } catch (error) {
-      if (isNotFound(error)) return { schemaVersion: 1, conversations: [] }
+      if (isNotFound(error)) return { schemaVersion: 2, conversations: [] }
       throw error
     }
     let parsed: unknown
@@ -113,6 +153,16 @@ export class AgentChatStore {
     await rename(temporaryPath, this.filePath)
   }
 
+  async #ensureCurrentSchema() {
+    if (this.#migrationChecked) return
+    await this.#exclusive(async () => {
+      if (this.#migrationChecked) return
+      const data = await this.#load()
+      await this.#write(data)
+      this.#migrationChecked = true
+    })
+  }
+
   async #exclusive<T>(operation: () => Promise<T>) {
     const previous = this.#queue
     let release!: () => void
@@ -127,11 +177,11 @@ export class AgentChatStore {
 }
 
 function validateStoreFile(value: unknown): AgentChatStoreFile {
-  if (!isObject(value) || value.schemaVersion !== 1 || !Array.isArray(value.conversations)) {
+  if (!isObject(value) || ![1, 2].includes(Number(value.schemaVersion)) || !Array.isArray(value.conversations)) {
     throw new Error('Unsupported Agent Chat store schema')
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     conversations: value.conversations.map(validateConversation),
   }
 }

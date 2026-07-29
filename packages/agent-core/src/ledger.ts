@@ -1,4 +1,6 @@
 import { AgentCoreError } from './errors.js'
+import { createWorkChecklist } from './checklist.js'
+import { advanceAgentGraph, createAgentGraphCursor, restoreAgentGraphCursor } from './graph.js'
 import type {
   AcceptanceEvidence,
   AgentEventType,
@@ -25,26 +27,10 @@ import type {
 
 const terminalPhases = new Set<RunPhase>(['completed', 'blocked', 'failed', 'cancelled'])
 
-const allowedTransitions: Record<RunPhase, RunPhase[]> = {
-  created: ['loading_context', 'failed', 'cancelled'],
-  loading_context: ['inspecting', 'blocked', 'failed', 'cancelled'],
-  inspecting: ['planning', 'acting', 'awaiting_approval', 'blocked', 'failed', 'cancelled'],
-  planning: ['acting', 'awaiting_approval', 'blocked', 'failed', 'cancelled'],
-  acting: ['awaiting_approval', 'verifying', 'repairing', 'blocked', 'failed', 'cancelled'],
-  awaiting_approval: ['inspecting', 'planning', 'acting', 'verifying', 'repairing', 'blocked', 'failed', 'cancelled'],
-  verifying: ['awaiting_approval', 'repairing', 'finalizing', 'blocked', 'failed', 'cancelled'],
-  repairing: ['acting', 'awaiting_approval', 'verifying', 'blocked', 'failed', 'cancelled'],
-  finalizing: ['completed', 'repairing', 'blocked', 'failed', 'cancelled'],
-  completed: [],
-  blocked: [],
-  failed: [],
-  cancelled: [],
-}
-
 export function createRunLedger(input: AgentRunInput, at: string): RunLedger {
   validateInput(input)
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId: input.runId,
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.taskShortId ? { taskShortId: input.taskShortId } : {}),
@@ -73,17 +59,14 @@ export function createRunLedger(input: AgentRunInput, at: string): RunLedger {
     modelAttempts: [],
     contextEnvelopes: [],
     compactions: [],
+    graph: createAgentGraphCursor(at),
+    checklist: createWorkChecklist(at),
     ...(input.metadata ? { metadata: { ...input.metadata } } : {}),
   }
 }
 
 export function transitionLedger(ledger: RunLedger, nextPhase: RunPhase, at: string): RunLedger {
   if (ledger.phase === nextPhase) return { ...ledger, updatedAt: at }
-  if (!allowedTransitions[ledger.phase].includes(nextPhase)) {
-    throw new AgentCoreError('INVALID_TRANSITION', `Cannot transition run from ${ledger.phase} to ${nextPhase}`, {
-      details: { from: ledger.phase, to: nextPhase },
-    })
-  }
   if (ledger.phase === 'inspecting' && nextPhase === 'acting' && ledger.workLevel !== 'light') {
     throw new AgentCoreError('INVALID_TRANSITION', `${ledger.workLevel} runs must enter planning before acting`, {
       details: { workLevel: ledger.workLevel },
@@ -98,8 +81,12 @@ export function transitionLedger(ledger: RunLedger, nextPhase: RunPhase, at: str
   if (nextPhase === 'acting' && ledger.workLevel === 'deep' && !hasApprovedPlan(ledger)) {
     throw new AgentCoreError('APPROVAL_REQUIRED', 'Deep runs require an approved plan before acting')
   }
+  const graph = advanceAgentGraph(ledger.graph || restoreAgentGraphCursor(ledger.phase, ledger.updatedAt), nextPhase, at)
   return {
     ...ledger,
+    schemaVersion: 2,
+    graph,
+    checklist: ledger.checklist || createWorkChecklist(ledger.startedAt),
     phase: nextPhase,
     status: statusForPhase(nextPhase),
     updatedAt: at,

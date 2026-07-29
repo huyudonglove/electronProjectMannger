@@ -6,6 +6,7 @@ import {
   InMemoryCheckpointStore,
   RUN_SNAPSHOT_SCHEMA_VERSION,
   createRunLedger,
+  migrateRunSnapshot,
   decideResume,
   recordModelAttempt,
   recordContextEnvelope,
@@ -139,6 +140,29 @@ test('checkpoint commits assign revisions, preserve events and return immutable 
     committedAt: at(2),
     lastEventSequence: 1,
   }])
+})
+
+test('v1 snapshots migrate to the explicit graph and checklist protocol', () => {
+  const ledger = createRunLedger(input('run-legacy'), at(0))
+  const legacyLedger = structuredClone(ledger)
+  legacyLedger.schemaVersion = 1
+  delete legacyLedger.graph
+  delete legacyLedger.checklist
+  const migrated = migrateRunSnapshot({
+    schemaVersion: 1,
+    runId: ledger.runId,
+    revision: 3,
+    committedAt: at(1),
+    ledger: legacyLedger,
+    lastEventSequence: 0,
+    effects: [],
+  })
+
+  assert.equal(migrated.schemaVersion, RUN_SNAPSHOT_SCHEMA_VERSION)
+  assert.equal(migrated.revision, 3)
+  assert.equal(migrated.ledger.schemaVersion, 2)
+  assert.equal(migrated.ledger.graph.currentNode, 'created')
+  assert.deepEqual(migrated.ledger.checklist.items, [])
 })
 
 test('checkpoint store rejects stale revisions and non-contiguous events', async () => {

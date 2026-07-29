@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('electronManager', {
   updateTaskStatus: (projectRoot, taskId, status) =>
     ipcRenderer.invoke('project:update-task-status', projectRoot, taskId, status),
   deleteTask: (projectRoot, taskId) => ipcRenderer.invoke('project:delete-task', projectRoot, taskId),
-  addThought: (projectRoot, content) => ipcRenderer.invoke('project:add-thought', projectRoot, content),
+  addThought: (projectRoot, input) => ipcRenderer.invoke('project:add-thought', projectRoot, input),
   addDialogue: (projectRoot, payload) => ipcRenderer.invoke('project:add-dialogue', projectRoot, payload),
   deleteDialogue: (projectRoot, dialogueId) => ipcRenderer.invoke('project:delete-dialogue', projectRoot, dialogueId),
   addConstraint: (projectRoot, payload) => ipcRenderer.invoke('project:add-constraint', projectRoot, payload),
@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('electronManager', {
   getDiagnosticReport: (input) => ipcRenderer.invoke('agent:diagnostics:report', input),
   listAgentChats: (projectRoot) => ipcRenderer.invoke('agent:chats:list', projectRoot),
   sendAgentChat: (payload) => ipcRenderer.invoke('agent:chats:send', payload),
+  deleteAgentChat: (projectRoot, conversationId) => ipcRenderer.invoke('agent:chats:delete', projectRoot, conversationId),
   updateOpenAIModel: (payload) => ipcRenderer.invoke('agent:settings:update-openai', payload),
   updateProjectModelRoute: (payload) => ipcRenderer.invoke('agent:settings:update-project-model-route', payload),
   listAgentRuns: (projectRoot) => ipcRenderer.invoke('agent:runs:list', projectRoot),

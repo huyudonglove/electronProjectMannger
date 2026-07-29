@@ -261,6 +261,7 @@ export function parseProjectTasks(content: string): ProjectTask[] {
         acceptance: readSection(block, ['验收']),
         constraints: readSection(block, ['关键约束']),
         planRollback: readSection(block, ['方案与回退']),
+        sourceRefs: splitRefs(fields.source_refs),
       }
     })
 }
@@ -279,6 +280,7 @@ export function parseThoughts(content: string): ProjectThought[] {
         version: normalizeVersionId(fields.version),
         content: readSection(block, ['内容']),
         answer: readSection(block, ['回答']),
+        sourceRefs: splitRefs(fields.source_refs),
       }
     })
 }

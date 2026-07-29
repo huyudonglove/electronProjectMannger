@@ -2,7 +2,10 @@ import {
   COMPLETION_REPAIR_PROMPT,
   DESKTOP_PROJECT_OVERVIEW_PROMPT,
   INVALID_EVIDENCE_REPAIR_PROMPT,
+  INVALID_ANALYSIS_VERIFICATION_BLOCK_PROMPT,
+  INVALID_CHECKLIST_BLOCK_PROMPT,
   INVALID_PHASE_ACTION_REPAIR_PROMPT,
+  INVALID_RESPONSE_SCHEMA_BLOCK_PROMPT,
   NEXT_ACTION_PROMPT,
   REPOSITORY_MAP_PROMPT,
   TOOL_CATALOG_PROMPT,
@@ -92,6 +95,21 @@ export function renderInvalidPhaseActionRepairPrompt(input: {
     instructions.push(`下一项动作必须满足 ${input.phase} 阶段规则。`)
   }
   return instructions.join(' ')
+}
+
+export function renderInvalidChecklistBlockPrompt(blockerCodes: string[]) {
+  return [
+    INVALID_CHECKLIST_BLOCK_PROMPT.text,
+    `当前完成门禁缺项：${blockerCodes.join('、') || '无'}。`,
+  ].join(' ')
+}
+
+export function renderInvalidAnalysisVerificationBlockPrompt() {
+  return INVALID_ANALYSIS_VERIFICATION_BLOCK_PROMPT.text
+}
+
+export function renderInvalidResponseSchemaBlockPrompt() {
+  return INVALID_RESPONSE_SCHEMA_BLOCK_PROMPT.text
 }
 
 export function phaseGuidance(phase: PromptRunPhase, workLevel: PromptWorkLevel) {

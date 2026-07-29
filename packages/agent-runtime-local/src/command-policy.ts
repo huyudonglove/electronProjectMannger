@@ -20,6 +20,17 @@ export interface ParseRestrictedCommandOptions {
   allowedPackageScripts?: string[]
 }
 
+export function restrictedCommandArgs(command: RestrictedCommand) {
+  return command.command === 'pnpm'
+    ? [
+        '--config.ignore-scripts=true',
+        '--config.enable-pre-post-scripts=false',
+        '--config.offline=true',
+        ...command.args,
+      ]
+    : ['--ignore-scripts', '--offline', '--no-audit', '--no-fund', ...command.args]
+}
+
 export function parseRestrictedCommand(
   input: Record<string, JsonValue>,
   options: ParseRestrictedCommandOptions,
@@ -113,5 +124,5 @@ function optionalTimeout(value: JsonValue | undefined, fallback: number, maximum
 }
 
 function commandDenied(message: string) {
-  return new AgentCoreError('COMMAND_NOT_ALLOWED', message, { details: { policy: 'restricted-package-scripts-v1' } })
+  return new AgentCoreError('COMMAND_NOT_ALLOWED', message, { details: { policy: 'restricted-package-scripts-v2' } })
 }

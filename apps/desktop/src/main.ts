@@ -236,8 +236,8 @@ function registerIpc() {
     return deleteTask(managerDataRoot, projectRoot, taskId)
   })
 
-  handleIpc('project:add-thought', async (_event, projectRoot: string, content: string) => {
-    return appendThought(managerDataRoot, projectRoot, content)
+  handleIpc('project:add-thought', async (_event, projectRoot: string, input: Parameters<typeof appendThought>[2]) => {
+    return appendThought(managerDataRoot, projectRoot, input)
   })
 
   handleIpc('project:add-dialogue', async (_event, projectRoot: string, payload: Parameters<typeof appendDialogue>[2]) => {

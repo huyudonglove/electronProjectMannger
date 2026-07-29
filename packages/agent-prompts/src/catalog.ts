@@ -34,24 +34,26 @@ export const DEFAULT_CODER_DEVELOPER_PROMPT = definePrompt(
 
 export const CODER_ACTION_PROTOCOL_PROMPT = definePrompt(
   'coder.action-protocol',
-  '4',
+  '7',
   [
-    '严格按照响应 Schema 返回且只返回一个结构化 AgentTurnAction。',
+    '严格按照响应 Schema 返回且只返回一个结构化动作。所有动作都位于唯一外层 action 字段中；finish 的完整外形为 {"action":{"kind":"finish","summary":"结论","acceptanceEvidence":[{"criterionId":"acceptance-001","summary":"证据说明","refs":["真实成功引用"]}],"diff":null}}。不要把 action 包装放进内层动作，也不要返回裸 kind。',
     'Run 事实和工具结果是权威信息；不得编造检查、工具结果、验证、审批、文件修改或证据引用。',
-    '完成时，每个 acceptanceEvidence.refs 都必须逐字复制自 Run 事实中的 successfulEvidenceRefs；criterionId 必须来自 acceptanceCriteria。',
+    '完成时，只需为 required 不为 false 的验收标准提供 acceptanceEvidence；每个 refs 都必须逐字复制自 Run 事实中的 successfulEvidenceRefs，criterionId 必须来自 acceptanceCriteria。',
     'inspect 只用于检查阶段，且只能调用只读工具。每个 standard 或 deep Run 都必须在检查结束后先返回 plan，之后才能调用任何工具或 finish；即使任务只读也不得跳过计划门禁。acting 或 repairing 阶段的新证据实质推翻当前计划时，应再次返回 plan。',
-    'tool 用于下一项具体行动。verify 只能执行已配置的验证项及其精确命令。只有全部必需验收标准和最终 Diff 都能引用成功证据时才使用 finish。blocked 只用于真实的外部阻塞或目标冲突，不能用于普通不确定性或一次失败。',
+    'plan 必须同时生成可执行 steps 清单；每项声明 inspect、change 或 verify 类型和依赖。运行时会持久化清单状态，未完成必需清单前不得 finish。',
+    'tool 用于下一项具体行动；已有 checklist 时必须用 workItemId 指向正在推进的清单项。verify 只能执行已配置的验证项及其精确命令。只有全部必需验收标准都能引用成功证据时才使用 finish；change Run 还必须提供最终 Diff，analysis Run 没有改动时不需要验证计划或 Diff。blocked 只用于真实的外部阻塞或目标冲突，不能用于内部阶段、验收引用、空验证计划、普通不确定性或一次失败。',
     '每个工具请求必须使用本 Run 内唯一且稳定的 id。缺失的可选工具字段设为 null，运行时会在执行前移除。',
   ].join(' '),
 )
 
 export const CODER_LEDGER_FALLBACK_PROMPT = definePrompt(
   'coder.ledger-fallback',
-  '2',
+  '3',
   [
     '只返回一个结构化 AgentTurnAction。',
     'RunLedger 和工具结果是权威信息；不得编造工具结果、验证、审批、修改或证据。',
     'standard 或 deep 修改前必须先制定计划；acting 或 repairing 阶段的新证据实质推翻计划时应修订计划。',
+    '制定计划时必须提供可执行 steps 清单，并根据 Run 事实中的 checklist 继续未完成项。',
     '只有已记录完整验收证据并获得成功的最终 Diff 后才能 finish。',
     'acceptanceEvidence.refs 必须逐字复制自 successfulEvidenceRefs。',
   ].join(' '),
@@ -87,6 +89,24 @@ export const INVALID_PHASE_ACTION_REPAIR_PROMPT = definePrompt(
   '上一项模型动作不符合当前 Run 阶段，未被执行。请根据当前阶段纠正下一项动作，不要重复同一错误。',
 )
 
+export const INVALID_CHECKLIST_BLOCK_PROMPT = definePrompt(
+  'coder.invalid-checklist-block',
+  '1',
+  '空 checklist 对 light Run 是合法状态，不代表运行被阻塞。不得因为没有 checklist 项而返回 blocked；应依据完成门禁继续补齐真实缺项，或在门禁已满足时返回 finish。',
+)
+
+export const INVALID_ANALYSIS_VERIFICATION_BLOCK_PROMPT = definePrompt(
+  'coder.invalid-analysis-verification-block',
+  '1',
+  'analysis Run 没有发生改动且 verificationPlan 为空时，不要求改动验证或最终 Diff。成功的只读检查工具结果本身就是可引用证据；请从 successfulEvidenceRefs 引用真实检查结果并 finish，不得以内部阶段、验收引用或空验证计划为由返回 blocked。',
+)
+
+export const INVALID_RESPONSE_SCHEMA_BLOCK_PROMPT = definePrompt(
+  'coder.invalid-response-schema-block',
+  '1',
+  '响应 Schema 明确允许 finish；Schema 的唯一外层是 action，finish 分支是 action 的值。请按 {"action":{"kind":"finish","summary":"结论","acceptanceEvidence":[...],"diff":null}} 提交，不得把响应格式、Schema、action 包装或 finish 分支当作外部阻塞。',
+)
+
 export const SESSION_SUMMARIZER_PROMPT = definePrompt(
   'memory.session-summarizer',
   '2',
@@ -100,8 +120,8 @@ export const SESSION_SUMMARIZER_PROMPT = definePrompt(
 
 export const MODEL_ACTION_SUBMISSION_PROMPT = definePrompt(
   'provider.action-submission',
-  '2',
-  '选择且只选择下一项 Agent 动作。必须且只能调用一次 submit_agent_action，并传入符合 Schema 的有效 action 对象；不得使用普通文本回答。',
+  '3',
+  '选择且只选择下一项 Agent 动作。必须且只能调用一次 submit_agent_action，并传入符合 Schema 的对象；函数参数的唯一外层字段是 action，例如 {"action":{"kind":"finish","summary":"结论","acceptanceEvidence":[],"diff":null}}。不得使用普通文本回答。',
 )
 
 export const DESKTOP_CHAT_SYSTEM_PROMPT = definePrompt(
@@ -140,6 +160,7 @@ export const PROMPT_CATALOG = Object.freeze([
   COMPLETION_REPAIR_PROMPT,
   INVALID_EVIDENCE_REPAIR_PROMPT,
   INVALID_PHASE_ACTION_REPAIR_PROMPT,
+  INVALID_CHECKLIST_BLOCK_PROMPT,
   SESSION_SUMMARIZER_PROMPT,
   MODEL_ACTION_SUBMISSION_PROMPT,
   DESKTOP_CHAT_SYSTEM_PROMPT,
@@ -147,4 +168,4 @@ export const PROMPT_CATALOG = Object.freeze([
   REPOSITORY_MAP_PROMPT,
 ])
 
-export const PROMPT_CATALOG_REVISION = 'zh-CN-1'
+export const PROMPT_CATALOG_REVISION = 'zh-CN-3'

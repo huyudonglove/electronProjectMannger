@@ -158,6 +158,30 @@ test('pending approval survives coordinator recreation and executes the exact re
   assert.equal(runtime.calls[0].request.actionDigest, 'read-digest')
 })
 
+test('coordinator can safely cancel a persisted approval without executing it', async () => {
+  const store = new InMemoryCheckpointStore()
+  const runtime = new FakeAgentRuntime()
+  const stepper = new AgentStepper({
+    provider: new FakeModelProvider([modelTurn({ kind: 'inspect', request: toolRequest() })]),
+    runtime,
+    permissionPolicy: new FakePermissionPolicy({ effect: 'ask', reason: 'Confirm read' }),
+    tools: [readTool],
+    clock: clock(2),
+  })
+  const coordinator = new PersistedRunCoordinator({ stepper, store, clock: clock(0) })
+  await coordinator.create(input())
+  const paused = await coordinator.advance('run-coordinator')
+  assert.equal(paused.decision.kind, 'awaiting_approval')
+
+  const cancelled = await coordinator.cancel('run-coordinator', 'Configuration changed')
+  assert.equal(cancelled.checkpoint.snapshot.ledger.status, 'cancelled')
+  assert.equal(cancelled.checkpoint.snapshot.ledger.pendingAction, undefined)
+  assert.equal(cancelled.decision.kind, 'terminal')
+  assert.equal(cancelled.checkpoint.events.at(-1).type, 'run.cancelled')
+  assert.equal(cancelled.checkpoint.events.at(-1).summary, 'Configuration changed')
+  assert.equal(runtime.calls.length, 0)
+})
+
 test('unknown never-replay effect blocks coordinator before model or runtime execution', async () => {
   const store = new InMemoryCheckpointStore()
   const provider = new FakeModelProvider([modelTurn({ kind: 'blocked', summary: 'Must not run', reason: 'unknown effect' })])

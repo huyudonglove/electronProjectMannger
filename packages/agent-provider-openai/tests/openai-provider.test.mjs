@@ -17,9 +17,13 @@ import {
   localToolDefinitions,
 } from '@electron-manager/agent-runtime-local'
 import {
+  AdaptiveOpenAIProvider,
   FetchOpenAIResponsesTransport,
   OpenAIChatCompletionsProvider,
   OpenAIResponsesProvider,
+  clearAdaptiveOpenAIProtocolCache,
+  createAgentTurnActionSchema,
+  hydrateAgentTurnAction,
   parseServerSentEvents,
 } from '../dist/index.js'
 
@@ -75,6 +79,23 @@ async function collect(iterable) {
   return values
 }
 
+class ProtocolFixtureProvider {
+  constructor(responses) {
+    this.responses = [...responses]
+    this.calls = 0
+    this.profile = {
+      id: 'openai:fixture', supportsToolCalls: true, supportsParallelToolCalls: false,
+      supportsStructuredOutput: true, contextWindow: 128_000, maxOutputTokens: 16_000,
+      promptCache: 'implicit',
+    }
+  }
+
+  async *stream() {
+    this.calls += 1
+    yield* (this.responses.shift() || [])
+  }
+}
+
 test('Responses Provider maps messages, strict schemas, usage and hydrated tool actions', async () => {
   const action = {
     kind: 'inspect',
@@ -90,9 +111,12 @@ test('Responses Provider maps messages, strict schemas, usage and hydrated tool 
     input_tokens_details: { cached_tokens: 80, cache_write_tokens: 10 },
     output_tokens_details: { reasoning_tokens: 12 },
   })])
+  const diagnostics = []
   const provider = new OpenAIResponsesProvider({
     transport,
     model: 'gpt-test',
+    providerId: 'fixture-responses',
+    onDiagnostic: (entry) => diagnostics.push(entry),
     clock: () => '2026-07-26T14:00:00.000Z',
   })
   const events = await collect(provider.stream(modelRequest({
@@ -125,6 +149,93 @@ test('Responses Provider maps messages, strict schemas, usage and hydrated tool 
   assert.equal(sent.input.length, 2)
   assert.match(sent.input[1].content, /tool_result request_id=previous-1/)
   assert.doesNotMatch(sent.input.map((message) => message.content).join('\n'), /Available tools/)
+  assert.deepEqual(diagnostics.map((entry) => entry.event), ['request.started', 'response.parsed'])
+  assert.equal(diagnostics[0].providerId, 'fixture-responses')
+  assert.equal(diagnostics[1].actionShape, 'responses-json-schema')
+})
+
+test('plan actions normalize a dependency-aware executable checklist', () => {
+  const schema = createAgentTurnActionSchema(localToolDefinitions, ['plan'])
+  assert.equal(schema.properties.action.anyOf.length, 1)
+  const planBranch = schema.properties.action.anyOf.find((branch) => branch.properties?.kind?.const === 'plan')
+  assert.ok(planBranch.required.includes('steps'))
+  assert.equal(planBranch.properties.steps.items.additionalProperties, false)
+
+  const action = hydrateAgentTurnAction({ action: {
+    kind: 'plan',
+    id: 'plan-1',
+    summary: 'Modify and verify',
+    rationale: 'The run requires a persisted checklist',
+    steps: [
+      { id: 'change-1', title: 'Modify the file', kind: 'change', dependsOn: [] },
+      { id: 'verify-1', title: 'Run focused tests', kind: 'verify', dependsOn: ['change-1'] },
+    ],
+  } }, modelRequest(), { clock: () => '2026-07-26T14:00:00.000Z' })
+
+  assert.equal(action.kind, 'plan')
+  assert.equal(action.steps.length, 2)
+  assert.deepEqual(action.steps[1].dependsOn, ['change-1'])
+  assert.match(action.actionDigest, /^[a-f0-9]{64}$/)
+
+  assert.throws(
+    () => hydrateAgentTurnAction({ action: { kind: 'blocked', summary: 'No', reason: 'Wrong node' } }, modelRequest({ allowedActions: ['plan'] })),
+    /not available in this graph node/,
+  )
+})
+
+test('finish schema and hydration use one unambiguous action envelope', () => {
+  const schema = createAgentTurnActionSchema(localToolDefinitions, ['finish'])
+  assert.deepEqual(schema.required, ['action'])
+  assert.match(schema.properties.action.description, /完整外形/)
+  assert.equal(schema.properties.action.anyOf.length, 1)
+  assert.equal(schema.properties.action.anyOf[0].properties.kind.const, 'finish')
+
+  const action = hydrateAgentTurnAction({ action: {
+    kind: 'finish',
+    summary: 'Inspection complete',
+    acceptanceEvidence: [{ criterionId: 'acceptance-001', summary: 'Status inspected', refs: ['inspect-status-001'] }],
+    diff: null,
+  } }, modelRequest({ allowedActions: ['finish'] }))
+
+  assert.equal(action.kind, 'finish')
+  assert.equal(action.diff, undefined)
+  assert.deepEqual(action.acceptanceEvidence[0].refs, ['inspect-status-001'])
+})
+
+test('adaptive provider normalizes protocol fallback, caches support and never masks permission errors', async () => {
+  clearAdaptiveOpenAIProtocolCache()
+  const unsupported = { type: 'error', error: { code: 'MODEL_ERROR', message: 'Not found', retryable: false, details: { status: 404 } } }
+  const permission = { type: 'error', error: { code: 'MODEL_ERROR', message: 'Forbidden', retryable: false, details: { status: 403 } } }
+  const success = [
+    { type: 'action', action: { kind: 'blocked', summary: 'Normalized', reason: 'fixture' } },
+    { type: 'completed', finishReason: 'stop' },
+  ]
+  const responses = new ProtocolFixtureProvider([[unsupported]])
+  const chat = new ProtocolFixtureProvider([success, success])
+  const diagnostics = []
+  const adaptive = new AdaptiveOpenAIProvider({
+    responses, chatCompletions: chat, cacheKey: 'fixture:auto', model: 'fixture',
+    onDiagnostic: (entry) => diagnostics.push(entry),
+  })
+
+  assert.equal((await collect(adaptive.stream(modelRequest())))[0].type, 'action')
+  assert.equal((await collect(adaptive.stream(modelRequest())))[0].type, 'action')
+  assert.equal(responses.calls, 1)
+  assert.equal(chat.calls, 2)
+  assert.deepEqual(diagnostics.map((entry) => entry.event), [
+    'protocol.fallback', 'protocol.selected', 'protocol.selected',
+  ])
+
+  clearAdaptiveOpenAIProtocolCache()
+  const deniedResponses = new ProtocolFixtureProvider([[permission]])
+  const unusedChat = new ProtocolFixtureProvider([success])
+  const denied = new AdaptiveOpenAIProvider({
+    responses: deniedResponses, chatCompletions: unusedChat,
+    cacheKey: 'fixture:permission', model: 'fixture',
+  })
+  const deniedEvents = await collect(denied.stream(modelRequest()))
+  assert.equal(deniedEvents[0].error.details.status, 403)
+  assert.equal(unusedChat.calls, 0)
 })
 
 test('Chat Completions Provider submits one structured action through a backend proxy', async () => {

@@ -40,6 +40,7 @@ test('project task maps deterministically to a headless run and doing update', (
   assert.ok(first.value.runInput.constraints.some((item) => item.includes('[C001]')))
   assert.ok(first.value.runInput.constraints.every((item) => !item.includes('[SYS-')))
   assert.ok(first.value.runInput.constraints.every((item) => !item.includes('[project-instruction]')))
+  assert.ok(first.value.sourceRefs.includes('chat:chat-1#message:message-1'))
   assert.equal(first.value.runInput.metadata.depthReason, 'architecture')
 })
 
@@ -91,6 +92,17 @@ test('missing automated verification is explicit but does not invent a command',
   assert.equal(result.ok, true)
   assert.deepEqual(result.value.runInput.verificationPlan.checks, [])
   assert.deepEqual(result.warnings.map((warning) => warning.code), ['VERIFICATION_NOT_CONFIGURED'])
+})
+
+test('analysis runs do not require the legacy change-verification acceptance item', () => {
+  const dashboard = fixtureDashboard()
+  dashboard.tasks[0].acceptance = '- 完成用户请求并说明结果。\n- 对实际改动执行合适的验证。\n- 如遇阻塞，明确说明原因和下一步。'
+  const result = prepareProjectTaskRun(dashboard, { runId: 'run-analysis', taskId: 'T002', intent: 'analysis' })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.value.runInput.acceptanceCriteria.map((item) => item.required), [true, false, false])
+  assert.deepEqual(result.value.runInput.verificationPlan.checks, [])
+  assert.deepEqual(result.warnings, [])
 })
 
 test('completed ledger maps to one idempotent task and log update plan', () => {
@@ -344,6 +356,7 @@ function fixtureDashboard() {
     acceptance: '- One passes\n- Two passes',
     constraints: '- Preserve existing work\n- Use focused tests',
     planRollback: 'Keep protocols and replace implementation.',
+    sourceRefs: ['chat:chat-1#message:message-1'],
   }
   return {
     config: {

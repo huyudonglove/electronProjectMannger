@@ -30,6 +30,7 @@ ${deepMetadata}area:: ${task.area}
 created:: ${meta.created}
 updated:: ${task.updated}
 version:: ${task.version}
+source_refs:: ${sourceRefs(task.sourceRefs)}
 
 ### 用户原话
 
@@ -51,6 +52,7 @@ export function thoughtRecordTemplate(input: {
   created: string
   version: string
   content: string
+  sourceRefs?: string[]
 }) {
   return `## ${input.created} 想法
 
@@ -60,6 +62,7 @@ status:: inbox
 type:: thought
 created:: ${input.created}
 version:: ${input.version}
+source_refs:: ${sourceRefs(input.sourceRefs)}
 
 ### 内容
 
@@ -265,4 +268,9 @@ function markdownList(values: string[]) {
 
 function singleLine(value: string) {
   return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function sourceRefs(values: string[] | undefined) {
+  const normalized = [...new Set((values || []).map(singleLine).filter(Boolean))]
+  return normalized.length ? normalized.join(',') : '无'
 }

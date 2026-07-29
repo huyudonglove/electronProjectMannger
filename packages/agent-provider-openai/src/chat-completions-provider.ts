@@ -31,7 +31,7 @@ export interface OpenAIChatCompletionsProviderOptions {
 export interface OpenAIModelDiagnosticEntry {
   at: string
   level: 'info' | 'error'
-  event: 'request.started' | 'response.received' | 'response.parsed' | 'request.failed'
+  event: 'request.started' | 'response.received' | 'response.parsed' | 'request.failed' | 'protocol.selected' | 'protocol.fallback'
   providerId: string
   model: string
   runId: string
@@ -184,7 +184,7 @@ function requestBody(
       function: {
         name: 'submit_agent_action',
         description: ACTION_SCHEMA_COPY.submitAction,
-        parameters: createAgentTurnActionSchema(request.tools),
+        parameters: createAgentTurnActionSchema(request.tools, request.allowedActions),
       },
     }],
     tool_choice: toolChoice === 'named'

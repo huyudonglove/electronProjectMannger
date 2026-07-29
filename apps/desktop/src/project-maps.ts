@@ -19,6 +19,12 @@ type RunLike = {
   stepCount?: number
   eventSequence?: number
   progress?: { changedFiles?: string[]; verificationPassed?: number; verificationFailed?: number }
+  graph?: { revision?: string; currentNode?: string; historyCount?: number }
+  checklist?: {
+    revision?: number
+    progress?: { total?: number; todo?: number; doing?: number; done?: number; blocked?: number; skipped?: number }
+    items?: Array<{ id: string; title: string; kind: string; status: string; attempt?: number; result?: string; error?: string }>
+  }
   diff?: { summary?: string; changedFiles?: string[] }
   logShortId?: string
   resume?: { reason?: string }
@@ -65,6 +71,31 @@ export function projectMapsView(
         changedFiles: run.progress?.changedFiles || run.diff?.changedFiles || [],
         verificationPassed: run.progress?.verificationPassed || 0,
         verificationFailed: run.progress?.verificationFailed || 0,
+        graph: {
+          revision: run.graph?.revision || '',
+          currentNode: run.graph?.currentNode || run.phase || '',
+          historyCount: run.graph?.historyCount || 0,
+        },
+        checklist: {
+          revision: run.checklist?.revision || 0,
+          progress: {
+            total: run.checklist?.progress?.total || 0,
+            todo: run.checklist?.progress?.todo || 0,
+            doing: run.checklist?.progress?.doing || 0,
+            done: run.checklist?.progress?.done || 0,
+            blocked: run.checklist?.progress?.blocked || 0,
+            skipped: run.checklist?.progress?.skipped || 0,
+          },
+          items: (run.checklist?.items || []).map((item) => ({
+            id: item.id,
+            title: item.title,
+            kind: item.kind,
+            status: item.status,
+            attempt: item.attempt || 0,
+            result: item.result || '',
+            error: item.error || '',
+          })),
+        },
         result: run.diff?.summary || run.resume?.reason || '',
         logShortId: run.logShortId,
         diagnostics: {

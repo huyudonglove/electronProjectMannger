@@ -27,6 +27,7 @@ export type ProjectTask = {
   acceptance: string
   constraints: string
   planRollback: string
+  sourceRefs: string[]
 }
 
 export type ProjectThought = {
@@ -38,6 +39,7 @@ export type ProjectThought = {
   version: string
   content: string
   answer: string
+  sourceRefs: string[]
 }
 
 export type ProjectLogLevel = ProjectWorkLevel
@@ -256,6 +258,12 @@ export type NewTaskInput = {
   acceptance?: string
   constraints?: string
   planRollback?: string
+  sourceRefs?: string[]
+}
+
+export type NewThoughtInput = {
+  content: string
+  sourceRefs?: string[]
 }
 
 export type NewDialogueInput = {

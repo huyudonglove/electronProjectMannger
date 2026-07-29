@@ -1,5 +1,6 @@
 import type { AgentConfigLayer, ModelProfile } from '@electron-manager/agent-config'
 import {
+  AdaptiveOpenAIProvider,
   FetchOpenAIResponsesTransport,
   OpenAIChatCompletionsProvider,
   OpenAIResponsesProvider,
@@ -17,7 +18,7 @@ export interface DesktopModelProviderFactoryOptions {
   credentials: CredentialResolver
   openAITransportFactory?: OpenAITransportFactory
   resolveOpenAICapabilities?: OpenAIProviderCapabilityResolver
-  onModelDiagnostic?: ConstructorParameters<typeof OpenAIChatCompletionsProvider>[0]['onDiagnostic']
+  onModelDiagnostic?: ConstructorParameters<typeof OpenAIResponsesProvider>[0]['onDiagnostic']
 }
 
 export class DesktopModelProviderFactory {
@@ -44,40 +45,43 @@ export class DesktopModelProviderFactory {
         throw new Error(`OpenAI provider settings are missing: ${profile.id}`)
       }
       const capabilities = this.#resolveOpenAICapabilities({ profile, settings: providerSettings })
-      if (providerSettings.apiStyle === 'chat-completions') {
-        if (!providerSettings.baseUrl) throw new Error(`Chat Completions base URL is missing: ${profile.id}`)
-        return {
-          profileId: profile.id,
-          provider: new OpenAIChatCompletionsProvider({
-            baseUrl: providerSettings.baseUrl,
-            providerId: providerSettings.providerId,
-            model: profile.model,
-            contextWindow: capabilities.contextWindow,
-            maxOutputTokens: capabilities.maxOutputTokens,
-            toolChoice: providerSettings.providerId === 'deepseek' ? 'auto' : 'named',
-            onDiagnostic: this.#onModelDiagnostic,
-          }),
-        }
-      }
-      const apiKey = await this.#credentials.resolveCredential(credentialRef)
-      if (!apiKey?.trim()) throw new Error(`Credential is unavailable: ${credentialRef}`)
+      const localProxy = providerSettings.connectionSource === 'telance-local-proxy'
+      const apiKey = localProxy ? '' : await this.#credentials.resolveCredential(credentialRef)
+      if (!localProxy && !apiKey?.trim()) throw new Error(`Credential is unavailable: ${credentialRef}`)
       const transport = this.#openAITransportFactory({
-        apiKey,
+        ...(apiKey ? { apiKey } : {}),
         profileId: profile.id,
         ...(providerSettings.baseUrl ? { baseUrl: providerSettings.baseUrl } : {}),
         ...(providerSettings.organization ? { organization: providerSettings.organization } : {}),
         ...(providerSettings.project ? { project: providerSettings.project } : {}),
       })
+      const responses = new OpenAIResponsesProvider({
+        transport, model: profile.model,
+        contextWindow: capabilities.contextWindow, maxOutputTokens: capabilities.maxOutputTokens,
+        ...(providerSettings.reasoningEffort ? { reasoningEffort: providerSettings.reasoningEffort } : {}),
+        ...(providerSettings.verbosity ? { verbosity: providerSettings.verbosity } : {}),
+        ...(providerSettings.providerId ? { providerId: providerSettings.providerId } : {}),
+        onDiagnostic: this.#onModelDiagnostic,
+      })
+      const chatCompletions = new OpenAIChatCompletionsProvider({
+        baseUrl: providerSettings.baseUrl || 'https://api.openai.com/v1',
+        ...(apiKey ? { apiKey } : {}),
+        providerId: providerSettings.providerId, model: profile.model,
+        contextWindow: capabilities.contextWindow, maxOutputTokens: capabilities.maxOutputTokens,
+        toolChoice: providerSettings.providerId === 'deepseek' ? 'auto' : 'named',
+        onDiagnostic: this.#onModelDiagnostic,
+      })
+      const style = providerSettings.apiStyle || 'responses'
       return {
         profileId: profile.id,
-        provider: new OpenAIResponsesProvider({
-          transport,
-          model: profile.model,
-          contextWindow: capabilities.contextWindow,
-          maxOutputTokens: capabilities.maxOutputTokens,
-          ...(providerSettings.reasoningEffort ? { reasoningEffort: providerSettings.reasoningEffort } : {}),
-          ...(providerSettings.verbosity ? { verbosity: providerSettings.verbosity } : {}),
-        }),
+        provider: style === 'responses' ? responses
+          : style === 'chat-completions' ? chatCompletions
+            : new AdaptiveOpenAIProvider({
+              responses, chatCompletions,
+              cacheKey: `${profile.id}:${profile.revision}:${providerSettings.baseUrl || 'openai'}`,
+              preferred: 'responses', providerId: providerSettings.providerId,
+              model: profile.model, onDiagnostic: this.#onModelDiagnostic,
+            }),
       }
     }))
   }

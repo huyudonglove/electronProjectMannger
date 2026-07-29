@@ -1,5 +1,5 @@
 import { AgentCoreError, toAgentError } from './errors.js'
-import { createRunLedger, sequenceAgentEvent, transitionLedger } from './ledger.js'
+import { clearPendingAction, createRunLedger, sequenceAgentEvent, transitionLedger } from './ledger.js'
 import {
   RUN_SNAPSHOT_SCHEMA_VERSION,
   decideResume,
@@ -125,6 +125,35 @@ export class PersistedRunCoordinator {
       const step = await this.#stepper.resolveApproval(current.snapshot.ledger, resolution, signal, hooks)
       current = await this.#commitStep(current, step)
       return { checkpoint: current, decision: decideResume(current.snapshot), step }
+    })
+  }
+
+  async cancel(runId: string, reason = 'Agent run was cancelled'): Promise<PersistedStepResult> {
+    return await this.#exclusive(runId, async () => {
+      const current = await this.#require(runId)
+      const decision = decideResume(current.snapshot)
+      if (decision.kind === 'terminal') return { checkpoint: current, decision }
+
+      const at = this.#clock()
+      let ledger = clearPendingAction(current.snapshot.ledger, at)
+      ledger = transitionLedger(ledger, 'cancelled', at)
+      const phase = sequenceAgentEvent(ledger, 'phase.changed', 'Phase changed to cancelled', at, { phase: 'cancelled' })
+      ledger = phase.ledger
+      const cancellation = sequenceAgentEvent(ledger, 'run.cancelled', reason, at, { reason })
+      ledger = cancellation.ledger
+      const events = [phase.event, cancellation.event]
+      const checkpoint = await this.#store.commit({
+        schemaVersion: RUN_SNAPSHOT_SCHEMA_VERSION,
+        runId: current.snapshot.runId,
+        expectedRevision: current.snapshot.revision,
+        committedAt: at,
+        ledger,
+        events,
+        effects: current.snapshot.effects,
+        ...componentsFrom(current),
+      })
+      await this.#publish(checkpoint, events)
+      return { checkpoint, decision: decideResume(checkpoint.snapshot) }
     })
   }
 

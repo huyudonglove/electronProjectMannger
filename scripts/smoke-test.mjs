@@ -100,7 +100,8 @@ try {
   assert(skill.includes('Never merge unrelated goals'), 'local skill should forbid unrelated task merging')
   assert(skill.includes('task_short_id:: T000'), 'local skill should allow immediate light work without a task card')
   assert(skill.includes('Priority is urgency only'), 'local skill should separate priority from work level')
-  assert(skill.includes('Route input before creating work'), 'local skill should route conversation before creating tasks')
+  assert(skill.includes('Keep Chat as an independent container with its own CHAT ID'), 'local skill should keep Chat independent from tasks')
+  assert(skill.includes('chat:<full CHAT ID>#message:<full message ID>'), 'local skill should define message-level Chat provenance')
   assert(skill.includes('return a still-`doing` task to `todo`'), 'local skill should settle incomplete terminal runs without stale doing tasks')
   assert(skill.includes('### 结果') && skill.includes('### 修改文件') && skill.includes('### 验证'), 'local skill should define compact work logs')
   assert(skill.includes('### 关键约束') && skill.includes('### 方案与回退'), 'local skill should define deep-only task sections')
@@ -403,6 +404,7 @@ record_level:: standard
     acceptance: 'The migration and rollback are verified.',
     constraints: 'Preserve existing smoke data.',
     planRollback: 'Migrate atomically and restore the previous file on failure.',
+    sourceRefs: ['chat:chat-smoke#message:message-task'],
   })
   const smokeTask = taskDashboard.tasks.find((task) => task.title === 'Smoke Task')
   assert(smokeTask?.workLevel === 'deep', 'task work level should be persisted and parsed')
@@ -410,6 +412,7 @@ record_level:: standard
   assert(smokeTask?.detail === 'Change the smoke schema.', 'task execution definition should be persisted and parsed')
   assert(smokeTask?.constraints.includes('Preserve existing smoke data.'), 'deep task constraints should be parsed')
   assert(smokeTask?.planRollback.includes('restore the previous file'), 'deep task plan and rollback should be parsed')
+  assert(JSON.stringify(smokeTask?.sourceRefs) === JSON.stringify(['chat:chat-smoke#message:message-task']), 'task source refs should be persisted and parsed')
   const deepTaskFile = await readFile(taskPath, 'utf8')
   assert(deepTaskFile.includes('depth_reason:: migration'), 'deep task reason should be written to Markdown')
   assert(deepTaskFile.includes('### 关键约束') && deepTaskFile.includes('### 方案与回退'), 'deep task-only sections should be written to Markdown')
@@ -558,9 +561,13 @@ Run the smoke verification.
   const deletedTaskDashboard = await deleteTask(managerRoot, root, smokeTask.id)
   assert(!deletedTaskDashboard.tasks.some((task) => task.id === smokeTask.id), 'task should be deleted')
 
-  const thoughtDashboard = await appendThought(managerRoot, root, 'Smoke thought')
+  const thoughtDashboard = await appendThought(managerRoot, root, {
+    content: 'Smoke thought',
+    sourceRefs: ['chat:chat-smoke#message:message-thought'],
+  })
   const smokeThought = thoughtDashboard.thoughts.find((thought) => thought.content === 'Smoke thought')
   assert(smokeThought, 'thought should be appended')
+  assert(JSON.stringify(smokeThought.sourceRefs) === JSON.stringify(['chat:chat-smoke#message:message-thought']), 'thought source refs should be persisted and parsed')
   const thoughtsContent = await readFile(thoughtPath, 'utf8')
   assert(thoughtsContent.includes('### 回答'), 'new thoughts should include answer section')
   assert(!thoughtsContent.includes('### 未确认事项'), 'new thoughts should not include inline open question sections')

@@ -1,4 +1,6 @@
 import { AgentCoreError } from './errors.js'
+import { createWorkChecklist } from './checklist.js'
+import { assertAgentGraphCursor, restoreAgentGraphCursor } from './graph.js'
 import type {
   AgentEvent,
   EffectExpectation,
@@ -10,7 +12,7 @@ import type {
   ToolResult,
 } from './protocol.js'
 
-export const RUN_SNAPSHOT_SCHEMA_VERSION = 1 as const
+export const RUN_SNAPSHOT_SCHEMA_VERSION = 2 as const
 
 export type EffectRecovery = ToolRecovery
 export type EffectStatus = 'prepared' | 'completed' | 'failed' | 'unknown'
@@ -49,6 +51,39 @@ export interface RunSnapshot {
   modelRouteSnapshot?: VersionedRunComponentSnapshot
   toolRegistrySnapshot?: VersionedRunComponentSnapshot
   memorySnapshot?: VersionedRunComponentSnapshot
+}
+
+export function migrateLoadedCheckpoint(record: { snapshot: unknown; events: AgentEvent[] }): LoadedCheckpoint {
+  const migrated = { snapshot: migrateRunSnapshot(record.snapshot), events: structuredClone(record.events) }
+  validateLoadedCheckpoint(migrated)
+  return migrated
+}
+
+export function migrateRunSnapshot(value: unknown): RunSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'RunSnapshot must be an object')
+  }
+  const snapshot = value as Omit<RunSnapshot, 'schemaVersion'> & { schemaVersion: number }
+  if (snapshot.schemaVersion === RUN_SNAPSHOT_SCHEMA_VERSION) {
+    return { ...structuredClone(snapshot), schemaVersion: RUN_SNAPSHOT_SCHEMA_VERSION }
+  }
+  if (snapshot.schemaVersion !== 1) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', `Unsupported RunSnapshot schema version: ${snapshot.schemaVersion}`)
+  }
+  if (!snapshot.ledger || typeof snapshot.ledger !== 'object') {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Legacy RunSnapshot is missing its ledger')
+  }
+  const ledger = snapshot.ledger
+  return {
+    ...structuredClone(snapshot),
+    schemaVersion: RUN_SNAPSHOT_SCHEMA_VERSION,
+    ledger: {
+      ...structuredClone(ledger),
+      schemaVersion: 2,
+      graph: ledger.graph || restoreAgentGraphCursor(ledger.phase, ledger.updatedAt),
+      checklist: ledger.checklist || createWorkChecklist(ledger.startedAt),
+    },
+  }
 }
 
 export interface CheckpointCommit {
@@ -187,6 +222,7 @@ export function applyCheckpointCommit(current: LoadedCheckpoint | null, commit: 
   validateModelAttemptHistory(current?.snapshot.ledger.modelAttempts ?? [], commit.ledger.modelAttempts)
   validateContextEnvelopeHistory(current?.snapshot.ledger.contextEnvelopes ?? [], commit.ledger.contextEnvelopes)
   validateCompactionHistory(current?.snapshot.ledger.compactions ?? [], commit.ledger.compactions)
+  validateWorkflowHistory(current?.snapshot.ledger, commit.ledger)
   validateComponentHistory(current?.snapshot, commit)
 
   const snapshot: RunSnapshot = {
@@ -232,6 +268,7 @@ function assertSupportedSnapshot(snapshot: RunSnapshot) {
   if (snapshot.lastEventSequence !== snapshot.ledger.eventSequence) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'RunSnapshot event sequence does not match its ledger')
   }
+  validateWorkflowState(snapshot.ledger)
 }
 
 function validateCommit(commit: CheckpointCommit) {
@@ -249,9 +286,54 @@ function validateCommit(commit: CheckpointCommit) {
   validateContextEnvelopes(commit.ledger.contextEnvelopes)
   validateCompactions(commit.runId, commit.ledger.compactions)
   validateContextCompactionReferences(commit.ledger)
+  validateWorkflowState(commit.ledger)
   const keys = commit.effects.map(effectRecordKey)
   if (new Set(keys).size !== keys.length) {
     throw new AgentCoreError('CHECKPOINT_ERROR', 'Effect journal contains duplicate idempotency keys')
+  }
+}
+
+function validateWorkflowState(ledger: RunSnapshot['ledger']) {
+  if (ledger.schemaVersion !== 2 || !ledger.graph || !ledger.checklist) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Current RunLedger requires graph and checklist state')
+  }
+  if (ledger.graph.currentNode !== ledger.phase) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Agent graph cursor must match the current run phase')
+  }
+  assertAgentGraphCursor(ledger.graph)
+  const ids = new Set(ledger.checklist.items.map((item) => item.id))
+  if (ids.size !== ledger.checklist.items.length) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Checklist item ids must be unique')
+  }
+  for (const item of ledger.checklist.items) {
+    if (!item.id.trim() || !item.title.trim() || item.dependsOn.some((dependency) => !ids.has(dependency) || dependency === item.id)) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', `Checklist item is invalid: ${item.id}`)
+    }
+  }
+}
+
+function validateWorkflowHistory(previous: RunLedger | undefined, next: RunLedger) {
+  if (!previous) return
+  if (previous.graph?.graphRevision !== next.graph?.graphRevision) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Agent graph revision is immutable after the run starts')
+  }
+  const previousHistory = previous.graph?.history || []
+  const nextHistory = next.graph?.history || []
+  if (nextHistory.length < previousHistory.length) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Agent graph history is append-only')
+  }
+  for (let index = 0; index < previousHistory.length; index += 1) {
+    if (JSON.stringify(previousHistory[index]) !== JSON.stringify(nextHistory[index])) {
+      throw new AgentCoreError('CHECKPOINT_ERROR', 'Persisted Agent graph transitions are immutable')
+    }
+  }
+  const previousChecklist = previous.checklist
+  const nextChecklist = next.checklist
+  if (!previousChecklist || !nextChecklist || nextChecklist.revision < previousChecklist.revision) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Checklist revision cannot move backwards')
+  }
+  if (nextChecklist.revision === previousChecklist.revision && JSON.stringify(nextChecklist) !== JSON.stringify(previousChecklist)) {
+    throw new AgentCoreError('CHECKPOINT_ERROR', 'Checklist updates must advance its revision')
   }
 }
 

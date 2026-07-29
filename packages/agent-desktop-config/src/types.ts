@@ -14,7 +14,7 @@ export interface OpenAIDesktopProviderSettings {
   provider: 'openai'
   providerId?: string
   connectionSource?: 'credential-vault' | 'telance-local-proxy'
-  apiStyle?: 'responses' | 'chat-completions'
+  apiStyle?: 'auto' | 'responses' | 'chat-completions'
   baseUrl?: string
   organization?: string
   project?: string

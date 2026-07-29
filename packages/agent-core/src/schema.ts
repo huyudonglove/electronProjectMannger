@@ -1,32 +1,38 @@
 import { AgentCoreError } from './errors.js'
 import type { AgentTurnAction, JsonSchema, JsonValue, ProposedAcceptanceEvidence, ProposedDiffSnapshot, ToolRequest } from './protocol.js'
 
-export const AGENT_TURN_ACTION_SCHEMA_REVISION = '1' as const
+export const AGENT_TURN_ACTION_SCHEMA_REVISION = '2' as const
 
 export function parseAgentTurnAction(value: unknown): AgentTurnAction {
   const action = objectValue(value, 'action')
   if (!('kind' in action)) modelError('action.kind is required')
   const kind = requiredString(action.kind, 'action.kind')
   if (kind === 'inspect' || kind === 'tool') {
-    exactKeys(action, 'action', ['kind', 'request'])
-    return { kind, request: parseToolRequest(action.request, 'action.request') }
+    exactKeys(action, 'action', ['kind', 'request'], ['workItemId'])
+    return {
+      kind,
+      request: parseToolRequest(action.request, 'action.request'),
+      ...(action.workItemId === undefined ? {} : { workItemId: requiredString(action.workItemId, 'action.workItemId') }),
+    }
   }
   if (kind === 'verify') {
-    exactKeys(action, 'action', ['kind', 'checkId', 'request'])
+    exactKeys(action, 'action', ['kind', 'checkId', 'request'], ['workItemId'])
     return {
       kind,
       checkId: requiredString(action.checkId, 'action.checkId'),
       request: parseToolRequest(action.request, 'action.request'),
+      ...(action.workItemId === undefined ? {} : { workItemId: requiredString(action.workItemId, 'action.workItemId') }),
     }
   }
   if (kind === 'plan') {
-    exactKeys(action, 'action', ['kind', 'id', 'summary', 'rationale', 'actionDigest'])
+    exactKeys(action, 'action', ['kind', 'id', 'summary', 'rationale', 'actionDigest'], ['steps'])
     return {
       kind,
       id: requiredString(action.id, 'action.id'),
       summary: requiredString(action.summary, 'action.summary'),
       rationale: requiredString(action.rationale, 'action.rationale'),
       actionDigest: requiredString(action.actionDigest, 'action.actionDigest'),
+      ...(action.steps === undefined ? {} : { steps: parsePlanSteps(action.steps, 'action.steps') }),
     }
   }
   if (kind === 'finish') {
@@ -49,6 +55,22 @@ export function parseAgentTurnAction(value: unknown): AgentTurnAction {
     }
   }
   return modelError(`Unknown AgentTurnAction kind: ${kind}`)
+}
+
+function parsePlanSteps(value: unknown, path: string) {
+  if (!Array.isArray(value) || value.length === 0) modelError(`${path} must be a non-empty array`)
+  return value.map((item, index) => {
+    const stepPath = `${path}[${index}]`
+    const step = exactObject(item, stepPath, ['id', 'title', 'kind', 'dependsOn'])
+    const kind = requiredString(step.kind, `${stepPath}.kind`)
+    if (!['inspect', 'change', 'verify'].includes(kind)) modelError(`${stepPath}.kind must be inspect, change or verify`)
+    return {
+      id: requiredString(step.id, `${stepPath}.id`),
+      title: requiredString(step.title, `${stepPath}.title`),
+      kind: kind as 'inspect' | 'change' | 'verify',
+      dependsOn: stringArray(step.dependsOn, `${stepPath}.dependsOn`),
+    }
+  })
 }
 
 export function assertJsonSchemaValue(value: unknown, schema: JsonSchema, path = 'value'): asserts value is JsonValue {

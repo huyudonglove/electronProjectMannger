@@ -1,3 +1,4 @@
+import os from 'node:os'
 import path from 'node:path'
 import { readFile } from 'node:fs/promises'
 
@@ -23,6 +24,7 @@ import {
 } from './write-tools.js'
 import { contentHash } from './file-transaction.js'
 import type { BackendAvailability } from './tool-registry.js'
+import { captureGitWorktreeSnapshot } from './command-evidence.js'
 
 export interface LocalRuntimeServiceOptions {
   maxOutputChars: number
@@ -71,7 +73,7 @@ export class LocalRuntimeServices {
       cwd: options.cwd || this.projectRoot,
       timeoutMs: options.timeoutMs ?? this.timeoutMs,
       maxOutputChars: this.maxOutputChars,
-      ...(options.env ? { env: options.env } : {}),
+      env: options.env || commandEnvironment(),
       ...(options.signal ? { signal: options.signal } : {}),
     })
   }
@@ -126,6 +128,14 @@ export class LocalRuntimeServices {
       maxTimeoutMs: this.timeoutMs,
       allowedPackageScripts: this.allowedPackageScripts,
     })
+  }
+
+  captureGitWorktree() {
+    return captureGitWorktreeSnapshot(
+      this.projectRoot,
+      Math.min(this.timeoutMs, 5_000),
+      commandEnvironment(),
+    )
   }
 
   async probeCli(backendId: string, command: string, args = ['--version']): Promise<BackendAvailability> {
@@ -240,10 +250,35 @@ export function commandEnvironment(): NodeJS.ProcessEnv {
   }
   return {
     ...environment,
+    PATH: commandSearchPath(environment.PATH),
     CI: '1',
     NO_COLOR: '1',
     FORCE_COLOR: '0',
     COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+    npm_config_audit: 'false',
+    npm_config_fund: 'false',
+    npm_config_ignore_scripts: 'true',
+    npm_config_offline: 'true',
     npm_config_update_notifier: 'false',
   }
+}
+
+export function commandSearchPath(inheritedPath = process.env.PATH) {
+  const entries = String(inheritedPath || '').split(path.delimiter).filter(Boolean)
+  if (process.platform !== 'win32') {
+    entries.push(
+      path.join(os.homedir(), '.local', 'bin'),
+      path.join(os.homedir(), 'Library', 'pnpm'),
+      path.join(os.homedir(), 'Library', 'pnpm', 'bin'),
+      '/opt/homebrew/bin',
+      '/opt/homebrew/sbin',
+      '/usr/local/bin',
+      '/usr/local/sbin',
+      '/usr/bin',
+      '/bin',
+      '/usr/sbin',
+      '/sbin',
+    )
+  }
+  return [...new Set(entries)].join(path.delimiter)
 }

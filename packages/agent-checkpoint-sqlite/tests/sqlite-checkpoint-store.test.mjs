@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -181,6 +182,40 @@ test('SQLite checkpoint survives reopen with revisions and events intact', async
   assert.deepEqual(loaded.events.map((event) => event.sequence), [1])
   assert.equal((await store.list())[0].lastEventSequence, 1)
   store.close()
+})
+
+test('SQLite transparently loads v1 snapshots and persists v2 on the next commit', async (t) => {
+  const databasePath = await fixture(t)
+  const ledger = createRunLedger(input(), at(0))
+  let store = new SqliteCheckpointStore(databasePath)
+  await store.commit(commit(ledger))
+  store.close()
+
+  const database = new DatabaseSync(databasePath)
+  const row = database.prepare('SELECT snapshot_json FROM runs WHERE run_id = ?').get(ledger.runId)
+  const legacy = JSON.parse(row.snapshot_json)
+  legacy.schemaVersion = 1
+  legacy.ledger.schemaVersion = 1
+  delete legacy.ledger.graph
+  delete legacy.ledger.checklist
+  const legacyJson = JSON.stringify(legacy)
+  const legacyHash = createHash('sha256').update(legacyJson).digest('hex')
+  database.prepare('UPDATE runs SET snapshot_json = ?, snapshot_hash = ? WHERE run_id = ?').run(legacyJson, legacyHash, ledger.runId)
+  database.close()
+
+  store = new SqliteCheckpointStore(databasePath)
+  const migrated = await store.load(ledger.runId)
+  assert.equal(migrated.snapshot.schemaVersion, RUN_SNAPSHOT_SCHEMA_VERSION)
+  assert.equal(migrated.snapshot.ledger.graph.currentNode, 'created')
+  assert.deepEqual(migrated.snapshot.ledger.checklist.items, [])
+  await store.commit(commit(migrated.snapshot.ledger, { expectedRevision: 1, committedAt: at(2) }))
+  store.close()
+
+  const persisted = new DatabaseSync(databasePath)
+  const current = JSON.parse(persisted.prepare('SELECT snapshot_json FROM runs WHERE run_id = ?').get(ledger.runId).snapshot_json)
+  assert.equal(current.schemaVersion, RUN_SNAPSHOT_SCHEMA_VERSION)
+  assert.equal(current.ledger.schemaVersion, 2)
+  persisted.close()
 })
 
 test('SQLite transaction rolls back a stale revision without appending data', async (t) => {

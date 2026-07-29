@@ -11,6 +11,11 @@ test('greetings and consultations route to non-task chat', () => {
   assert.equal(routeAgentChatInput('支持哪些模型？', emptyContext).kind, 'chat')
 })
 
+test('explicit idea capture creates a thought without becoming a task', () => {
+  assert.deepEqual(routeAgentChatInput('记下一个想法：让模型配置支持导入', emptyContext), { kind: 'thought' })
+  assert.deepEqual(routeAgentChatInput('想法：给项目地图增加筛选', emptyContext), { kind: 'thought' })
+})
+
 test('explicit execution requests create appropriately-sized work', () => {
   assert.deepEqual(routeAgentChatInput('改下按钮文案', emptyContext), { kind: 'execute', workLevel: 'light' })
   assert.deepEqual(routeAgentChatInput('请帮我检查项目打包失败的问题', emptyContext), { kind: 'execute', workLevel: 'standard' })
@@ -33,5 +38,8 @@ test('short confirmations only resume a non-terminal selected run', () => {
 
 test('explicit read-only tasks use analysis intent', () => {
   assert.equal(inferAgentTaskIntent('检查 package.json，只读确认脚本，不修改任何文件'), 'analysis')
+  assert.equal(inferAgentTaskIntent('检查该项目'), 'analysis')
+  assert.equal(inferAgentTaskIntent('排查项目目前存在的问题'), 'analysis')
+  assert.equal(inferAgentTaskIntent('检查并修复 package.json 的构建脚本'), 'change')
   assert.equal(inferAgentTaskIntent('修复 package.json 的构建脚本'), 'change')
 })

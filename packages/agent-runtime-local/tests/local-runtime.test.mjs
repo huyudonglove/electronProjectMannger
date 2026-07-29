@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -7,6 +7,7 @@ import test from 'node:test'
 import {
   LocalAgentRuntime,
   commandEnvironment,
+  commandSearchPath,
   commitFileTransaction,
   computeActionDigest,
   contentHash,
@@ -30,8 +31,11 @@ async function fixture() {
   await writeFile(path.join(root, 'package.json'), `${JSON.stringify({
     private: true,
     scripts: {
+      pretest: 'node -e "require(\'node:fs\').writeFileSync(\'pretest-ran.txt\', \'unsafe\')"',
       test: 'node -e "console.log(\'fixture test passed\')"',
+      posttest: 'node -e "require(\'node:fs\').writeFileSync(\'posttest-ran.txt\', \'unsafe\')"',
       slow: 'node -e "setTimeout(() => {}, 5000)"',
+      generate: 'node -e "require(\'node:fs\').writeFileSync(\'generated.txt\', \'generated\\n\')"',
     },
   }, null, 2)}\n`, 'utf8')
   await writeFile(path.join(outside, 'secret.txt'), 'outside secret\n', 'utf8')
@@ -135,17 +139,33 @@ test('command environment allows system essentials without forwarding credential
     const environment = commandEnvironment()
     assert.equal(environment.OPENAI_API_KEY, undefined)
     assert.equal(environment.LC_AGENT_RUNTIME_TEST, 'allowed-locale-value')
-    assert.equal(environment.PATH, process.env.PATH)
+    for (const entry of String(process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+      assert.ok(environment.PATH.split(path.delimiter).includes(entry))
+    }
     assert.equal(environment.CI, '1')
     assert.equal(environment.NO_COLOR, '1')
     assert.equal(environment.FORCE_COLOR, '0')
     assert.equal(environment.COREPACK_ENABLE_DOWNLOAD_PROMPT, '0')
+    assert.equal(environment.npm_config_audit, 'false')
+    assert.equal(environment.npm_config_fund, 'false')
+    assert.equal(environment.npm_config_ignore_scripts, 'true')
+    assert.equal(environment.npm_config_offline, 'true')
     assert.equal(environment.npm_config_update_notifier, 'false')
   } finally {
     if (previousSecret === undefined) delete process.env.OPENAI_API_KEY
     else process.env.OPENAI_API_KEY = previousSecret
     if (previousLocale === undefined) delete process.env.LC_AGENT_RUNTIME_TEST
     else process.env.LC_AGENT_RUNTIME_TEST = previousLocale
+  }
+})
+
+test('command search path restores standard GUI application executable locations', () => {
+  const inherited = process.platform === 'win32' ? 'C:\\Windows\\System32' : '/usr/bin:/bin'
+  const entries = commandSearchPath(inherited).split(path.delimiter)
+  for (const entry of inherited.split(path.delimiter)) assert.ok(entries.includes(entry))
+  if (process.platform === 'darwin') {
+    assert.ok(entries.includes('/opt/homebrew/bin'))
+    assert.ok(entries.includes('/usr/local/bin'))
   }
 })
 
@@ -442,12 +462,63 @@ test('exec_command runs an approved package script without overwriting existing 
   assert.equal(result.ok, true)
   assert.match(result.output, /fixture test passed/)
   assert.equal(result.metadata.command, 'pnpm')
+  assert.equal(result.metadata.actionDigest, writeRequest('unused', 'exec_command', input).actionDigest)
   assert.equal(result.metadata.packageScript, 'test')
+  assert.equal(result.metadata.commandPolicy, 'restricted-package-scripts-v2')
+  assert.deepEqual(result.metadata.executedArgs.slice(0, 3), [
+    '--config.ignore-scripts=true',
+    '--config.enable-pre-post-scripts=false',
+    '--config.offline=true',
+  ])
+  assert.equal(result.metadata.implicitLifecycleScripts, false)
+  assert.equal(result.metadata.packageManagerOffline, true)
+  assert.equal(result.metadata.repositoryEvidence.available, true)
+  assert.equal(result.metadata.repositoryEvidence.worktreeChanged, true)
+  assert.ok(result.metadata.repositoryEvidence.introducedPaths.includes('pnpm-lock.yaml'))
   assert.equal(result.metadata.cwd, '.')
   assert.equal(result.metadata.timeoutMs, 30_000)
   for (const line of before.split('\n').filter(Boolean)) assert.match(after, new RegExp(escapeRegex(line)))
   assert.equal(await readFile(path.join(root, 'src', 'example.ts'), 'utf8'), dirtyBefore)
   assert.equal(await readFile(path.join(root, 'untracked.ts'), 'utf8'), untrackedBefore)
+  await assert.rejects(() => access(path.join(root, 'pretest-ran.txt')), { code: 'ENOENT' })
+  await assert.rejects(() => access(path.join(root, 'posttest-ran.txt')), { code: 'ENOENT' })
+})
+
+test('exec_command applies offline and lifecycle hardening to npm scripts', async () => {
+  const { root } = await fixture()
+  const runtime = new LocalAgentRuntime(root)
+  const input = { command: 'npm', args: ['test'] }
+
+  const result = await runtime.execute(writeRequest('exec-npm-test', 'exec_command', input), context(root))
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.metadata.executedArgs.slice(0, 4), [
+    '--ignore-scripts',
+    '--offline',
+    '--no-audit',
+    '--no-fund',
+  ])
+  await assert.rejects(() => access(path.join(root, 'pretest-ran.txt')), { code: 'ENOENT' })
+  await assert.rejects(() => access(path.join(root, 'posttest-ran.txt')), { code: 'ENOENT' })
+})
+
+test('exec_command records repository changes caused by an approved package script', async () => {
+  const { root } = await fixture()
+  const runtime = new LocalAgentRuntime(root, { allowedPackageScripts: ['generate'] })
+  const input = { command: 'pnpm', args: ['generate'] }
+
+  const result = await runtime.execute(writeRequest('exec-generate', 'exec_command', input), context(root))
+
+  assert.equal(result.ok, true)
+  assert.equal(await readFile(path.join(root, 'generated.txt'), 'utf8'), 'generated\n')
+  assert.equal(result.metadata.repositoryEvidence.available, true)
+  assert.equal(result.metadata.repositoryEvidence.worktreeChanged, true)
+  assert.ok(result.metadata.repositoryEvidence.introducedPaths.includes('generated.txt'))
+  assert.deepEqual(result.metadata.repositoryEvidence.removedPaths, [])
+  assert.notEqual(
+    result.metadata.repositoryEvidence.before.statusHash,
+    result.metadata.repositoryEvidence.after.statusHash,
+  )
 })
 
 test('exec_command rejects shells, network tools, package mutations and forwarded arguments', async () => {
@@ -524,6 +595,8 @@ test('exec_command propagates cancellation to the running process', async () => 
 
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'CANCELLED')
+  assert.equal(result.error.details.commandPolicy, 'restricted-package-scripts-v2')
+  assert.equal(result.error.details.repositoryEvidence.schemaVersion, 1)
   assert.ok(Date.now() - startedAt < 2_000)
 })
 

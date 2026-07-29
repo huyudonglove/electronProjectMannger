@@ -449,6 +449,20 @@ test('Project Memory snapshot codec rejects tampering and unsafe paths', () => {
   )
 })
 
+test('configuration failures report the actionable resolver issue', async (t) => {
+  const fixture = await createFixture(t)
+  const options = runnerOptions(fixture.root, fixture.checkpointPath, provider([]))
+  options.layers.push({
+    scope: 'run',
+    revision: 'unavailable-tool-v1',
+    overrides: { enabledToolNames: ['missing_fixture_tool'] },
+  })
+  await assert.rejects(
+    () => composeHeadlessAgent(options),
+    /tools\.enabledToolNames\.missing_fixture_tool: Enabled tool is unavailable: missing_fixture_tool/,
+  )
+})
+
 async function createFixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-runner-'))
   t.after(() => rm(directory, { recursive: true, force: true }))

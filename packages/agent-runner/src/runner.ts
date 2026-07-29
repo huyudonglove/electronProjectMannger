@@ -103,6 +103,11 @@ export class HeadlessAgentRunner {
     return await coordinator.resolveApproval(runId, resolution, signal)
   }
 
+  async cancel(runId: string, reason?: string): Promise<PersistedStepResult> {
+    this.#assertOpen()
+    return await this.#coordinator.cancel(runId, reason)
+  }
+
   async load(runId: string): Promise<LoadedCheckpoint | null> {
     this.#assertOpen()
     return await this.#store.load(runId)

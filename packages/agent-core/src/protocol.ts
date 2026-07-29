@@ -19,6 +19,75 @@ export type RunPhase =
   | 'failed'
   | 'cancelled'
 
+export type AgentGraphNodeKind = 'entry' | 'work' | 'interrupt' | 'terminal'
+
+export interface AgentGraphNode {
+  id: RunPhase
+  label: string
+  kind: AgentGraphNodeKind
+}
+
+export interface AgentGraphEdge {
+  from: RunPhase
+  to: RunPhase
+  guard?: string
+}
+
+export interface AgentGraphSpec {
+  schemaVersion: 1
+  revision: string
+  entryNode: RunPhase
+  nodes: readonly AgentGraphNode[]
+  edges: readonly AgentGraphEdge[]
+}
+
+export interface AgentGraphTransition {
+  sequence: number
+  from: RunPhase
+  to: RunPhase
+  at: string
+  reason?: string
+}
+
+export interface AgentGraphCursor {
+  schemaVersion: 1
+  graphRevision: string
+  currentNode: RunPhase
+  enteredAt: string
+  visitCounts: Partial<Record<RunPhase, number>>
+  history: AgentGraphTransition[]
+}
+
+export type WorkItemKind = 'inspect' | 'change' | 'verify'
+export type WorkItemStatus = 'todo' | 'doing' | 'done' | 'blocked' | 'skipped'
+
+export interface ProposedWorkItem {
+  id: string
+  title: string
+  kind: WorkItemKind
+  dependsOn?: string[]
+}
+
+export interface WorkItem extends ProposedWorkItem {
+  status: WorkItemStatus
+  dependsOn: string[]
+  attempt: number
+  createdAt: string
+  updatedAt: string
+  result?: string
+  evidenceRefs?: string[]
+  error?: string
+}
+
+export interface WorkChecklist {
+  schemaVersion: 1
+  revision: number
+  planId?: string
+  planSummary?: string
+  items: WorkItem[]
+  updatedAt: string
+}
+
 export type AgentErrorCode =
   | 'INVALID_INPUT'
   | 'INVALID_TRANSITION'
@@ -167,6 +236,7 @@ export interface PendingAction {
   approvalScope?: 'plan' | 'tool'
   resumePhase?: RunPhase
   verificationCheckId?: string
+  checklistItemId?: string
 }
 
 export interface JsonSchema {
@@ -316,6 +386,7 @@ export interface ModelRequest {
   messages: ModelMessage[]
   tools: ToolDefinition[]
   maxOutputTokens: number
+  allowedActions?: AgentTurnAction['kind'][]
   promptCache?: PromptCachePolicy
   promptCacheBinding?: PromptCacheBinding
 }
@@ -380,10 +451,10 @@ export interface ProposedDiffSnapshot {
 }
 
 export type AgentTurnAction =
-  | { kind: 'inspect'; request: ToolRequest }
-  | { kind: 'plan'; id: string; summary: string; rationale: string; actionDigest: string }
-  | { kind: 'tool'; request: ToolRequest }
-  | { kind: 'verify'; checkId: string; request: ToolRequest }
+  | { kind: 'inspect'; request: ToolRequest; workItemId?: string }
+  | { kind: 'plan'; id: string; summary: string; rationale: string; actionDigest: string; steps?: ProposedWorkItem[] }
+  | { kind: 'tool'; request: ToolRequest; workItemId?: string }
+  | { kind: 'verify'; checkId: string; request: ToolRequest; workItemId?: string }
   | {
     kind: 'finish'
     summary: string
@@ -485,6 +556,10 @@ export interface PermissionPolicy {
 export type AgentEventType =
   | 'run.started'
   | 'phase.changed'
+  | 'plan.updated'
+  | 'checklist.item.started'
+  | 'checklist.item.completed'
+  | 'checklist.item.failed'
   | 'model.started'
   | 'model.attempted'
   | 'model.completed'
@@ -526,7 +601,7 @@ export interface FailureRecord {
 }
 
 export interface RunLedger {
-  schemaVersion: 1
+  schemaVersion: 1 | 2
   runId: string
   taskId?: string
   taskShortId?: string
@@ -555,6 +630,8 @@ export interface RunLedger {
   modelAttempts: ModelAttemptRecord[]
   contextEnvelopes: ContextEnvelopeRecord[]
   compactions: CompactionRecord[]
+  graph?: AgentGraphCursor
+  checklist?: WorkChecklist
   pendingAction?: PendingAction
   nextAction?: string
   diffSnapshot?: DiffSnapshot

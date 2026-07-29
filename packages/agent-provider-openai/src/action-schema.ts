@@ -17,19 +17,26 @@ export interface HydrateActionOptions {
   clock?: () => string
 }
 
-export function createAgentTurnActionSchema(tools: ToolDefinition[]): Record<string, unknown> {
+export function createAgentTurnActionSchema(
+  tools: ToolDefinition[],
+  allowedKinds: AgentTurnAction['kind'][] = ['inspect', 'plan', 'tool', 'verify', 'finish', 'blocked'],
+): Record<string, unknown> {
   const branches: Record<string, unknown>[] = []
+  const allowed = new Set(allowedKinds)
   const readTools = tools.filter((tool) => tool.risk === 'read')
-  if (readTools.length) branches.push(...toolActionBranches('inspect', readTools))
+  if (allowed.has('inspect') && readTools.length) branches.push(...toolActionBranches('inspect', readTools))
   if (tools.length) {
-    branches.push(...toolActionBranches('tool', tools))
-    branches.push(...toolActionBranches('verify', tools, true))
+    if (allowed.has('tool')) branches.push(...toolActionBranches('tool', tools))
+    if (allowed.has('verify')) branches.push(...toolActionBranches('verify', tools, true))
   }
-  branches.push(planBranch(), finishBranch(), blockedBranch())
+  if (allowed.has('plan')) branches.push(planBranch())
+  if (allowed.has('finish')) branches.push(finishBranch())
+  if (allowed.has('blocked')) branches.push(blockedBranch())
+  if (!branches.length) throw new AgentCoreError('INVALID_INPUT', 'Model request has no available Agent actions')
   return {
     type: 'object',
     description: ACTION_SCHEMA_COPY.root,
-    properties: { action: { anyOf: branches } },
+    properties: { action: { description: ACTION_SCHEMA_COPY.actionEnvelope, anyOf: branches } },
     required: ['action'],
     additionalProperties: false,
   }
@@ -39,12 +46,15 @@ export function hydrateAgentTurnAction(value: unknown, request: ModelRequest, op
   const envelope = exactObject(value, 'response', ['action'])
   const raw = objectValue(envelope.action, 'response.action')
   const kind = nonEmptyString(raw.kind, 'response.action.kind')
+  if (request.allowedActions?.length && !request.allowedActions.includes(kind as AgentTurnAction['kind'])) {
+    throw new AgentCoreError('MODEL_ERROR', `Model selected an action that is not available in this graph node: ${kind}`)
+  }
   const clock = options.clock || (() => new Date().toISOString())
   const tools = new Map(request.tools.map((tool) => [tool.name, tool]))
 
   if (kind === 'inspect' || kind === 'tool' || kind === 'verify') {
-    const allowed = kind === 'verify' ? ['kind', 'checkId', 'request'] : ['kind', 'request']
-    exactKeys(raw, 'response.action', allowed)
+    const required = kind === 'verify' ? ['kind', 'checkId', 'request'] : ['kind', 'request']
+    exactKeys(raw, 'response.action', required, ['workItemId'])
     const rawRequest = exactObject(raw.request, 'response.action.request', ['id', 'name', 'input'])
     const name = nonEmptyString(rawRequest.name, 'response.action.request.name')
     const tool = tools.get(name)
@@ -58,19 +68,32 @@ export function hydrateAgentTurnAction(value: unknown, request: ModelRequest, op
       requestedAt: clock(),
       actionDigest: actionDigest(name, input),
     }
+    const workItemId = raw.workItemId === null || raw.workItemId === undefined
+      ? undefined
+      : nonEmptyString(raw.workItemId, 'response.action.workItemId')
     return parseAgentTurnAction(kind === 'verify'
-      ? { kind, checkId: nonEmptyString(raw.checkId, 'response.action.checkId'), request: hydratedRequest }
-      : { kind, request: hydratedRequest })
+      ? { kind, checkId: nonEmptyString(raw.checkId, 'response.action.checkId'), request: hydratedRequest, ...(workItemId ? { workItemId } : {}) }
+      : { kind, request: hydratedRequest, ...(workItemId ? { workItemId } : {}) })
   }
 
   if (kind === 'plan') {
-    exactKeys(raw, 'response.action', ['kind', 'id', 'summary', 'rationale'])
-    const plan = {
+    exactKeys(raw, 'response.action', ['kind', 'id', 'summary', 'rationale', 'steps'])
+    const plan = parseAgentTurnAction({
+      kind,
       id: nonEmptyString(raw.id, 'response.action.id'),
       summary: nonEmptyString(raw.summary, 'response.action.summary'),
       rationale: nonEmptyString(raw.rationale, 'response.action.rationale'),
+      steps: raw.steps,
+      actionDigest: 'pending',
+    })
+    if (plan.kind !== 'plan') throw new AgentCoreError('MODEL_ERROR', 'Hydrated plan action has an invalid kind')
+    const digestInput: Record<string, JsonValue> = {
+      id: plan.id,
+      summary: plan.summary,
+      rationale: plan.rationale,
+      steps: JSON.parse(JSON.stringify(plan.steps || [])) as JsonValue,
     }
-    return parseAgentTurnAction({ kind, ...plan, actionDigest: actionDigest('plan', plan) })
+    return { ...plan, actionDigest: actionDigest('plan', digestInput) }
   }
 
   if (kind === 'finish') {
@@ -95,6 +118,7 @@ function toolActionBranches(kind: 'inspect' | 'tool' | 'verify', tools: ToolDefi
     type: 'object',
     properties: {
       kind: { type: 'string', const: kind, description: actionKindDescription(kind) },
+      workItemId: { anyOf: [{ type: 'string' }, { type: 'null' }], description: ACTION_SCHEMA_COPY.workItemReference },
       ...(verification ? { checkId: { type: 'string', description: ACTION_SCHEMA_COPY.verificationCheckId } } : {}),
       request: {
         type: 'object',
@@ -107,7 +131,7 @@ function toolActionBranches(kind: 'inspect' | 'tool' | 'verify', tools: ToolDefi
         additionalProperties: false,
       },
     },
-    required: verification ? ['kind', 'checkId', 'request'] : ['kind', 'request'],
+    required: verification ? ['kind', 'workItemId', 'checkId', 'request'] : ['kind', 'workItemId', 'request'],
     additionalProperties: false,
   }))
 }
@@ -120,8 +144,24 @@ function planBranch() {
       id: { type: 'string', description: ACTION_SCHEMA_COPY.planId },
       summary: { type: 'string', description: ACTION_SCHEMA_COPY.planSummary },
       rationale: { type: 'string', description: ACTION_SCHEMA_COPY.planRationale },
+      steps: {
+        type: 'array',
+        description: ACTION_SCHEMA_COPY.planSteps,
+        minItems: 1,
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: ACTION_SCHEMA_COPY.workItemId },
+            title: { type: 'string', description: ACTION_SCHEMA_COPY.workItemTitle },
+            kind: { type: 'string', enum: ['inspect', 'change', 'verify'], description: ACTION_SCHEMA_COPY.workItemKind },
+            dependsOn: { type: 'array', items: { type: 'string' }, description: ACTION_SCHEMA_COPY.workItemDependencies },
+          },
+          required: ['id', 'title', 'kind', 'dependsOn'],
+          additionalProperties: false,
+        },
+      },
     },
-    required: ['kind', 'id', 'summary', 'rationale'],
+    required: ['kind', 'id', 'summary', 'rationale', 'steps'],
     additionalProperties: false,
   }
 }
@@ -139,9 +179,10 @@ function finishBranch() {
   }
   return {
     type: 'object',
+    description: ACTION_SCHEMA_COPY.finish,
     properties: {
-      kind: { type: 'string', const: 'finish' },
-      summary: { type: 'string' },
+      kind: { type: 'string', const: 'finish', description: ACTION_SCHEMA_COPY.finish },
+      summary: { type: 'string', description: ACTION_SCHEMA_COPY.completionSummary },
       acceptanceEvidence: {
         type: 'array',
         items: {
@@ -265,8 +306,8 @@ function exactObject(value: unknown, path: string, keys: string[]) {
   return object
 }
 
-function exactKeys(value: Record<string, unknown>, path: string, keys: string[]) {
-  const allowed = new Set(keys)
+function exactKeys(value: Record<string, unknown>, path: string, keys: string[], optional: string[] = []) {
+  const allowed = new Set([...keys, ...optional])
   for (const key of keys) if (!(key in value)) throw new AgentCoreError('MODEL_ERROR', `${path}.${key} is required`)
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new AgentCoreError('MODEL_ERROR', `${path}.${key} is not allowed`)
 }

@@ -10,6 +10,7 @@ import type {
   NewDialogueInput,
   NewQuestionInput,
   NewTaskInput,
+  NewThoughtInput,
   NewVersionInput,
   OpenQuestionReplyInput,
   ProjectConfig,
@@ -43,6 +44,7 @@ export type {
   NewDialogueInput,
   NewQuestionInput,
   NewTaskInput,
+  NewThoughtInput,
   NewVersionInput,
   OpenQuestionReplyInput,
   ProjectConfig,
@@ -435,6 +437,7 @@ export async function appendTask(managerDataRoot: string, projectRoot: string, i
       acceptance: input.acceptance || '待补充。',
       constraints: input.constraints || '待补充。',
       planRollback: input.planRollback || '待补充。',
+      sourceRefs: normalizeRecordSourceRefs(input.sourceRefs),
     }, {
       created: now,
       userOriginal: input.userOriginal || title,
@@ -471,6 +474,42 @@ export async function updateTaskStatus(managerDataRoot: string, projectRoot: str
   })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function appendTaskSourceRefs(
+  managerDataRoot: string,
+  projectRoot: string,
+  taskId: string,
+  sourceRefs: string[],
+) {
+  const id = String(taskId || '').trim()
+  if (!id) throw new Error('任务 ID 不能为空')
+  const additions = normalizeRecordSourceRefs(sourceRefs)
+  if (!additions.length) return false
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const taskPath = await findVersionRecordPath(dataRoot, VERSION_TASKS_FILE, id)
+  if (!taskPath) throw new Error('未找到任务记录')
+  const changed = await mutateProjectFile(dataRoot, taskPath, (current) => {
+    let matched = false
+    let updated = false
+    const content = splitMarkdownBlocks(current).map((block, index) => {
+      if (index === 0 && !block.trim().startsWith('## ')) return block
+      const fields = parseFields(block)
+      if (fields.id !== id && fields.short_id !== id) return block
+      matched = true
+      const merged = [...new Set([...splitRefs(fields.source_refs), ...additions])]
+      if (merged.length === splitRefs(fields.source_refs).length) return block
+      updated = true
+      return /^source_refs::/m.test(block)
+        ? block.replace(/^source_refs::\s*.*$/m, `source_refs:: ${merged.join(',')}`)
+        : block.replace(/^(version::\s*.+)$/m, `$1\nsource_refs:: ${merged.join(',')}`)
+    }).join('\n')
+    if (!matched) throw new Error('未找到任务记录')
+    return { content: content.endsWith('\n') ? content : `${content}\n`, value: updated }
+  })
+  if (changed) await refreshAgentBrief(managerDataRoot, projectRoot)
+  return changed
 }
 
 export async function applyProjectTaskStatusUpdate(
@@ -551,9 +590,11 @@ export async function deleteTask(managerDataRoot: string, projectRoot: string, t
   return getDashboard(managerDataRoot, projectRoot)
 }
 
-export async function appendThought(managerDataRoot: string, projectRoot: string, content: string) {
+export async function appendThought(managerDataRoot: string, projectRoot: string, input: string | NewThoughtInput) {
+  const content = typeof input === 'string' ? input : input?.content
   const normalized = String(content || '').trim()
   if (!normalized) throw new Error('输入内容不能为空')
+  const sourceRefs = normalizeRecordSourceRefs(typeof input === 'string' ? undefined : input.sourceRefs)
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
@@ -567,11 +608,20 @@ export async function appendThought(managerDataRoot: string, projectRoot: string
       created: now,
       version: config.currentVersionId,
       content: normalized,
+      sourceRefs,
     })
     return { content: insertMarkdownEntry(current, entry), value: undefined }
   })
   await refreshAgentBrief(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
+}
+
+function normalizeRecordSourceRefs(values: string[] | undefined) {
+  if (values === undefined) return []
+  if (!Array.isArray(values)) throw new Error('来源引用必须是字符串数组')
+  const normalized = [...new Set(values.map((value) => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean))]
+  if (normalized.some((value) => value.length > 1024)) throw new Error('单条来源引用过长')
+  return normalized
 }
 
 export async function appendDialogue(managerDataRoot: string, projectRoot: string, input: NewDialogueInput) {

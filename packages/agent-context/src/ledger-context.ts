@@ -78,7 +78,7 @@ function runFactsSource(): ContextSource {
   return {
     descriptor: {
       id: 'builtin.run-facts',
-      revision: '1',
+      revision: '2',
       region: 'recent_dynamic_context',
       scope: 'run',
       trust: 'trusted_run',
@@ -181,6 +181,8 @@ function runFacts(ledger: RunLedger) {
         .map((verification) => verification.checkId),
     ],
     nextAction: ledger.nextAction,
+    graph: ledger.graph,
+    checklist: ledger.checklist,
   }
 }
 

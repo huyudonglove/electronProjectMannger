@@ -8,6 +8,7 @@ import TaskBoardView from './components/views/TaskBoardView.vue'
 import AgentChatView from './components/views/AgentChatView.vue'
 import AgentSettingsView from './components/views/AgentSettingsView.vue'
 import { inferAgentTaskIntent, routeAgentChatInput } from './chat-routing'
+import { loadAgentChatSelection, saveAgentChatSelection, type AgentChatSelection } from './agent-chat-state'
 
 type AnyRecord = Record<string, any>
 type UiTone = 'neutral' | 'complete' | 'warning' | 'danger'
@@ -29,7 +30,7 @@ declare global {
       addTask: (projectRoot: string, payload: AnyRecord) => Promise<any>
       updateTaskStatus: (projectRoot: string, taskId: string, status: string) => Promise<any>
       deleteTask: (projectRoot: string, taskId: string) => Promise<any>
-      addThought: (projectRoot: string, content: string) => Promise<any>
+      addThought: (projectRoot: string, input: string | AnyRecord) => Promise<any>
       deleteThought: (projectRoot: string, thoughtId: string) => Promise<any>
       addDialogue: (projectRoot: string, payload: AnyRecord) => Promise<any>
       deleteDialogue: (projectRoot: string, dialogueId: string) => Promise<any>
@@ -44,6 +45,7 @@ declare global {
       getDiagnosticReport: (input: AnyRecord) => Promise<any>
       listAgentChats: (projectRoot: string) => Promise<any[]>
       sendAgentChat: (payload: AnyRecord) => Promise<any>
+      deleteAgentChat: (projectRoot: string, conversationId: string) => Promise<boolean>
       updateOpenAIModel: (payload: AnyRecord) => Promise<any>
       updateProjectModelRoute: (payload: AnyRecord) => Promise<any>
       listAgentRuns: (projectRoot: string) => Promise<any[]>
@@ -192,6 +194,7 @@ const state = reactive({
   agentProjectMaps: null as AnyRecord | null,
   agentDiagnosticReportBusy: false,
   agentRuns: [] as AnyRecord[],
+  agentRunsLoaded: false,
   agentRunDetails: {} as Record<string, AnyRecord>,
   agentRunBusy: false,
   agentRunBusyId: '',
@@ -212,6 +215,7 @@ let agentProjectRevision = 0
 let agentOperationRevision = 0
 let agentOutputRevision = 0
 let agentSettingsRequestRevision = 0
+let pendingAgentChatSelection: AgentChatSelection | null = null
 
 const taskForm = reactive({ title: '', priority: 'medium', workLevel: 'light', depthReason: 'decision', detail: '', acceptance: '', constraints: '', planRollback: '', status: '' })
 const thoughtForm = reactive({ content: '', status: '' })
@@ -269,12 +273,6 @@ const selectedTaskRun = computed(() => {
 const selectedTaskRunDetail = computed(() => {
   const run = selectedTaskRun.value
   return run ? state.agentRunDetails[run.runId] || { run, events: [] } : null
-})
-const agentChatTasks = computed(() => {
-  const runTaskIds = new Set(state.agentRuns.flatMap((run: AnyRecord) => [run.task?.id, run.task?.shortId]).filter(Boolean))
-  return allTasks.value
-    .filter((task: AnyRecord) => ['todo', 'doing'].includes(task.status) || runTaskIds.has(task.id) || runTaskIds.has(task.shortId))
-    .sort((left: AnyRecord, right: AnyRecord) => String(right.updated || '').localeCompare(String(left.updated || '')))
 })
 const selectedAgentChat = computed(() => state.agentChats.find((conversation: AnyRecord) => conversation.id === state.selectedAgentChatId) || null)
 const agentChatMessages = computed(() => selectedAgentChat.value?.messages || [])
@@ -377,11 +375,7 @@ function setActiveSection(section: string) {
     void loadAgentChats()
     void loadAgentProjectMaps()
     state.taskDetailOpen = false
-    if (!state.selectedTask && !state.selectedAgentChatId) {
-      state.selectedTask = agentChatTasks.value.find((task: AnyRecord) => ['doing', 'todo'].includes(task.status)) || agentChatTasks.value[0] || null
-      const run = selectedTaskRun.value
-      if (run) void loadAgentRunDetail(run.runId)
-    }
+    restoreAgentChatSelection()
   }
 }
 
@@ -489,6 +483,16 @@ async function loadAgentChats() {
     if (state.selectedAgentChatId && !conversations.some((item: AnyRecord) => item.id === state.selectedAgentChatId)) {
       state.selectedAgentChatId = ''
     }
+    const restored = restoreAgentChatSelection()
+    if (!restored && pendingAgentChatSelection?.kind === 'chat') {
+      state.selectedTask = null
+      state.selectedAgentChatId = ''
+      persistAgentChatSelection({ kind: 'new' })
+    } else if (!restored && !pendingAgentChatSelection && conversations[0]) {
+      state.selectedTask = null
+      state.selectedAgentChatId = conversations[0].id
+      persistAgentChatSelection({ kind: 'chat', id: conversations[0].id })
+    }
   } catch (error: any) {
     console.error(error)
     if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
@@ -558,6 +562,7 @@ async function saveProjectModelRoute(payload: { settings: AnyRecord }) {
 async function loadAgentRuns() {
   if (!state.projectRoot || !state.initialized) {
     state.agentRuns = []
+    state.agentRunsLoaded = true
     state.agentRunDetails = {}
     return
   }
@@ -567,12 +572,14 @@ async function loadAgentRuns() {
     const runs = await ensureApi().listAgentRuns(projectRoot)
     if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
     state.agentRuns = runs
+    state.agentRunsLoaded = true
     const task = state.selectedTask
     const run = task && state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
     if (run) void loadAgentRunDetail(run.runId)
   } catch (error: any) {
     console.error(error)
     if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
+    state.agentRunsLoaded = true
     state.status = error?.message || 'Agent 运行记录读取失败。'
   }
 }
@@ -625,9 +632,9 @@ async function runAgentOperation(message: string, action: () => Promise<AnyRecor
   }
 }
 
-async function startSelectedTaskRun(task = state.selectedTask) {
+async function startSelectedTaskRun(task = state.selectedTask, selectTask = true) {
   if (!task) return
-  state.selectedTask = task
+  if (selectTask) state.selectedTask = task
   const started = await runAgentOperation('正在创建 Agent 运行…', () => ensureApi().startAgentTask({
     projectRoot: state.projectRoot,
     taskId: task.id,
@@ -647,12 +654,17 @@ async function sendAgentChatMessage(message: string) {
   const prompt = String(message || '').trim()
   if (!prompt || state.agentChatCreating || state.agentRunBusy) return
 
+  const originTask = state.selectedAgentChatId ? null : state.selectedTask
+  const originConversationId = state.selectedAgentChatId
+  const originSelectionStillActive = () =>
+    state.selectedAgentChatId === originConversationId
+    && Boolean(originConversationId || (state.selectedTask?.id || '') === (originTask?.id || ''))
   const currentRun = selectedTaskRun.value
   const route = routeAgentChatInput(prompt, {
-    hasActiveTask: Boolean(state.selectedTask),
+    hasActiveTask: Boolean(originTask),
     hasResumableRun: Boolean(
       currentRun?.status === 'running'
-      || (!currentRun && state.selectedTask && ['todo', 'doing'].includes(state.selectedTask.status)),
+      || (!currentRun && originTask && ['todo', 'doing'].includes(originTask.status)),
     ),
   })
   if (!agentCredentialConfigured.value) {
@@ -668,23 +680,62 @@ async function sendAgentChatMessage(message: string) {
     try {
       const result = await api.sendAgentChat({
         projectRoot: state.projectRoot,
-        ...(state.selectedAgentChatId ? { conversationId: state.selectedAgentChatId } : {}),
+        ...(originConversationId ? { conversationId: originConversationId } : {}),
         message: prompt,
       })
       const conversation = result?.conversation
       if (!conversation?.id) throw new Error('Agent 对话响应无效。')
       state.agentChats = [conversation, ...state.agentChats.filter((item: AnyRecord) => item.id !== conversation.id)]
-      state.selectedAgentChatId = conversation.id
-      state.selectedTask = null
+      if (originSelectionStillActive()) {
+        state.selectedTask = null
+        state.selectedAgentChatId = conversation.id
+        persistAgentChatSelection({ kind: 'chat', id: conversation.id })
+      }
       state.taskDetailOpen = false
       state.status = ''
       void loadAgentProjectMaps()
     } catch (error: any) {
       console.error(error)
       await Promise.all([loadAgentChats(), loadAgentDiagnostics()])
-      if (!state.selectedAgentChatId && state.agentChats[0]) state.selectedAgentChatId = state.agentChats[0].id
-      state.selectedTask = null
       state.status = error?.message || '模型回复失败。'
+    } finally {
+      state.agentChatCreating = false
+    }
+    return
+  }
+  if (route.kind === 'thought') {
+    const api = ensureReady()
+    if (!api) return
+    state.agentChatCreating = true
+    try {
+      state.status = '正在从对话保存想法…'
+      const captured = await api.sendAgentChat({
+        projectRoot: state.projectRoot,
+        ...(originConversationId ? { conversationId: originConversationId } : {}),
+        message: prompt,
+        executionOnly: true,
+      })
+      if (!captured?.conversation?.id || !captured?.message?.id) throw new Error('对话来源记录无效。')
+      state.agentChats = [captured.conversation, ...state.agentChats.filter((item: AnyRecord) => item.id !== captured.conversation.id)]
+      const existingIds = new Set(allThoughts.value.map((thought: AnyRecord) => thought.id || thought.shortId))
+      const nextDashboard = await api.addThought(state.projectRoot, {
+        content: prompt,
+        sourceRefs: [chatMessageSourceRef(captured.conversation.id, captured.message.id)],
+      })
+      updateDashboard(nextDashboard)
+      const createdThought = (nextDashboard.thoughts || []).find((thought: AnyRecord) => !existingIds.has(thought.id || thought.shortId))
+      if (originSelectionStillActive()) {
+        state.selectedTask = null
+        state.selectedAgentChatId = captured.conversation.id
+        persistAgentChatSelection({ kind: 'chat', id: captured.conversation.id })
+      }
+      state.status = ''
+      showToast(createdThought?.shortId ? `已保存为 ${createdThought.shortId}` : '想法已保存')
+      void loadAgentProjectMaps()
+    } catch (error: any) {
+      console.error(error)
+      await loadAgentChats()
+      state.status = error?.message || '想法保存失败。'
     } finally {
       state.agentChatCreating = false
     }
@@ -702,9 +753,21 @@ async function sendAgentChatMessage(message: string) {
   const existingIds = new Set(allTasks.value.map((task: AnyRecord) => task.id || task.shortId))
   const firstLine = prompt.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || '新对话'
   const title = firstLine.length > 72 ? `${firstLine.slice(0, 72).trimEnd()}…` : firstLine
+  const taskIntent = inferAgentTaskIntent(prompt)
   state.agentChatCreating = true
   try {
-    state.status = '正在创建 Agent 对话…'
+    state.status = '正在记录对话来源…'
+    const captured = await api.sendAgentChat({
+      projectRoot: state.projectRoot,
+      ...(originConversationId ? { conversationId: originConversationId } : {}),
+      message: prompt,
+      executionOnly: true,
+    })
+    const conversation = captured?.conversation
+    const sourceMessage = captured?.message
+    if (!conversation?.id || !sourceMessage?.id) throw new Error('Agent 对话来源记录无效。')
+    state.agentChats = [conversation, ...state.agentChats.filter((item: AnyRecord) => item.id !== conversation.id)]
+    state.status = '正在创建项目任务…'
     const nextDashboard = await api.addTask(state.projectRoot, {
       title,
       status: 'todo',
@@ -714,18 +777,25 @@ async function sendAgentChatMessage(message: string) {
       area: 'agent-chat',
       userOriginal: prompt,
       executionDefinition: prompt,
-      acceptance: '- 完成用户请求并说明结果。\n- 对实际改动执行合适的验证。\n- 如遇阻塞，明确说明原因和下一步。',
+      acceptance: taskIntent === 'analysis'
+        ? '- 完成项目检查并说明结论。\n- 结论引用实际检查结果。'
+        : '- 完成用户请求并说明结果。\n- 对实际改动执行合适的验证。',
+      sourceRefs: [chatMessageSourceRef(conversation.id, sourceMessage.id)],
       constraints: route.workLevel === 'deep' ? '保留现有未提交改动；先确认影响范围和权限边界。' : undefined,
       planRollback: route.workLevel === 'deep' ? '执行前给出方案；验证失败时停止后续操作并说明安全回退步骤。' : undefined,
     })
     updateDashboard(nextDashboard)
     const createdTask = (nextDashboard.tasks || []).find((task: AnyRecord) => !existingIds.has(task.id || task.shortId))
     if (!createdTask) throw new Error('Agent 对话任务创建后未能定位。')
-    state.selectedAgentChatId = ''
-    state.selectedTask = createdTask
+    const keepFocus = originSelectionStillActive()
+    if (keepFocus) {
+      state.selectedAgentChatId = conversation.id
+      state.selectedTask = createdTask
+      persistAgentChatSelection({ kind: 'chat', id: conversation.id })
+    }
     state.taskDetailOpen = false
     state.status = ''
-    await startSelectedTaskRun(createdTask)
+    await startSelectedTaskRun(createdTask, keepFocus)
   } catch (error: any) {
     console.error(error)
     state.status = error?.message || 'Agent 对话创建失败。'
@@ -735,29 +805,43 @@ async function sendAgentChatMessage(message: string) {
 }
 
 async function advanceAgentRun(runId: string) {
-  await runAgentOperation('Agent 正在处理任务…', () => ensureApi().advanceAgentRun({
+  const advanced = await runAgentOperation('Agent 正在处理任务…', () => ensureApi().advanceAgentRun({
     projectRoot: state.projectRoot,
     runId,
     untilPause: true,
   }), runId)
+  await restartRunAfterConfigurationChange(advanced)
 }
 
 async function resolveAgentApproval(decision: 'approved' | 'denied') {
   const run = selectedTaskRun.value
   if (!run) return
-  await runAgentOperation(decision === 'approved' ? '正在执行已批准操作…' : '正在拒绝 Agent 操作…', () => ensureApi().resolveAgentApproval({
+  const resolved = await runAgentOperation(decision === 'approved' ? '正在执行已批准操作…' : '正在拒绝 Agent 操作…', () => ensureApi().resolveAgentApproval({
     projectRoot: state.projectRoot,
     runId: run.runId,
     decision,
     continueUntilPause: decision === 'approved',
   }), run.runId)
+  await restartRunAfterConfigurationChange(resolved, decision === 'approved')
+}
+
+async function restartRunAfterConfigurationChange(detail: AnyRecord | null, restart = true) {
+  if (detail?.recovery?.kind !== 'configuration_changed') return
+  showToast(detail.recovery.message)
+  if (!restart) return
+  const task = state.selectedTask
+  if (!task) {
+    state.status = '旧运行已取消，但当前对话没有可重启的任务。'
+    return
+  }
+  await startSelectedTaskRun(task)
 }
 
 async function cancelAgentRun(runId: string) {
   if (!runId) return
   try {
     const cancelled = await ensureApi().cancelAgentRun(state.projectRoot, runId)
-    state.status = cancelled ? '正在取消 Agent 运行…' : '当前没有可取消的 Agent 操作。'
+    state.status = cancelled ? '已发送停止请求，正在保存当前检查点…' : '当前 Run 已经结束，无需停止。'
   } catch (error: any) {
     console.error(error)
     state.status = error?.message || '取消 Agent 运行失败。'
@@ -1271,13 +1355,18 @@ function updateState(result: AnyRecord) {
   state.projectRoot = result.projectRoot
   state.initialized = result.initialized
   state.dashboard = result.dashboard
+  pendingAgentChatSelection = result.initialized
+    ? loadAgentChatSelection(localStorage, result.dashboard?.config?.projectId || result.projectRoot)
+    : null
   state.agentRuns = []
+  state.agentRunsLoaded = false
   state.agentProjectMaps = null
   state.agentRunDetails = {}
   state.agentChats = []
   state.selectedAgentChatId = ''
   state.selectedTask = null
   state.taskDetailOpen = false
+  restoreAgentChatSelection()
   syncSelectedVersion(result.dashboard)
   state.selectedLogIndex = clampLogIndex(state.selectedLogIndex, result.dashboard?.logs || [])
   if (result.initialized) {
@@ -1528,26 +1617,19 @@ function closeTaskDetail() {
 function openTaskInAgent(task: AnyRecord) {
   state.selectedAgentChatId = ''
   state.selectedTask = task
+  persistAgentChatSelection({ kind: 'task', id: task.id || task.shortId })
   state.taskDetailOpen = false
   setActiveSection('agent-chat')
   const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
   if (run) void loadAgentRunDetail(run.runId)
 }
 
-function selectAgentChatTask(task: AnyRecord | null) {
-  state.selectedAgentChatId = ''
-  state.selectedTask = task
-  state.taskDetailOpen = false
-  closeAgentOutput()
-  if (!task) return
-  const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
-  if (run) void loadAgentRunDetail(run.runId)
-}
-
 function selectAgentChatConversation(conversationId: string) {
-  if (!state.agentChats.some((conversation: AnyRecord) => conversation.id === conversationId)) return
+  const conversation = state.agentChats.find((item: AnyRecord) => item.id === conversationId)
+  if (!conversation) return
   state.selectedTask = null
   state.selectedAgentChatId = conversationId
+  persistAgentChatSelection({ kind: 'chat', id: conversationId })
   state.taskDetailOpen = false
   closeAgentOutput()
   state.status = ''
@@ -1556,14 +1638,64 @@ function selectAgentChatConversation(conversationId: string) {
 function startNewAgentChat() {
   state.selectedTask = null
   state.selectedAgentChatId = ''
+  persistAgentChatSelection({ kind: 'new' })
   state.taskDetailOpen = false
   closeAgentOutput()
   state.status = ''
 }
 
-function selectAgentChatTaskById(taskId: string) {
-  const task = allTasks.value.find((item: AnyRecord) => item.id === taskId || item.shortId === taskId) || null
-  selectAgentChatTask(task)
+async function deleteAgentChatConversation(conversationId: string) {
+  const conversation = state.agentChats.find((item: AnyRecord) => item.id === conversationId)
+  if (!conversation) return
+  if (!confirm(`删除这段 Chat 对话？任务、Run 和工作日志不会受影响。\n\n${conversation.title || conversation.id}`)) return
+  const api = ensureReady()
+  if (!api) return
+  try {
+    state.status = '正在删除对话…'
+    await api.deleteAgentChat(state.projectRoot, conversationId)
+    state.agentChats = state.agentChats.filter((item: AnyRecord) => item.id !== conversationId)
+    if (state.selectedAgentChatId === conversationId) startNewAgentChat()
+    state.status = ''
+    void loadAgentProjectMaps()
+  } catch (error: any) {
+    console.error(error)
+    state.status = error?.message || '删除对话失败。'
+  }
+}
+
+function persistAgentChatSelection(selection: AgentChatSelection) {
+  const projectId = state.dashboard?.config?.projectId || state.projectRoot
+  if (!projectId) return
+  pendingAgentChatSelection = selection
+  saveAgentChatSelection(localStorage, projectId, selection)
+}
+
+function restoreAgentChatSelection() {
+  const selection = pendingAgentChatSelection
+  if (!selection) return false
+  if (selection.kind === 'new') {
+    state.selectedTask = null
+    state.selectedAgentChatId = ''
+    return true
+  }
+  if (selection.kind === 'task') {
+    const task = allTasks.value.find((item: AnyRecord) => item.id === selection.id || item.shortId === selection.id)
+    if (!task) return false
+    state.selectedAgentChatId = ''
+    state.selectedTask = task
+    const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
+    if (run) void loadAgentRunDetail(run.runId)
+    return true
+  }
+  const conversation = state.agentChats.find((item: AnyRecord) => item.id === selection.id)
+  if (!conversation) return false
+  state.selectedTask = null
+  state.selectedAgentChatId = conversation.id
+  return true
+}
+
+function chatMessageSourceRef(conversationId: string, messageId: string) {
+  return `chat:${conversationId}#message:${messageId}`
 }
 
 function startAgentChatTask(taskId: string) {
@@ -1574,6 +1706,26 @@ function startAgentChatTask(taskId: string) {
 function openThought(thoughtId: string) {
   setActiveSection('capture')
   scrollToRef(thoughtRefs, thoughtId, () => { state.highlightedThought = thoughtId }, () => { state.highlightedThought = '' })
+}
+
+function chatSourceLabel(sourceRef: string) {
+  const match = String(sourceRef || '').match(/^chat:([^#]+)#message:(.+)$/)
+  if (!match) return sourceRef
+  const chatId = match[1].replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase()
+  const messageId = match[2].replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase()
+  return `CHAT-${chatId} · MSG-${messageId}`
+}
+
+function openChatSource(sourceRef: string) {
+  const match = String(sourceRef || '').match(/^chat:([^#]+)#message:(.+)$/)
+  if (!match) return
+  const conversation = state.agentChats.find((item: AnyRecord) => item.id === match[1])
+  if (!conversation) {
+    showToast('来源对话已删除，引用记录仍保留')
+    return
+  }
+  selectAgentChatConversation(conversation.id)
+  setActiveSection('agent-chat')
 }
 
 function openDialogue(index: number) {
@@ -2269,6 +2421,15 @@ function escapeHtml(value: any) {
             </div>
             <p>{{ thought.content }}</p>
             <div v-if="thought.answer" class="answer"><span>摘要</span><p>{{ thought.answer }}</p></div>
+            <div v-if="thought.sourceRefs?.length" class="task-detail-badges">
+              <button
+                v-for="sourceRef in thought.sourceRefs"
+                :key="sourceRef"
+                class="btn btn-outline-secondary btn-sm"
+                type="button"
+                @click="openChatSource(sourceRef)"
+              >来源 {{ chatSourceLabel(sourceRef) }}</button>
+            </div>
             <small>{{ formatTime(thought.created) || '未标注日期' }}</small>
           </article>
         </div>
@@ -2292,12 +2453,13 @@ function escapeHtml(value: any) {
 
       <AgentChatView
         v-if="state.section === 'agent-chat'"
-        :tasks="agentChatTasks"
+        :project-id="state.dashboard?.config?.projectId || state.projectRoot"
         :chats="state.agentChats"
         :current-chat="selectedAgentChat"
         :current-task="state.selectedTask"
         :run-detail="selectedTaskRunDetail"
         :runs="state.agentRuns"
+        :runs-loaded="state.agentRunsLoaded"
         :busy="state.agentRunBusy || state.agentChatCreating"
         :status="state.status"
         :credential-status="agentCredentialStatus"
@@ -2308,7 +2470,7 @@ function escapeHtml(value: any) {
         :project-maps="state.agentProjectMaps"
         :diagnostic-report-busy="state.agentDiagnosticReportBusy"
         @select-chat="selectAgentChatConversation"
-        @select-task="selectAgentChatTaskById"
+        @delete-chat="deleteAgentChatConversation"
         @start="startAgentChatTask"
         @advance="advanceAgentRun"
         @approve="resolveAgentApproval('approved')"
@@ -2767,9 +2929,21 @@ function escapeHtml(value: any) {
         <section class="agent-run-panel task-agent-entry">
           <div>
             <strong>在 Agent 中继续</strong>
-            <p>{{ selectedTaskRun ? `已有一条${agentRunStatusText(selectedTaskRun.status)}的对话。` : '用聊天方式启动、观察和控制这项任务。' }}</p>
+            <p>{{ selectedTaskRun ? `已有一条${agentRunStatusText(selectedTaskRun.status)}的 Run。` : '启动、观察和控制这项任务的独立 Run。' }}</p>
           </div>
-          <button class="btn btn-primary btn-sm" type="button" @click="openTaskInAgent(state.selectedTask)">打开对话</button>
+          <button class="btn btn-primary btn-sm" type="button" @click="openTaskInAgent(state.selectedTask)">打开任务运行</button>
+        </section>
+        <section v-if="state.selectedTask.sourceRefs?.length">
+          <strong>来源引用</strong>
+          <div class="task-detail-badges">
+            <button
+              v-for="sourceRef in state.selectedTask.sourceRefs"
+              :key="sourceRef"
+              class="btn btn-outline-secondary btn-sm"
+              type="button"
+              @click="openChatSource(sourceRef)"
+            >{{ chatSourceLabel(sourceRef) }}</button>
+          </div>
         </section>
         <section>
           <strong>用户原话</strong>

@@ -12,13 +12,14 @@ import type { StoredOutput } from '@electron-manager/agent-output'
 import type { HeadlessAgentRunInput } from '@electron-manager/agent-runner'
 import type { ProjectAdapterIssue } from '@electron-manager/agent-project-adapter'
 
-export const DESKTOP_AGENT_SCHEMA_VERSION = 1 as const
+export const DESKTOP_AGENT_SCHEMA_VERSION = 2 as const
 
 export interface DesktopAgentRunner {
   createRun(input: HeadlessAgentRunInput): Promise<LoadedCheckpoint>
   advance(runId: string, signal?: AbortSignal): Promise<PersistedStepResult>
   runUntilPause(runId: string, signal?: AbortSignal): Promise<PersistedStepResult>
   resolveApproval(runId: string, resolution: ApprovalResolution, signal?: AbortSignal): Promise<PersistedStepResult>
+  cancel(runId: string, reason?: string): Promise<PersistedStepResult>
   close(): void
 }
 
@@ -95,6 +96,34 @@ export interface DesktopRunView {
   stepCount: number
   eventSequence: number
   nextAction?: string
+  graph: {
+    revision: string
+    currentNode: LoadedCheckpoint['snapshot']['ledger']['phase']
+    historyCount: number
+  }
+  checklist: {
+    revision: number
+    planId?: string
+    summary?: string
+    progress: {
+      total: number
+      todo: number
+      doing: number
+      done: number
+      blocked: number
+      skipped: number
+    }
+    items: Array<{
+      id: string
+      title: string
+      kind: 'inspect' | 'change' | 'verify'
+      status: 'todo' | 'doing' | 'done' | 'blocked' | 'skipped'
+      dependsOn: string[]
+      attempt: number
+      result?: string
+      error?: string
+    }>
+  }
   resume: {
     kind: 'continue' | 'awaiting_approval' | 'replay' | 'reconcile' | 'blocked' | 'terminal'
     reason: string
@@ -159,6 +188,10 @@ export interface DesktopRunView {
 export interface DesktopRunDetail {
   run: DesktopRunView
   events: DesktopRunEvent[]
+  recovery?: {
+    kind: 'configuration_changed'
+    message: string
+  }
 }
 
 export interface StartProjectTaskRunResult extends DesktopRunDetail {

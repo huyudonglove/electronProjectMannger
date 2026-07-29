@@ -1,4 +1,4 @@
-import { decideResume, type AgentEvent, type LoadedCheckpoint } from '@electron-manager/agent-core'
+import { AGENT_GRAPH_REVISION, checklistProgress, decideResume, type AgentEvent, type LoadedCheckpoint } from '@electron-manager/agent-core'
 import type { Dashboard } from '@electron-manager/project-core'
 
 import {
@@ -53,6 +53,27 @@ export function toDesktopRunView(checkpoint: LoadedCheckpoint, dashboard: Dashbo
     stepCount: ledger.stepCount,
     eventSequence: ledger.eventSequence,
     ...(ledger.nextAction ? { nextAction: ledger.nextAction } : {}),
+    graph: {
+      revision: ledger.graph?.graphRevision || AGENT_GRAPH_REVISION,
+      currentNode: ledger.graph?.currentNode || ledger.phase,
+      historyCount: ledger.graph?.history.length || 0,
+    },
+    checklist: {
+      revision: ledger.checklist?.revision || 0,
+      ...(ledger.checklist?.planId ? { planId: ledger.checklist.planId } : {}),
+      ...(ledger.checklist?.planSummary ? { summary: ledger.checklist.planSummary } : {}),
+      progress: checklistProgress(ledger.checklist),
+      items: (ledger.checklist?.items || []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        kind: item.kind,
+        status: item.status,
+        dependsOn: [...item.dependsOn],
+        attempt: item.attempt,
+        ...(item.result ? { result: redact(item.result, 1_000) } : {}),
+        ...(item.error ? { error: redact(item.error, 1_000) } : {}),
+      })),
+    },
     resume: { kind: resume.kind, reason: resume.reason },
     ...(ledger.pendingAction ? {
       waiting: {

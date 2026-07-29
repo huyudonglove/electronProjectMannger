@@ -2,10 +2,14 @@ import { completeLedger, evaluateCompletion } from './completion.js'
 import {
   CODER_LEDGER_FALLBACK_PROMPT,
   renderCompletionRepairPrompt,
+  renderInvalidAnalysisVerificationBlockPrompt,
   renderInvalidEvidenceRepairPrompt,
+  renderInvalidChecklistBlockPrompt,
   renderInvalidPhaseActionRepairPrompt,
+  renderInvalidResponseSchemaBlockPrompt,
 } from '@electron-manager/agent-prompts'
 import { AgentCoreError, toAgentError } from './errors.js'
+import { beginWorkItem, blockOpenWorkItems, finishWorkItem, replaceWorkChecklist } from './checklist.js'
 import { assertJsonSchemaValue, parseAgentTurnAction } from './schema.js'
 import {
   clearPendingAction,
@@ -45,6 +49,7 @@ import type {
   ProposedAcceptanceEvidence,
   RunLedger,
   RunPhase,
+  WorkItemKind,
   ToolDefinition,
   ToolRequest,
   ToolResult,
@@ -211,7 +216,7 @@ export class AgentStepper {
       this.#phase(state, pending.resumePhase || 'acting')
       if (resolution.decision === 'denied') {
         const result = deniedToolResult(execution.request, resolution.decidedAt, resolution.reason || 'User denied the action')
-        return this.#completeTool(state, execution.request, result, pending.verificationCheckId)
+        return this.#completeTool(state, execution.request, result, pending.verificationCheckId, pending.checklistItemId)
       }
       return await this.#executeRecordedTool(
         state,
@@ -220,6 +225,7 @@ export class AgentStepper {
         pending.verificationCheckId,
         signal,
         hooks,
+        pending.checklistItemId,
       )
     } catch (error) {
       if (error instanceof AgentCoreError && error.code === 'CHECKPOINT_ERROR') throw error
@@ -342,6 +348,7 @@ export class AgentStepper {
       messages: structuredClone(context.messages),
       tools: this.tools.map((tool) => structuredClone(tool)),
       maxOutputTokens: Math.min(state.ledger.limits.maxOutputTokens, this.provider.profile.maxOutputTokens),
+      allowedActions: allowedActionsForPhase(state.ledger),
       ...(this.#promptCachePolicy && context.snapshot ? {
         promptCache: {
           ...structuredClone(this.#promptCachePolicy),
@@ -385,6 +392,34 @@ export class AgentStepper {
 
   async #applyAction(state: StepState, action: AgentTurnAction, signal?: AbortSignal, hooks?: AgentStepHooks): Promise<AgentStepResult> {
     if (action.kind === 'blocked') {
+      if (claimsResponseSchemaBlock(action)) {
+        const summary = renderInvalidResponseSchemaBlockPrompt()
+        state.ledger = setNextAction(state.ledger, summary, this.#clock())
+        state.event('model.rejected', summary, this.#clock(), {
+          action: action.kind,
+          errorCode: 'MODEL_ERROR',
+        })
+        return state.result('continue', summary)
+      }
+      if (claimsMissingChecklist(state.ledger, action)) {
+        const evaluation = evaluateCompletion(state.ledger)
+        const summary = renderInvalidChecklistBlockPrompt(evaluation.blockers.map((item) => item.code))
+        state.ledger = setNextAction(state.ledger, summary, this.#clock())
+        state.event('model.rejected', summary, this.#clock(), {
+          action: action.kind,
+          errorCode: 'MODEL_ERROR',
+        })
+        return state.result('continue', summary)
+      }
+      if (claimsMissingAnalysisVerification(state.ledger, action)) {
+        const summary = renderInvalidAnalysisVerificationBlockPrompt()
+        state.ledger = setNextAction(state.ledger, summary, this.#clock())
+        state.event('model.rejected', summary, this.#clock(), {
+          action: action.kind,
+          errorCode: 'MODEL_ERROR',
+        })
+        return state.result('continue', summary)
+      }
       this.#terminalTransition(state, 'blocked', 'run.blocked', action.summary, { reason: action.reason })
       return state.result('blocked', action.summary)
     }
@@ -394,7 +429,7 @@ export class AgentStepper {
       if (state.ledger.phase !== 'inspecting') throw new AgentCoreError('INVALID_TRANSITION', 'Inspect actions are only valid during inspection')
       const tool = this.#tool(action.request.name)
       if (tool.risk !== 'read') throw new AgentCoreError('PERMISSION_DENIED', 'Inspect actions can only use read tools')
-      return await this.#prepareTool(state, action.request, undefined, signal, hooks)
+      return await this.#prepareTool(state, action.request, undefined, signal, hooks, 'inspect', action.workItemId)
     }
     if (action.kind === 'verify') {
       const check = state.ledger.verificationPlan.checks.find((item) => item.id === action.checkId)
@@ -404,7 +439,14 @@ export class AgentStepper {
       assertVerificationRequest(check.command, action.request)
       if (state.ledger.phase === 'acting' || state.ledger.phase === 'repairing') this.#phase(state, 'verifying')
       else if (state.ledger.phase !== 'verifying') throw new AgentCoreError('INVALID_TRANSITION', 'Verification is not valid in the current phase')
-      return await this.#prepareTool(state, action.request, action.checkId, signal, hooks)
+      return await this.#prepareTool(state, action.request, action.checkId, signal, hooks, 'verify', action.workItemId)
+    }
+
+    const inferredVerification = matchingVerificationCheck(state.ledger, action.request)
+    if (inferredVerification) {
+      if (state.ledger.phase === 'acting' || state.ledger.phase === 'repairing') this.#phase(state, 'verifying')
+      else if (state.ledger.phase !== 'verifying') throw new AgentCoreError('INVALID_TRANSITION', 'Verification is not valid in the current phase')
+      return await this.#prepareTool(state, action.request, inferredVerification.id, signal, hooks, 'verify', action.workItemId)
     }
 
     if (state.ledger.phase === 'inspecting') {
@@ -417,7 +459,7 @@ export class AgentStepper {
     } else if (state.ledger.phase !== 'acting' && state.ledger.phase !== 'repairing') {
       throw new AgentCoreError('INVALID_TRANSITION', 'Tool action is not valid in the current phase')
     }
-    return await this.#prepareTool(state, action.request, undefined, signal, hooks)
+    return await this.#prepareTool(state, action.request, undefined, signal, hooks, 'change', action.workItemId)
   }
 
   #applyPlan(state: StepState, action: Extract<AgentTurnAction, { kind: 'plan' }>): AgentStepResult {
@@ -429,6 +471,19 @@ export class AgentStepper {
       rationale: action.rationale,
       at: this.#clock(),
     })
+    if (action.steps?.length) {
+      const at = this.#clock()
+      state.ledger = replaceWorkChecklist(state.ledger, {
+        id: action.id,
+        summary: action.summary,
+        items: action.steps,
+      }, at)
+      state.event('plan.updated', action.summary, at, {
+        planId: action.id,
+        checklistRevision: state.ledger.checklist?.revision || 0,
+        itemCount: action.steps.length,
+      })
+    }
     if (state.ledger.workLevel !== 'deep') {
       if (state.ledger.phase !== 'acting') this.#phase(state, 'acting')
       return state.result('continue', action.summary)
@@ -454,11 +509,16 @@ export class AgentStepper {
     verificationCheckId: string | undefined,
     signal?: AbortSignal,
     hooks?: AgentStepHooks,
+    workItemKind?: WorkItemKind,
+    preferredWorkItemId?: string,
   ): Promise<AgentStepResult> {
     const normalizedRequest = { ...request, input: structuredClone(request.input), requestedAt: this.#clock() }
     const tool = this.#tool(normalizedRequest.name)
     assertJsonSchemaValue(normalizedRequest.input, tool.inputSchema, `${normalizedRequest.name}.input`)
     const permission = await this.permissionPolicy.decide(structuredClone(normalizedRequest), structuredClone(tool), structuredClone(state.ledger))
+    const started = workItemKind ? beginWorkItem(state.ledger, workItemKind, normalizedRequest.requestedAt, preferredWorkItemId) : { ledger: state.ledger }
+    state.ledger = started.ledger
+    if (started.itemId) state.event('checklist.item.started', `Started checklist item ${started.itemId}`, normalizedRequest.requestedAt, { itemId: started.itemId })
     state.ledger = recordToolRequest(state.ledger, normalizedRequest)
     state.event('tool.requested', `Requested ${normalizedRequest.name}`, normalizedRequest.requestedAt, {
       requestId: normalizedRequest.id,
@@ -479,6 +539,7 @@ export class AgentStepper {
         approvalScope: 'tool',
         resumePhase: state.ledger.phase,
         ...(verificationCheckId ? { verificationCheckId } : {}),
+        ...(started.itemId ? { checklistItemId: started.itemId } : {}),
       }
       state.ledger = setPendingAction(state.ledger, pending, at)
       this.#phase(state, 'awaiting_approval')
@@ -486,9 +547,9 @@ export class AgentStepper {
       return state.result('awaiting_approval', permission.reason)
     }
     if (permission.effect === 'deny') {
-      return this.#completeTool(state, normalizedRequest, deniedToolResult(normalizedRequest, this.#clock(), permission.reason), verificationCheckId)
+      return this.#completeTool(state, normalizedRequest, deniedToolResult(normalizedRequest, this.#clock(), permission.reason), verificationCheckId, started.itemId)
     }
-    return await this.#executeRecordedTool(state, normalizedRequest, permission, verificationCheckId, signal, hooks)
+    return await this.#executeRecordedTool(state, normalizedRequest, permission, verificationCheckId, signal, hooks, started.itemId)
   }
 
   async #executeRecordedTool(
@@ -498,6 +559,7 @@ export class AgentStepper {
     verificationCheckId: string | undefined,
     signal?: AbortSignal,
     hooks?: AgentStepHooks,
+    checklistItemId?: string,
   ): Promise<AgentStepResult> {
     if (signal?.aborted) throw new AgentCoreError('CANCELLED', 'Agent run was cancelled')
     if (hooks?.beforeToolExecution) {
@@ -509,7 +571,7 @@ export class AgentStepper {
         permission: structuredClone(permission),
         ...(verificationCheckId ? { verificationCheckId } : {}),
       })
-      if (intercepted) return this.#completeTool(state, request, intercepted, verificationCheckId)
+      if (intercepted) return this.#completeTool(state, request, intercepted, verificationCheckId, checklistItemId)
     }
     let result: ToolResult
     try {
@@ -530,7 +592,7 @@ export class AgentStepper {
         error: toAgentError(error, 'TOOL_EXECUTION_FAILED'),
       }
     }
-    return this.#completeTool(state, request, result, verificationCheckId)
+    return this.#completeTool(state, request, result, verificationCheckId, checklistItemId)
   }
 
   #completeTool(
@@ -538,6 +600,7 @@ export class AgentStepper {
     request: ToolRequest,
     result: ToolResult,
     verificationCheckId?: string,
+    checklistItemId?: string,
   ): AgentStepResult {
     state.ledger = recordToolResult(state.ledger, result)
     const inspectedPath = result.metadata?.path
@@ -580,6 +643,19 @@ export class AgentStepper {
         ...(result.outputRef ? { outputRef: result.outputRef } : {}),
       })
       state.event('verification.completed', result.summary, result.completedAt, { checkId: verificationCheckId, passed: result.ok })
+    }
+
+    const activeChecklistItem = checklistItemId || state.ledger.checklist?.items.find((item) => item.status === 'doing')?.id
+    if (activeChecklistItem) {
+      state.ledger = finishWorkItem(state.ledger, activeChecklistItem, {
+        ok: result.ok,
+        summary: result.summary,
+        ...(result.ok ? { evidenceRef: verificationCheckId || request.id } : {}),
+      }, result.completedAt)
+      state.event(result.ok ? 'checklist.item.completed' : 'checklist.item.failed', result.summary, result.completedAt, {
+        itemId: activeChecklistItem,
+        requestId: request.id,
+      })
     }
 
     const repeated = detectRepeatedFailure(state.ledger)
@@ -681,6 +757,7 @@ export class AgentStepper {
     summary: string,
     payload?: Record<string, JsonValue>,
   ) {
+    if (phase === 'blocked') state.ledger = blockOpenWorkItems(state.ledger, summary, this.#clock())
     if (!isTerminalLedger(state.ledger)) this.#phase(state, phase)
     state.event(event, summary, this.#clock(), payload)
   }
@@ -722,6 +799,8 @@ export function projectLedgerMessages(ledger: RunLedger): ModelMessage[] {
     failures: ledger.failures,
     successfulEvidenceRefs: successfulEvidenceRefs(ledger),
     nextAction: ledger.nextAction,
+    graph: ledger.graph,
+    checklist: ledger.checklist,
   }
   const messages: ModelMessage[] = [
     {
@@ -783,22 +862,57 @@ function dispositionForLedger(ledger: RunLedger): AgentStepDisposition {
   return 'continue'
 }
 
+function allowedActionsForPhase(ledger: RunLedger): AgentTurnAction['kind'][] {
+  if (ledger.phase === 'planning') return ['plan']
+  if (ledger.phase === 'inspecting') {
+    return ledger.workLevel === 'light'
+      ? ['inspect', 'plan', 'tool', 'finish', 'blocked']
+      : ['inspect', 'plan', 'blocked']
+  }
+  if (ledger.phase === 'acting' || ledger.phase === 'repairing') return ['plan', 'tool', 'verify', 'finish', 'blocked']
+  if (ledger.phase === 'verifying') return ['tool', 'verify', 'finish', 'blocked']
+  if (ledger.phase === 'finalizing') return ['finish', 'blocked']
+  return ['blocked']
+}
+
 function assertVerificationRequest(expectedCommand: string[] | undefined, request: ToolRequest) {
   if (!expectedCommand?.length) return
-  const command = request.input.command
-  const args = request.input.args
-  if (
-    request.name !== 'exec_command'
-    || typeof command !== 'string'
-    || !Array.isArray(args)
-    || args.some((item) => typeof item !== 'string')
-    || command !== expectedCommand[0]
-    || JSON.stringify(args) !== JSON.stringify(expectedCommand.slice(1))
-  ) {
+  if (!verificationRequestMatches(expectedCommand, request)) {
     throw new AgentCoreError('VERIFICATION_FAILED', 'Verification tool request does not match the required command', {
       details: { checkCommand: expectedCommand },
     })
   }
+}
+
+function matchingVerificationCheck(ledger: RunLedger, request: ToolRequest) {
+  return ledger.verificationPlan.checks.find((check) => check.command?.length && verificationRequestMatches(check.command, request))
+}
+
+function verificationRequestMatches(expectedCommand: string[], request: ToolRequest) {
+  const command = request.input.command
+  const args = request.input.args
+  return request.name === 'exec_command'
+    && typeof command === 'string'
+    && Array.isArray(args)
+    && args.every((item) => typeof item === 'string')
+    && command === expectedCommand[0]
+    && JSON.stringify(args) === JSON.stringify(expectedCommand.slice(1))
+}
+
+function claimsMissingChecklist(ledger: RunLedger, action: Extract<AgentTurnAction, { kind: 'blocked' }>) {
+  if (ledger.checklist?.items.length) return false
+  return /(?:checklist|清单)/i.test(`${action.summary}\n${action.reason}`)
+}
+
+function claimsResponseSchemaBlock(action: Extract<AgentTurnAction, { kind: 'blocked' }>) {
+  const claim = `${action.summary}\n${action.reason}`
+  return /(?:response|响应).{0,20}(?:schema|格式)|(?:schema|格式).{0,20}(?:finish|action|提交|合法)|action.{0,12}(?:包装|envelope)|finish.{0,20}(?:分支|schema|格式|合法)/i.test(claim)
+}
+
+function claimsMissingAnalysisVerification(ledger: RunLedger, action: Extract<AgentTurnAction, { kind: 'blocked' }>) {
+  if (ledger.intent !== 'analysis' || ledger.changes.length || ledger.verificationPlan.checks.length || ledger.failures.length) return false
+  return /(?:verificationPlan|verification|successfulEvidenceRefs|验收|验证|证据引用|可引用的?证据|内部阶段)/i
+    .test(`${action.summary}\n${action.reason}`)
 }
 
 function changeMetadata(metadata: ToolResult['metadata'], path: string): Record<string, JsonValue> {

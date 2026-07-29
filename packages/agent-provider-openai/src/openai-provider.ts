@@ -11,6 +11,7 @@ import {
 } from '@electron-manager/agent-core'
 
 import { createAgentTurnActionSchema, hydrateAgentTurnAction } from './action-schema.js'
+import type { OpenAIModelDiagnosticEntry } from './chat-completions-provider.js'
 import type { OpenAIResponseInputMessage, OpenAIResponsesRequest, OpenAIResponsesStreamEvent, OpenAIResponsesTransport } from './types.js'
 
 export interface OpenAIResponsesProviderOptions {
@@ -20,6 +21,8 @@ export interface OpenAIResponsesProviderOptions {
   maxOutputTokens?: number
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
   verbosity?: 'low' | 'medium' | 'high'
+  providerId?: string
+  onDiagnostic?: (entry: OpenAIModelDiagnosticEntry) => void | Promise<void>
   clock?: () => string
 }
 
@@ -28,6 +31,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
   readonly #transport: OpenAIResponsesTransport
   readonly #reasoningEffort?: OpenAIResponsesProviderOptions['reasoningEffort']
   readonly #verbosity: NonNullable<OpenAIResponsesProviderOptions['verbosity']>
+  readonly #providerId: string
+  readonly #onDiagnostic?: OpenAIResponsesProviderOptions['onDiagnostic']
   readonly #clock: () => string
 
   constructor(options: OpenAIResponsesProviderOptions) {
@@ -36,6 +41,8 @@ export class OpenAIResponsesProvider implements ModelProvider {
     this.#transport = options.transport
     this.#reasoningEffort = options.reasoningEffort
     this.#verbosity = options.verbosity || 'low'
+    this.#providerId = String(options.providerId || 'openai')
+    this.#onDiagnostic = options.onDiagnostic
     this.#clock = options.clock || (() => new Date().toISOString())
     this.profile = {
       id: `openai:${model}`,
@@ -55,7 +62,12 @@ export class OpenAIResponsesProvider implements ModelProvider {
     }
     let outputText = ''
     let terminal = false
+    const startedAt = Date.now()
     try {
+      await this.#diagnostic(request, {
+        level: 'info', event: 'request.started',
+        messageCount: request.messages.length, toolCount: request.tools.length,
+      })
       for await (const event of this.#transport.stream(this.#requestBody(request), signal)) {
         if (signal?.aborted) throw new AgentCoreError('CANCELLED', 'OpenAI model request was cancelled', { cause: signal.reason })
         if (event.type === 'response.output_text.delta') {
@@ -71,6 +83,10 @@ export class OpenAIResponsesProvider implements ModelProvider {
           const action = hydrateAgentTurnAction(parseJson(outputText), request, { clock: this.#clock })
           const usage = usageEvent(response)
           if (usage) yield usage
+          await this.#diagnostic(request, {
+            level: 'info', event: 'response.parsed', durationMs: Date.now() - startedAt,
+            finishReason: 'stop', actionShape: 'responses-json-schema',
+          })
           yield { type: 'action', action }
           yield { type: 'completed', finishReason: 'stop' }
           return
@@ -93,7 +109,11 @@ export class OpenAIResponsesProvider implements ModelProvider {
         }
         if (event.type === 'response.failed' || event.type === 'error') {
           terminal = true
-          yield { type: 'error', error: responseError(event) }
+          const failure = responseError(event)
+          await this.#diagnostic(request, {
+            level: 'error', event: 'request.failed', durationMs: Date.now() - startedAt, error: failure.message,
+          })
+          yield { type: 'error', error: failure }
           return
         }
       }
@@ -101,8 +121,29 @@ export class OpenAIResponsesProvider implements ModelProvider {
         yield { type: 'error', error: { code: 'MODEL_ERROR', message: 'OpenAI stream ended without a terminal response event', retryable: true } }
       }
     } catch (error) {
+      await this.#diagnostic(request, {
+        level: 'error', event: 'request.failed', durationMs: Date.now() - startedAt,
+        ...(error instanceof AgentCoreError && typeof error.details?.status === 'number' ? { status: error.details.status } : {}),
+        error: error instanceof Error ? error.message : String(error),
+      })
       if (signal?.aborted) yield { type: 'error', error: cancelledError(signal.reason) }
       else yield { type: 'error', error: toAgentError(error, 'MODEL_ERROR') }
+    }
+  }
+
+  async #diagnostic(
+    request: ModelRequest,
+    entry: Pick<OpenAIModelDiagnosticEntry, 'level' | 'event'> & Partial<OpenAIModelDiagnosticEntry>,
+  ) {
+    if (!this.#onDiagnostic) return
+    try {
+      await this.#onDiagnostic({
+        at: this.#clock(), providerId: this.#providerId,
+        model: this.profile.id.slice('openai:'.length), runId: request.runId, turnId: request.turnId,
+        ...entry,
+      })
+    } catch {
+      // Diagnostics must never fail a model request.
     }
   }
 
@@ -120,7 +161,7 @@ export class OpenAIResponsesProvider implements ModelProvider {
           type: 'json_schema',
           name: 'agent_turn_action',
           strict: true,
-          schema: createAgentTurnActionSchema(request.tools),
+          schema: createAgentTurnActionSchema(request.tools, request.allowedActions),
         },
       },
       ...(this.#reasoningEffort ? { reasoning: { effort: this.#reasoningEffort } } : {}),

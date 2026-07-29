@@ -7,6 +7,7 @@ export interface CompletionBlocker {
     | 'RUN_TERMINAL'
     | 'PENDING_ACTION'
     | 'TOOL_IN_FLIGHT'
+    | 'CHECKLIST_INCOMPLETE'
     | 'ACCEPTANCE_MISSING'
     | 'VERIFICATION_MISSING'
     | 'VERIFICATION_FAILED'
@@ -36,6 +37,10 @@ export function evaluateCompletion(ledger: RunLedger): CompletionEvaluation {
 
   for (const execution of ledger.toolExecutions.filter((item) => !item.result)) {
     blockers.push({ code: 'TOOL_IN_FLIGHT', message: `Tool request ${execution.request.name} has not completed`, ref: execution.request.id })
+  }
+
+  for (const item of ledger.checklist?.items.filter((candidate) => !['done', 'skipped'].includes(candidate.status)) || []) {
+    blockers.push({ code: 'CHECKLIST_INCOMPLETE', message: `Checklist item is not complete: ${item.title}`, ref: item.id })
   }
 
   for (const criterion of ledger.acceptanceCriteria.filter((item) => item.required !== false)) {

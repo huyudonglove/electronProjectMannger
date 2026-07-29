@@ -45,7 +45,10 @@ export class DesktopAgentSettingsStore {
   async loadOrCreate(): Promise<DesktopAgentSettings> {
     return await this.#exclusive(async () => {
       const existing = await this.load()
-      if (existing) return existing
+      if (existing) {
+        const migrated = migrateLegacyTelanceApi(settingsInputFrom(existing))
+        return migrated.changed ? await this.#write(migrated.settings) : existing
+      }
       return await this.#write(createDefaultDesktopAgentSettingsInput())
     })
   }
@@ -153,8 +156,8 @@ function validateTelanceProviderSettings(
   if (!provider.providerId || !/^[A-Za-z0-9._-]+$/.test(provider.providerId)) {
     throw new Error(`Telance provider id is invalid: ${profileId}`)
   }
-  if (provider.apiStyle !== 'chat-completions') {
-    throw new Error(`Telance provider must use Chat Completions: ${profileId}`)
+  if (provider.apiStyle !== 'auto' && provider.apiStyle !== 'responses' && provider.apiStyle !== 'chat-completions') {
+    throw new Error(`Telance provider must declare a supported API style: ${profileId}`)
   }
   const url = new URL(String(provider.baseUrl || ''))
   if (
@@ -167,6 +170,16 @@ function validateTelanceProviderSettings(
   ) {
     throw new Error(`Telance provider must use its loopback proxy route: ${profileId}`)
   }
+}
+
+function migrateLegacyTelanceApi(settings: DesktopAgentSettingsInput) {
+  let changed = false
+  for (const provider of Object.values(settings.providerSettings)) {
+    if (provider.connectionSource !== 'telance-local-proxy' || provider.apiStyle === 'auto') continue
+    provider.apiStyle = 'auto'
+    changed = true
+  }
+  return { settings, changed }
 }
 
 export function settingsInputFrom(settings: DesktopAgentSettings): DesktopAgentSettingsInput {

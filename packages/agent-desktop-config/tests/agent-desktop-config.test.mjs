@@ -59,6 +59,12 @@ test('desktop permission policy allows project-local work and denies unsupported
   assert.equal(policy.decide(request, tool('read_file', 'read'), ledger).effect, 'allow')
   assert.equal(policy.decide(request, tool('apply_patch', 'project_write'), ledger).effect, 'allow')
   assert.equal(policy.decide(request, tool('exec_command', 'process'), ledger).effect, 'ask')
+  const approvedLedger = {
+    approvals: [{ scope: 'tool', decision: 'approved', actionDigest: 'approved-command' }],
+    toolExecutions: [{ request: { name: 'exec_command', actionDigest: 'approved-command' } }],
+  }
+  assert.equal(policy.decide(request, tool('exec_command', 'process'), approvedLedger).effect, 'allow')
+  assert.equal(policy.decide(request, tool('another_process', 'process'), approvedLedger).effect, 'ask')
   assert.equal(policy.decide(request, tool('remote_write', 'external_write'), ledger).effect, 'deny')
 })
 
@@ -102,7 +108,7 @@ test('settings service exposes the backend provider catalog and saves only dropd
   assert.equal(persisted.providerSettings[persisted.catalog.modelProfiles[0].id].providerId, 'deepseek')
   assert.equal(persisted.providerSettings[persisted.catalog.modelProfiles[0].id].baseUrl, 'http://127.0.0.1:8787/provider/deepseek')
   assert.equal(persisted.providerSettings[persisted.catalog.modelProfiles[0].id].connectionSource, 'telance-local-proxy')
-  assert.equal(persisted.providerSettings[persisted.catalog.modelProfiles[0].id].apiStyle, 'chat-completions')
+  assert.equal(persisted.providerSettings[persisted.catalog.modelProfiles[0].id].apiStyle, 'auto')
   assert.equal(persisted.catalog.modelProfiles[0].capabilities.contextWindow, 128_000)
   assert.equal(persisted.catalog.modelProfiles[0].capabilities.maxOutputTokens, 16_000)
   await assert.rejects(
@@ -244,6 +250,24 @@ test('settings store creates defaults, writes atomically and rejects stale or co
   assert.doesNotMatch(raw, /sk-fixture-secret/)
   await writeFile(filePath, '{broken', 'utf8')
   await assert.rejects(() => store.loadOrCreate(), /not valid JSON/)
+})
+
+test('settings store migrates fixed local proxy formats to automatic protocol adaptation', async (t) => {
+  const root = await temporaryRoot(t, 'responses-migration')
+  const store = new DesktopAgentSettingsStore(path.join(root, 'agent-settings.json'))
+  const created = await store.loadOrCreate()
+  const legacy = settingsInputFrom(created)
+  const profileId = legacy.catalog.modelProfiles[0].id
+  legacy.providerSettings[profileId] = {
+    provider: 'openai', providerId: 'fixture', connectionSource: 'telance-local-proxy',
+    apiStyle: 'chat-completions', baseUrl: 'http://127.0.0.1:8787/provider/fixture',
+  }
+  const saved = await store.save(legacy, created.revision)
+  assert.equal(saved.providerSettings[profileId].apiStyle, 'chat-completions')
+
+  const migrated = await store.loadOrCreate()
+  assert.equal(migrated.providerSettings[profileId].apiStyle, 'auto')
+  assert.notEqual(migrated.revision, saved.revision)
 })
 
 test('desktop OpenAI model capabilities cover built-ins and use a conservative custom-model fallback', () => {

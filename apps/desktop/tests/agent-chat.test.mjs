@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -7,6 +7,7 @@ import test from 'node:test'
 import { AgentChatService, projectOverview } from '../dist/agent-chat-service.js'
 import { AgentChatStore } from '../dist/agent-chat-store.js'
 import { ModelDiagnosticLog, modelDiagnosticProjectKey } from '../dist/model-diagnostics.js'
+import { appendTask, getDashboard, initProject } from '@electron-manager/project-core'
 
 test('project overview exposes bounded status summaries without source contents', () => {
   const overview = projectOverview({
@@ -113,6 +114,121 @@ test('non-task chat uses a configured provider and survives store reload', async
   assert.deepEqual(reloaded[0].messages.map((message) => message.role), ['user', 'assistant', 'user', 'assistant'])
   assert.equal(diagnostics.entries.length, 2)
   assert.ok(diagnostics.entries.every((entry) => entry.event === 'route.attempt.succeeded'))
+})
+
+test('new chats use independent IDs and deletion never cascades to another conversation', async (context) => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-independent-chat-'))
+  context.after(() => rm(dataRoot, { recursive: true, force: true }))
+  const store = new AgentChatStore(dataRoot)
+  const first = await store.appendUser(dataRoot, undefined, '第一段对话')
+  const second = await store.appendUser(dataRoot, undefined, '第二段对话')
+  assert.notEqual(second.conversation.id, first.conversation.id)
+
+  await store.appendUser(dataRoot, first.conversation.id, '继续第一段')
+  await store.delete(dataRoot, first.conversation.id)
+  const remaining = await store.list(dataRoot)
+  assert.deepEqual(remaining.map((conversation) => conversation.id), [second.conversation.id])
+  assert.deepEqual(remaining[0].messages.map((message) => message.content), ['第二段对话'])
+})
+
+test('execution capture stays in the current independent conversation without invoking the chat model', async (context) => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-task-chat-'))
+  context.after(() => rm(dataRoot, { recursive: true, force: true }))
+  let resolveCalls = 0
+  const store = new AgentChatStore(dataRoot)
+  const service = new AgentChatService({
+    store,
+    config: { async resolve() { resolveCalls += 1; throw new Error('must not resolve') } },
+    diagnostics: { async append() {} },
+    async loadProjectOverview() { return {} },
+  })
+
+  const chat = await store.appendUser(dataRoot, undefined, '先聊一下')
+  await store.appendAssistant(dataRoot, chat.conversation.id, '回答：先聊一下')
+  const attached = await service.send({
+    projectRoot: dataRoot,
+    conversationId: chat.conversation.id,
+    message: '检查该项目',
+    executionOnly: true,
+  })
+
+  assert.equal(resolveCalls, 0)
+  assert.equal(attached.conversation.id, chat.conversation.id)
+  assert.ok(attached.message.id)
+  assert.equal('taskId' in attached.conversation, false)
+  assert.deepEqual(attached.conversation.messages.map((message) => message.content), ['先聊一下', '回答：先聊一下', '检查该项目'])
+})
+
+test('legacy task-linked chat data migrates to an independent conversation', async (context) => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-legacy-task-chat-'))
+  context.after(() => rm(dataRoot, { recursive: true, force: true }))
+  const store = new AgentChatStore(dataRoot)
+  await mkdir(path.dirname(store.filePath), { recursive: true })
+  await writeFile(store.filePath, `${JSON.stringify({
+    schemaVersion: 1,
+    conversations: [{
+      id: 'legacy-chat-id',
+      projectRoot: dataRoot,
+      taskId: 'task-001',
+      title: '旧任务对话',
+      createdAt: '2026-07-29T00:00:00.000Z',
+      updatedAt: '2026-07-29T00:00:00.000Z',
+      messages: [{ id: 'message-1', role: 'user', content: '保留旧消息', createdAt: '2026-07-29T00:00:00.000Z' }],
+    }],
+  }, null, 2)}\n`, 'utf8')
+
+  const [legacy] = await store.list(dataRoot)
+  assert.equal('taskId' in legacy, false)
+  assert.equal(legacy.messages[0].content, '保留旧消息')
+  const migrated = JSON.parse(await readFile(store.filePath, 'utf8'))
+  assert.equal(migrated.schemaVersion, 2)
+  assert.equal('taskId' in migrated.conversations[0], false)
+  await store.appendUser(dataRoot, legacy.id, '继续独立对话')
+  const persisted = JSON.parse(await readFile(store.filePath, 'utf8'))
+  assert.equal(persisted.schemaVersion, 2)
+  assert.equal('taskId' in persisted.conversations[0], false)
+})
+
+test('legacy task linkage becomes message-level task provenance before Chat is detached', async (context) => {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'electron-manager-chat-provenance-'))
+  context.after(() => rm(fixtureRoot, { recursive: true, force: true }))
+  const managerRoot = path.join(fixtureRoot, 'manager')
+  const projectRoot = path.join(fixtureRoot, 'project')
+  await mkdir(projectRoot, { recursive: true })
+  await initProject(managerRoot, projectRoot)
+  const dashboard = await appendTask(managerRoot, projectRoot, { title: 'Derived task' })
+  const task = dashboard.tasks.find((item) => item.title === 'Derived task')
+  assert.ok(task)
+
+  const store = new AgentChatStore(managerRoot)
+  await mkdir(path.dirname(store.filePath), { recursive: true })
+  await writeFile(store.filePath, `${JSON.stringify({
+    schemaVersion: 1,
+    conversations: [{
+      id: 'legacy-derived-chat',
+      projectRoot,
+      taskId: task.id,
+      title: '旧派生对话',
+      createdAt: '2026-07-29T00:00:00.000Z',
+      updatedAt: '2026-07-29T00:01:00.000Z',
+      messages: [
+        { id: 'message-chat', role: 'user', content: '先讨论', createdAt: '2026-07-29T00:00:00.000Z' },
+        { id: 'message-task', role: 'user', content: '创建任务', createdAt: '2026-07-29T00:01:00.000Z' },
+      ],
+    }],
+  }, null, 2)}\n`, 'utf8')
+  const service = new AgentChatService({
+    store,
+    managerDataRoot: managerRoot,
+    config: { async resolve() { throw new Error('not used') } },
+    diagnostics: { async append() {} },
+    async loadProjectOverview() { return {} },
+  })
+
+  const [conversation] = await service.list(projectRoot)
+  const migratedTask = (await getDashboard(managerRoot, projectRoot)).tasks.find((item) => item.id === task.id)
+  assert.equal('taskId' in conversation, false)
+  assert.deepEqual(migratedTask.sourceRefs, ['chat:legacy-derived-chat#message:message-task'])
 })
 
 test('model errors are diagnosed while the user message remains persisted', async (context) => {

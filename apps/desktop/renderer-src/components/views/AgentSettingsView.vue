@@ -271,7 +271,7 @@ function diagnosticTime(value: string) {
               <span class="agent-provider-mark">AI</span>
               <div>
                 <strong>{{ selectedProvider?.name || '后台 Provider' }}</strong>
-                <small>{{ form.model || '等待选择模型' }} · Chat Completions</small>
+                <small>{{ form.model || '等待选择模型' }} · 自动适配（优先 Responses）</small>
               </div>
             </div>
             <span class="connection-state" :class="{ configured: selectedProvider?.desktopAvailable }">

@@ -70,7 +70,8 @@ function workLevelRulesEn() {
 
 export function agentBriefWorkInstructions() {
   return [
-    '先判断输入属于普通对话、咨询澄清还是可执行工作。普通问候、解释和无需项目动作的咨询只留在会话中，不创建任务；只有存在明确可执行目标时才创建或关联任务。同一目标的后续消息复用原会话和任务，不重复建卡。',
+    'Chat 是拥有独立 CHAT ID 的会话容器，不保存 taskId 或 thoughtId，也不把任务伪装为对话。普通问候和咨询只留在 Chat；明确执行目标可以从消息派生 T，明确保存想法可以派生 I。',
+    '从 Chat 派生的 T/I 必须在 source_refs 写入消息级引用 chat:<完整CHAT_ID>#message:<完整消息ID>。删除 Chat 不级联删除 T/I；来源已删除时保留原引用作为历史痕迹。',
     '按边界确定 work_level:: light | standard | deep：light 是单一局部且易回退的修改；standard 是方案明确的常规功能或修复；deep 仅用于架构、迁移、跨系统契约、安全边界、不可逆操作或高影响取舍，并必须记录 depth_reason、关键约束和回退。priority 只表示紧急程度。',
     '简单明确的 light 工作直接执行，只做最小必要检查；standard、deep 或范围不明确的工作先给出简洁计划。目标和验收是稳定锚点，计划按证据动态替换；不得静默改变目标，也不保存无价值的计划演变。已配置、验收要求或用户指定的验证必须执行；其他情况先跑与改动直接相关的最小检查，只有共享核心、跨模块契约、构建发布链路、影响范围不明或轻量检查不足时才扩大到全量测试。',
     '同一目标、版本、功能区域和验收轮次中的连续 light 修改可以合并，并让 record_level 与最终 work_level 一致；无关目标、独立排期、发布或风险必须分开。无需跟踪的即时 light 工作可使用 task_short_id:: T000。Run 与任务状态相互独立：运行完成并通过验收才把任务改为 done；failed、cancelled 或 blocked 的终态运行必须把仍为 doing 的任务恢复为 todo，详细原因保留在 Run 中。',
@@ -134,7 +135,8 @@ export function dataSpecTemplate() {
 - 所有项目级和版本级记录必须写入 \`version:: Vxxx\`，用于标识产生或主要维护阶段，避免后续检索遗漏版本上下文；跨项目共享的全局知识除外。
 - 任务、想法、研究、问题、风险和工作记录按版本进入默认展示和检索范围；文档和项目约束是项目级资料，版本号只用于追溯，不决定是否可见。
 - 任务卡必须保留用户原话、执行定义和验收，并在执行前标注 \`work_level:: light | standard | deep\`。执行定义合并 Agent 对需求的理解与本次执行范围，避免重复段落。
-- 先判断输入属于普通对话、咨询澄清还是可执行工作。普通问候、解释和无需项目动作的咨询只留在会话中，不创建任务；只有存在明确可执行目标时才创建或关联任务。同一目标的后续消息复用原会话和任务，不重复建卡。
+- Chat 是拥有独立 CHAT ID 的会话容器，不保存 taskId 或 thoughtId，也不把任务伪装为对话。普通问候和咨询只留在 Chat；明确执行目标可以从某条消息派生 T，明确保存想法可以派生 I。
+- 从 Chat 派生的 T/I 必须在 \`source_refs\` 写入消息级引用 \`chat:<完整CHAT_ID>#message:<完整消息ID>\`。删除 Chat 不级联删除 T/I；来源已删除时保留原引用作为历史痕迹。
 - 简单明确的 light 工作直接执行；standard、deep 或范围不明确的工作先建立简洁可执行的当前计划，执行中按证据动态调整。用户目标和验收始终是稳定锚点，计划只是可替换的工作状态，不得静默改变目标。
 - 不把中间计划演变写成长期协作负担；只保留当前有效范围、实际关键判断、结果和验证。目标需要变化、不可行或与新约束冲突时，回到用户确认。
 - 以整体完成效率为优先。运行环境支持子 Agent 时，可并行委派边界清楚、彼此独立或适合专项调查的工作；简单顺序工作和协调成本高于收益的工作不拆分。主 Agent 负责目标、验收、依赖协调、结果整合和最终验证。
@@ -193,6 +195,7 @@ area:: tool
 created:: YYYY-MM-DD HH:mm
 updated:: YYYY-MM-DD HH:mm
 version:: V001
+source_refs:: chat:<CHAT_ID>#message:<MESSAGE_ID> | 无
 
 ### 用户原话
 
@@ -218,7 +221,7 @@ status:: inbox
 type:: thought
 created:: YYYY-MM-DD HH:mm
 version:: V001
-question_refs:: 无
+source_refs:: chat:<CHAT_ID>#message:<MESSAGE_ID> | 无
 
 ### 内容
 
@@ -576,7 +579,8 @@ Use this skill when working on this project with Electron Manager initialized da
 ## Rules
 
 - Use the active version and the paths in \`agent-brief.json.currentDataPaths\` by default. Completed versions are read-only history; project documents, knowledge notes, and constraints remain project-wide.
-- Route input before creating work. Greetings, explanations, and consultations that require no project action stay in the conversation and do not create tasks. Create or link a task only for a concrete executable goal, and reuse the same conversation and task for follow-up messages about that goal.
+- Keep Chat as an independent container with its own CHAT ID; never store taskId or thoughtId on a conversation or render tasks as conversations. Greetings and consultations stay in Chat, while an explicit executable message may derive a T record and an explicit idea-capture message may derive an I record.
+- A T/I derived from Chat must store the message-level provenance \`chat:<full CHAT ID>#message:<full message ID>\` in \`source_refs\`. Deleting Chat never cascades to T/I; keep the source reference as historical provenance when its Chat no longer exists.
 - Before executing a task, set its status to \`doing\`.
 - After verification, set its status to \`done\`.
 - Keep Run status separate from task status. When a Run terminates as \`failed\`, \`cancelled\`, or \`blocked\`, return a still-\`doing\` task to \`todo\`; retain the terminal reason and resumability details in the Run. Never leave a task \`doing\` without an active or resumable Run.
@@ -623,6 +627,8 @@ version:: V001
 \`\`\`
 
 Only deep tasks include \`depth_reason\`, \`### 关键约束\`, and \`### 方案与回退\`.
+
+Tasks and thoughts derived from Chat use the optional \`source_refs:: chat:<CHAT_ID>#message:<MESSAGE_ID>\` provenance field. Chat records never store reverse T/I IDs.
 
 \`\`\`markdown
 ## Work title

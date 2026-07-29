@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import UiTag from '../ui/UiTag.vue'
+import { buildAgentTimeline, humanizeAgentSummary, type AgentTimelineGroup } from '../../agent-timeline'
 
 type TaskItem = {
   id: string
@@ -24,6 +25,27 @@ type RunView = {
   updatedAt?: string
   startedAt?: string
   nextAction?: string
+  graph?: {
+    revision: string
+    currentNode: string
+    historyCount: number
+  }
+  checklist?: {
+    revision: number
+    planId?: string
+    summary?: string
+    progress: { total: number; todo: number; doing: number; done: number; blocked: number; skipped: number }
+    items: Array<{
+      id: string
+      title: string
+      kind: 'inspect' | 'change' | 'verify'
+      status: 'todo' | 'doing' | 'done' | 'blocked' | 'skipped'
+      dependsOn: string[]
+      attempt: number
+      result?: string
+      error?: string
+    }>
+  }
   task?: RunTask
   waiting?: {
     id: string
@@ -129,6 +151,8 @@ type ProjectMaps = {
         changedFiles: string[]
         verificationPassed: number
         verificationFailed: number
+        graph?: { currentNode?: string; historyCount?: number }
+        checklist?: { progress?: { total?: number; done?: number; doing?: number; blocked?: number } }
         result?: string
         diagnostics?: {
           rejectedActions: number
@@ -155,11 +179,6 @@ type RunDetail = {
 }
 
 type CredentialStatus = 'configured' | 'missing' | 'loading' | 'error'
-
-type ConversationItem = {
-  task: TaskItem | RunTask
-  run?: RunView
-}
 
 type ModelDiagnostic = {
   at: string
@@ -191,12 +210,13 @@ type ChatConversation = {
 }
 
 const props = withDefaults(defineProps<{
-  tasks?: TaskItem[]
+  projectId?: string
   chats?: ChatConversation[]
   currentChat?: ChatConversation | null
   currentTask: TaskItem | null
   runDetail: RunDetail | null
   runs: RunView[]
+  runsLoaded?: boolean
   busy: boolean
   status?: string
   credentialStatus: CredentialStatus
@@ -207,9 +227,10 @@ const props = withDefaults(defineProps<{
   projectMaps?: ProjectMaps | null
   diagnosticReportBusy?: boolean
 }>(), {
-  tasks: () => [],
+  projectId: '',
   chats: () => [],
   currentChat: null,
+  runsLoaded: false,
   status: '',
   credentialLabel: '',
   diagnostics: () => [],
@@ -221,7 +242,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   selectChat: [conversationId: string]
-  selectTask: [taskId: string]
+  deleteChat: [conversationId: string]
   start: [taskId: string, instruction?: string]
   advance: [runId: string, instruction?: string]
   approve: [runId: string]
@@ -235,13 +256,76 @@ const emit = defineEmits<{
 
 const draft = ref('')
 const messageStream = ref<HTMLElement | null>(null)
+const filesExpanded = ref(false)
+const stopRequested = ref(false)
+const now = ref(Date.now())
+const FILE_PREVIEW_LIMIT = 6
+let messageScrollFrame = 0
+let runClock = 0
+let wasNearMessageBottom = true
+let pendingMessageScrollRestore = false
 
 const run = computed(() => props.runDetail?.run || latestTaskRun.value || null)
 const events = computed(() => props.runDetail?.events || [])
+const timeline = computed(() => buildAgentTimeline(events.value, [
+  ...(run.value?.progress?.changedFiles || []),
+  ...(run.value?.diff?.changedFiles || []),
+]))
 const isTerminal = computed(() => !!run.value && ['completed', 'blocked', 'failed', 'cancelled'].includes(run.value.status))
 const waiting = computed(() => run.value?.waiting || null)
+const canStopRun = computed(() => !!run.value && !isTerminal.value)
+const showRunControl = computed(() => canStopRun.value && (props.busy || ['running', 'awaiting_approval'].includes(run.value?.status || '')))
+const activeChecklistItem = computed(() => run.value?.checklist?.items.find((item) => item.status === 'doing'))
+const latestRunEvent = computed(() => events.value.at(-1))
+const runElapsed = computed(() => formatElapsed(run.value?.startedAt, now.value))
+const liveActivityTitle = computed(() => {
+  if (stopRequested.value) return '正在停止 Agent'
+  if (waiting.value) return waiting.value.kind === 'plan_approval' ? '等待方案确认' : '等待操作确认'
+  if (activeChecklistItem.value) return activeChecklistItem.value.title
+  if (props.busy) return `${phaseLabel(run.value?.graph?.currentNode || run.value?.phase)}中`
+  return '运行已暂停，可以继续或停止'
+})
+const liveActivityDetail = computed(() => {
+  if (stopRequested.value) return '正在中断当前模型或工具请求，并保存可恢复检查点。'
+  if (activeChecklistItem.value) return `${checklistStatusLabel(activeChecklistItem.value.status)} · 第 ${run.value?.stepCount || 0} 步`
+  const event = latestRunEvent.value
+  if (props.busy && event?.type === 'tool.requested') return `正在执行：${event.summary}`
+  if (props.busy) return `正在等待本轮模型决策 · 已完成 ${run.value?.progress?.modelAttempts || 0} 次模型调用`
+  return run.value?.nextAction || event?.summary || '当前状态已保存。'
+})
 const canCompose = computed(() => props.credentialStatus === 'configured' && !props.busy && !waiting.value)
 const outputRefs = computed(() => run.value?.outputRefs || [])
+const nonDiffOutputRefs = computed(() => outputRefs.value.filter((ref) => ref !== run.value?.diff?.outputRef))
+const visibleChangedFiles = computed(() => filesExpanded.value
+  ? timeline.value.changedFiles
+  : timeline.value.changedFiles.slice(0, FILE_PREVIEW_LIMIT))
+const hiddenChangedFileCount = computed(() => Math.max(0, timeline.value.changedFiles.length - FILE_PREVIEW_LIMIT))
+const messageScrollKey = computed(() => {
+  const selection = props.currentChat?.id
+    ? `chat:${props.currentChat.id}`
+    : props.currentTask?.id
+      ? `task:${props.currentTask.id}`
+      : 'new'
+  return `electron-manager:agent-chat:scroll:${encodeURIComponent(props.projectId || 'unknown')}:${selection}`
+})
+const taskPromptMessageIndex = computed(() => {
+  if (!props.currentTask) return -1
+  const prompt = String(props.currentTask.userOriginal || props.currentTask.detail || props.currentTask.title || '').trim()
+  for (let index = props.localMessages.length - 1; index >= 0; index -= 1) {
+    const message = props.localMessages[index]
+    if (message?.role === 'user' && message.content.trim() === prompt) return index
+  }
+  return -1
+})
+const taskLeadingMessages = computed(() => taskPromptMessageIndex.value < 0
+  ? []
+  : props.localMessages.slice(0, taskPromptMessageIndex.value))
+const remainingLocalMessages = computed(() => {
+  if (!props.currentTask) return props.localMessages
+  return taskPromptMessageIndex.value < 0
+    ? props.localMessages
+    : props.localMessages.slice(taskPromptMessageIndex.value + 1)
+})
 const runMemory = computed(() => run.value?.memory || null)
 const currentTaskMap = computed(() => {
   if (!props.currentTask || !props.projectMaps) return null
@@ -266,31 +350,22 @@ const canRestartTerminal = computed(() => !!run.value
 const restartReason = computed(() => run.value?.resume?.kind === 'blocked'
   ? run.value.resume.reason
   : `上次运行${runStatusLabel(run.value?.status)}，任务已回到待办，可以从新运行重新开始。`)
+const activitySummary = computed(() => {
+  if (props.busy && run.value) return `${phaseLabel(run.value.phase)}中`
+  const toolCount = timeline.value.activity
+    .filter((group) => ['tool.completed', 'tool.requested'].includes(group.event.type || ''))
+    .reduce((total, group) => total + group.count, 0)
+  const parts = [
+    toolCount ? `${toolCount} 个工具` : '',
+    run.value?.progress?.inspectedFiles ? `检查 ${run.value.progress.inspectedFiles} 个文件` : '',
+    run.value?.progress?.modelAttempts ? `${run.value.progress.modelAttempts} 次模型调用` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : `执行过程 · ${timeline.value.activity.length} 项`
+})
 
 const latestTaskRun = computed(() => {
   if (!props.currentTask) return null
   return props.runs.find((item) => item.task?.id === props.currentTask?.id || item.task?.shortId === props.currentTask?.shortId) || null
-})
-
-const conversations = computed<ConversationItem[]>(() => {
-  const byTask = new Map<string, ConversationItem>()
-  const runTaskIds = new Set(props.runs.flatMap((item) => item.task
-    ? [item.task.id, item.task.shortId].filter((id): id is string => !!id)
-    : []))
-  for (const task of props.tasks) {
-    if (['todo', 'doing'].includes(task.status || '') || runTaskIds.has(task.id) || runTaskIds.has(task.shortId || '')) {
-      byTask.set(task.id, { task })
-    }
-  }
-  for (const item of props.runs) {
-    if (!item.task) continue
-    const key = item.task.id || item.task.shortId || item.runId
-    if (!byTask.has(key) || !byTask.get(key)?.run) byTask.set(key, { task: item.task, run: item })
-  }
-  if (props.currentTask && !byTask.has(props.currentTask.id)) {
-    byTask.set(props.currentTask.id, { task: props.currentTask, ...(latestTaskRun.value ? { run: latestTaskRun.value } : {}) })
-  }
-  return [...byTask.values()]
 })
 
 const credentialCopy = computed(() => ({
@@ -313,19 +388,99 @@ const sendLabel = computed(() => {
   return '发送'
 })
 
+watch(messageScrollKey, async () => {
+  filesExpanded.value = false
+  pendingMessageScrollRestore = localStorage.getItem(messageScrollKey.value) !== null
+  await nextTick()
+  if (!pendingMessageScrollRestore || messageScrollContentReady()) {
+    restoreMessageScroll()
+    pendingMessageScrollRestore = false
+  }
+}, { immediate: true, flush: 'post' })
+
 watch(
-  () => [props.currentTask?.id, props.currentChat?.id, props.localMessages.length, events.value.length, waiting.value?.id, run.value?.status],
+  () => [props.localMessages.length, events.value.length, waiting.value?.id, run.value?.status, props.runsLoaded],
   async () => {
     await nextTick()
-    if (messageStream.value) messageStream.value.scrollTop = messageStream.value.scrollHeight
+    if (pendingMessageScrollRestore) {
+      if (!messageScrollContentReady()) return
+      restoreMessageScroll()
+      pendingMessageScrollRestore = false
+      return
+    }
+    if ((wasNearMessageBottom || props.busy) && messageStream.value) {
+      messageStream.value.scrollTop = messageStream.value.scrollHeight
+      saveMessageScroll()
+    }
   },
   { flush: 'post' },
 )
+
+watch(
+  () => [run.value?.runId, run.value?.status, props.busy],
+  () => {
+    if (!props.busy || isTerminal.value) stopRequested.value = false
+  },
+)
+
+onMounted(() => {
+  runClock = window.setInterval(() => { now.value = Date.now() }, 1_000)
+})
+
+onBeforeUnmount(() => {
+  if (messageScrollFrame) cancelAnimationFrame(messageScrollFrame)
+  if (runClock) window.clearInterval(runClock)
+})
+
+function requestRunStop() {
+  if (!run.value || stopRequested.value) return
+  stopRequested.value = true
+  emit('cancel', run.value.runId)
+}
+
+function handleMessageScroll() {
+  const stream = messageStream.value
+  if (!stream) return
+  if (pendingMessageScrollRestore) return
+  wasNearMessageBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72
+  if (messageScrollFrame) return
+  messageScrollFrame = requestAnimationFrame(() => {
+    messageScrollFrame = 0
+    saveMessageScroll()
+  })
+}
+
+function saveMessageScroll() {
+  if (!messageStream.value) return
+  localStorage.setItem(messageScrollKey.value, String(Math.max(0, Math.round(messageStream.value.scrollTop))))
+}
+
+function restoreMessageScroll() {
+  const stream = messageStream.value
+  if (!stream) return
+  const raw = localStorage.getItem(messageScrollKey.value)
+  const stored = raw === null ? Number.NaN : Number(raw)
+  const target = Number.isFinite(stored)
+    ? Math.min(Math.max(0, stored), Math.max(0, stream.scrollHeight - stream.clientHeight))
+    : stream.scrollHeight
+  const scrollBehavior = stream.style.scrollBehavior
+  stream.style.scrollBehavior = 'auto'
+  stream.scrollTop = target
+  stream.style.scrollBehavior = scrollBehavior
+  wasNearMessageBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72
+}
+
+function messageScrollContentReady() {
+  if (props.currentChat) return true
+  if (props.currentTask) return props.runsLoaded && (!run.value || events.value.length > 0)
+  return true
+}
 
 function submitMessage() {
   if (props.credentialStatus !== 'configured') return
   const message = draft.value.trim()
   if (!message || props.busy || waiting.value) return
+  wasNearMessageBottom = true
   emit('send', message)
   draft.value = ''
 }
@@ -334,12 +489,6 @@ function startRun() {
   if (!props.currentTask || props.busy) return
   if (props.credentialStatus !== 'configured') return
   emit('start', props.currentTask.id)
-}
-
-function outputLabel(ref: string, index: number) {
-  if (run.value?.diff?.outputRef === ref) return '完整代码差异'
-  const earlier = outputRefs.value.slice(0, index).filter((item) => item !== run.value?.diff?.outputRef)
-  return `运行输出 ${earlier.length + 1}`
 }
 
 function runStatusLabel(status?: string) {
@@ -378,10 +527,12 @@ function phaseLabel(phase?: string) {
   } as Record<string, string>)[phase || ''] || phase || '尚未开始'
 }
 
-function eventRole(event: RunEvent) {
-  if (event.type?.startsWith('approval.')) return 'approval'
-  if (event.type?.startsWith('run.') || event.type?.startsWith('verification.')) return 'system'
-  return 'agent'
+function checklistStatusLabel(status: string) {
+  if (status === 'doing') return '进行中'
+  if (status === 'done') return '完成'
+  if (status === 'blocked') return '阻塞'
+  if (status === 'skipped') return '跳过'
+  return '待处理'
 }
 
 function formatTime(value?: string) {
@@ -389,6 +540,16 @@ function formatTime(value?: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+function formatElapsed(startedAt: string | undefined, currentTime: number) {
+  const started = Date.parse(String(startedAt || ''))
+  if (!Number.isFinite(started)) return ''
+  const seconds = Math.max(0, Math.floor((currentTime - started) / 1_000))
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return `${minutes} 分 ${String(remainder).padStart(2, '0')} 秒`
 }
 
 function diagnosticSummary(entry: ModelDiagnostic) {
@@ -407,6 +568,54 @@ function eventPayload(event: RunEvent) {
   return event.payload ? JSON.stringify(event.payload, null, 2) : ''
 }
 
+function activityLabel(group: AgentTimelineGroup) {
+  const event = group.event
+  const tool = typeof event.payload?.tool === 'string' ? event.payload.tool : ''
+  if (event.type === 'run.started') return '开始执行任务'
+  if (event.type === 'phase.changed') {
+    const phase = typeof event.payload?.phase === 'string' ? event.payload.phase : event.phase
+    return `进入${phaseLabel(phase)}阶段`
+  }
+  if (event.type === 'context.assembled') return '已整理本轮上下文'
+  if (event.type === 'context.compacted') return '已压缩较早的会话上下文'
+  if (event.type === 'model.attempted') return '模型响应已接收'
+  if (event.type === 'tool.completed') return `${toolLabel(tool)}已完成`
+  if (event.type === 'tool.requested') return `正在${toolLabel(tool)}`
+  if (event.type === 'approval.requested') return '已请求审批'
+  if (event.type === 'approval.completed') return '审批已处理'
+  return event.summary
+}
+
+function activityGlyph(group: AgentTimelineGroup) {
+  if (group.event.type?.startsWith('tool.')) return '›_'
+  if (group.event.type?.startsWith('context.')) return '◎'
+  if (group.event.type?.startsWith('model.')) return '◇'
+  if (group.event.type?.startsWith('approval.')) return '!'
+  return '·'
+}
+
+function toolLabel(tool: string) {
+  return ({
+    list_files: '列出文件',
+    search_text: '搜索代码',
+    read_file: '读取文件',
+    git_status: '检查 Git 状态',
+    git_diff: '读取代码差异',
+    create_file: '创建文件',
+    apply_patch: '修改文件',
+    exec_command: '运行验证',
+  } as Record<string, string>)[tool] || tool || '执行工具'
+}
+
+function fileName(value: string) {
+  return value.split('/').filter(Boolean).at(-1) || value
+}
+
+function fileDirectory(value: string) {
+  const parts = value.split('/').filter(Boolean)
+  return parts.length > 1 ? parts.slice(0, -1).join('/') : '项目根目录'
+}
+
 function memoryModeLabel(mode?: ProjectMemoryStatus['profile']['mode']) {
   return ({ minimal: '精简', balanced: '平衡', extended: '扩展' } as Record<string, string>)[mode || ''] || '未知'
 }
@@ -420,6 +629,12 @@ function shortRevision(value?: string) {
   if (!value) return '无'
   return value.length > 12 ? `${value.slice(0, 12)}…` : value
 }
+
+function shortConversationId(value: string) {
+  const compact = String(value || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase()
+  return compact ? `CHAT-${compact}` : 'CHAT'
+}
+
 </script>
 
 <template>
@@ -439,46 +654,45 @@ function shortRevision(value?: string) {
       </div>
 
       <div class="agent-chat-conversations" aria-label="会话列表">
-        <p v-if="!props.chats.length && !conversations.length" class="agent-chat-sidebar-empty">暂无对话</p>
-        <button
+        <p v-if="!props.chats.length" class="agent-chat-sidebar-empty">暂无对话</p>
+        <div
           v-for="chat in props.chats"
           :key="chat.id"
-          class="agent-chat-conversation"
-          :class="{ active: chat.id === props.currentChat?.id }"
-          type="button"
-          @click="emit('selectChat', chat.id)"
+          class="agent-chat-conversation-entry"
         >
-          <span class="agent-chat-task-mark">CHAT</span>
-          <span class="agent-chat-task-copy">
-            <strong>{{ chat.title || '未命名对话' }}</strong>
-            <small>普通问答 · {{ formatTime(chat.updatedAt) }}</small>
-          </span>
-        </button>
-        <button
-          v-for="item in conversations"
-          :key="item.task.id || item.task.shortId"
-          class="agent-chat-conversation"
-          :class="{ active: item.task.id === props.currentTask?.id }"
-          type="button"
-          @click="emit('selectTask', item.task.id)"
-        >
-          <span class="agent-chat-task-mark">{{ item.task.shortId || 'TASK' }}</span>
-          <span class="agent-chat-task-copy">
-            <strong>{{ item.task.title || '未命名任务' }}</strong>
-            <small>{{ item.run ? `${runStatusLabel(item.run.status)} · ${phaseLabel(item.run.phase)}` : '尚未启动' }}</small>
-          </span>
-          <i v-if="item.run?.status === 'awaiting_approval' || item.run?.waiting" class="agent-chat-attention" title="等待审批" />
-        </button>
+          <button
+            class="agent-chat-conversation"
+            :class="{ active: chat.id === props.currentChat?.id }"
+            type="button"
+            :title="chat.id"
+            @click="emit('selectChat', chat.id)"
+          >
+            <span class="agent-chat-task-mark">CHAT</span>
+            <span class="agent-chat-task-copy">
+              <strong>{{ chat.title || '未命名对话' }}</strong>
+              <small>{{ shortConversationId(chat.id) }} · 独立对话 · {{ formatTime(chat.updatedAt) }}</small>
+            </span>
+          </button>
+          <button
+            class="agent-chat-conversation-delete"
+            type="button"
+            title="删除对话"
+            :aria-label="`删除对话 ${chat.title || shortConversationId(chat.id)}`"
+            :disabled="props.busy"
+            @click="emit('deleteChat', chat.id)"
+          >×</button>
+        </div>
       </div>
     </aside>
 
     <main class="agent-chat-main">
       <header class="agent-chat-header">
         <div class="agent-chat-title">
-          <span v-if="props.currentTask?.shortId" class="agent-chat-task-id">{{ props.currentTask.shortId }}</span>
+          <span v-if="props.currentChat" class="agent-chat-task-id">{{ shortConversationId(props.currentChat.id) }}</span>
+          <span v-else-if="props.currentTask?.shortId" class="agent-chat-task-id">{{ props.currentTask.shortId }}</span>
           <div>
-            <h2>{{ props.currentTask?.title || props.currentChat?.title || '新对话' }}</h2>
-            <small v-if="run">{{ phaseLabel(run.phase) }} · 更新于 {{ formatTime(run.updatedAt) || '未知时间' }}</small>
+            <h2>{{ props.currentChat?.title || props.currentTask?.title || '新对话' }}</h2>
+            <small v-if="run">{{ props.currentTask?.shortId ? `${props.currentTask.shortId} · ` : '' }}{{ phaseLabel(run.phase) }} · 更新于 {{ formatTime(run.updatedAt) || '未知时间' }}</small>
             <small v-else-if="props.currentChat">普通问答 · 本地持久化</small>
             <small v-else>先识别意图，只有执行请求才会创建项目任务</small>
           </div>
@@ -491,17 +705,19 @@ function shortRevision(value?: string) {
             variant="status"
           />
           <button
-            v-if="run && props.busy"
+            v-if="canStopRun"
             class="btn btn-outline-secondary btn-sm"
             type="button"
-            @click="emit('cancel', run.runId)"
-          >停止</button>
+            :disabled="stopRequested"
+            @click="requestRunStop"
+          >{{ stopRequested ? '停止中…' : '停止' }}</button>
         </div>
       </header>
 
       <div v-if="props.status" class="agent-chat-status" role="status">{{ props.status }}</div>
 
-      <div ref="messageStream" class="agent-chat-messages" aria-live="polite">
+      <div ref="messageStream" class="agent-chat-messages" aria-live="polite" @scroll.passive="handleMessageScroll">
+        <div v-if="props.memoryStatus || props.projectMaps" class="agent-chat-context-tools">
         <details v-if="props.memoryStatus" class="agent-chat-memory">
           <summary>
             <span class="agent-chat-memory-mark">MEM</span>
@@ -566,7 +782,7 @@ function shortRevision(value?: string) {
               <template v-if="currentTaskMap">
                 <p>当前任务包含 {{ currentTaskMap.rounds.length }} 轮 Run；执行步骤、变更文件、验证和结果均从 checkpoint 恢复。</p>
                 <p v-for="round in currentTaskMap.rounds.slice(0, 4)" :key="round.runId">
-                  {{ round.runId.slice(0, 8) }} · {{ runStatusLabel(round.status) }} · {{ round.stepCount }} 步 · {{ round.changedFiles.length }} 文件 · 验证 {{ round.verificationPassed }}/{{ round.verificationFailed }}
+                  {{ round.runId.slice(0, 8) }} · {{ runStatusLabel(round.status) }} · {{ round.stepCount }} 步 · 清单 {{ round.checklist?.progress?.done || 0 }}/{{ round.checklist?.progress?.total || 0 }} · {{ round.changedFiles.length }} 文件 · 验证 {{ round.verificationPassed }}/{{ round.verificationFailed }}
                 </p>
                 <p v-for="error in currentTaskMap.rounds.flatMap((round) => round.diagnostics?.recentErrors || []).slice(0, 4)" :key="`${error.sequence}-${error.at}`" class="agent-chat-memory-note">
                   错误链 #{{ error.sequence }} · {{ error.type }} · {{ error.summary }}
@@ -579,6 +795,7 @@ function shortRevision(value?: string) {
             </section>
           </div>
         </details>
+        </div>
 
         <div v-if="!props.currentTask && !props.localMessages.length" class="agent-chat-empty">
           <span class="agent-chat-empty-mark">AI</span>
@@ -586,43 +803,80 @@ function shortRevision(value?: string) {
           <p>普通闲聊和咨询不会创建任务；明确的检查、修改或运行请求会进入可追踪的 Agent 执行。</p>
         </div>
 
+        <article
+          v-for="message in taskLeadingMessages"
+          :key="message.id"
+          :class="message.role === 'user' ? 'agent-chat-message is-user' : 'agent-chat-response'"
+        >
+          <span v-if="message.role === 'assistant'" class="agent-chat-response-mark">✦</span>
+          <div :class="message.role === 'user' ? 'agent-chat-bubble' : ''">
+            <header><strong>{{ message.role === 'user' ? '你' : 'Agent' }}</strong><time>{{ formatTime(message.createdAt) }}</time></header>
+            <p>{{ message.content }}</p>
+          </div>
+        </article>
+
         <template v-if="props.currentTask">
           <article class="agent-chat-message is-user">
-            <span class="agent-chat-avatar">你</span>
             <div class="agent-chat-bubble">
-              <header><strong>任务意图</strong><time>{{ props.currentTask.shortId || '' }}</time></header>
+              <header><strong>你</strong><time>{{ props.currentTask.shortId || '' }}</time></header>
               <p>{{ props.currentTask.userOriginal || props.currentTask.detail || props.currentTask.title }}</p>
             </div>
           </article>
 
-          <article v-if="!run" class="agent-chat-message is-agent">
-            <span class="agent-chat-avatar">AI</span>
-            <div class="agent-chat-bubble">
-              <header><strong>Agent</strong></header>
-              <p>任务已就绪。点击启动后，Agent 会读取任务定义和当前项目上下文。</p>
+          <article v-if="!run" class="agent-chat-response is-ready">
+            <span class="agent-chat-response-mark">✦</span>
+            <div>
+              <p>任务已就绪。启动后会读取任务定义和当前项目上下文。</p>
               <button class="btn btn-primary btn-sm" type="button" :disabled="props.busy || props.credentialStatus !== 'configured'" @click="startRun">启动任务</button>
             </div>
           </article>
 
-          <article
-            v-for="event in events"
-            :key="event.sequence"
-            class="agent-chat-message"
-            :class="`is-${eventRole(event)}`"
-          >
-            <span class="agent-chat-avatar">{{ eventRole(event) === 'agent' ? 'AI' : '·' }}</span>
-            <div class="agent-chat-bubble">
-              <header>
-                <strong>{{ eventRole(event) === 'approval' ? '审批' : eventRole(event) === 'system' ? '运行状态' : phaseLabel(event.phase) }}</strong>
-                <time>{{ formatTime(event.at) }}</time>
-              </header>
-              <p>{{ event.summary }}</p>
-              <details v-if="event.payload && ['model.rejected', 'run.failed', 'run.blocked', 'verification.completed'].includes(event.type || '')" class="agent-chat-event-payload">
-                <summary>错误详情</summary>
-                <pre>{{ eventPayload(event) }}</pre>
-              </details>
+          <details v-if="run?.checklist?.items.length" class="agent-chat-checklist" :open="props.busy || run.checklist.progress.doing > 0">
+            <summary>
+              <span class="agent-chat-checklist-mark">{{ run.checklist.progress.done }}/{{ run.checklist.progress.total }}</span>
+              <strong>{{ run.checklist.summary || '执行清单' }}</strong>
+              <small>{{ phaseLabel(run.graph?.currentNode || run.phase) }} · 图已跳转 {{ run.graph?.historyCount || 0 }} 次</small>
+            </summary>
+            <div class="agent-chat-checklist-items">
+              <div v-for="item in run.checklist.items" :key="item.id" :class="`is-${item.status}`">
+                <span class="agent-chat-checklist-state">{{ item.status === 'done' ? '✓' : item.status === 'doing' ? '●' : item.status === 'blocked' ? '!' : '○' }}</span>
+                <p><strong>{{ item.title }}</strong><small>{{ checklistStatusLabel(item.status) }}<template v-if="item.attempt"> · 尝试 {{ item.attempt }}</template><template v-if="item.dependsOn.length"> · 依赖 {{ item.dependsOn.join('、') }}</template></small></p>
+              </div>
             </div>
-          </article>
+          </details>
+
+          <details v-if="timeline.activity.length" class="agent-chat-activity" :open="props.busy">
+            <summary>
+              <span class="agent-chat-activity-state" :class="{ running: props.busy }"><i /></span>
+              <strong>{{ activitySummary }}</strong>
+              <small>{{ timeline.activity.reduce((total, group) => total + group.count, 0) }} 项详情</small>
+            </summary>
+            <div class="agent-chat-activity-list">
+              <div v-for="group in timeline.activity" :key="group.key">
+                <span>{{ activityGlyph(group) }}</span>
+                <p>{{ activityLabel(group) }}<small v-if="group.count > 1">× {{ group.count }}</small></p>
+                <time>{{ formatTime(group.event.at) }}</time>
+              </div>
+            </div>
+          </details>
+
+          <details v-if="timeline.issues.length" class="agent-chat-issues">
+            <summary>
+              <span>!</span>
+              <strong>{{ timeline.issues.length }} 类问题</strong>
+              <small>展开排错信息</small>
+            </summary>
+            <div>
+              <article v-for="group in timeline.issues" :key="group.key">
+                <header><strong>{{ humanizeAgentSummary(group.event.summary) }}</strong><time>{{ formatTime(group.event.at) }}</time></header>
+                <small v-if="group.count > 1">重复 {{ group.count }} 次</small>
+                <details v-if="group.event.payload" class="agent-chat-event-payload">
+                  <summary>错误详情</summary>
+                  <pre>{{ eventPayload(group.event) }}</pre>
+                </details>
+              </article>
+            </div>
+          </details>
 
           <article v-if="waiting && run" class="agent-chat-approval">
             <div class="agent-chat-approval-mark">!</div>
@@ -637,7 +891,7 @@ function shortRevision(value?: string) {
             </div>
           </article>
 
-          <details v-if="run?.status === 'failed' && runDiagnostics.length" class="agent-chat-diagnostics" open>
+          <details v-if="run?.status === 'failed' && runDiagnostics.length" class="agent-chat-diagnostics">
             <summary>模型诊断 · {{ runDiagnostics[0].providerId }} / {{ runDiagnostics[0].model }}</summary>
             <div>
               <p v-for="(entry, index) in runDiagnostics" :key="`${entry.at}-${entry.event}-${index}`" :class="{ error: entry.level === 'error' }">
@@ -653,25 +907,63 @@ function shortRevision(value?: string) {
             <button class="btn btn-outline-secondary btn-sm" type="button" :disabled="props.busy" @click="startRun">新建运行</button>
           </article>
 
-          <section v-if="outputRefs.length" class="agent-chat-outputs" aria-label="运行产物">
-            <header><strong>运行产物</strong><small>{{ outputRefs.length }} 项 · 保存在本机</small></header>
-            <div>
-              <button
-                v-for="(ref, index) in outputRefs"
-                :key="ref"
-                type="button"
-                @click="emit('openOutput', ref, outputLabel(ref, index))"
-              >
-                <span>{{ run?.diff?.outputRef === ref ? 'DIFF' : 'LOG' }}</span>
-                <strong>{{ outputLabel(ref, index) }}</strong>
-                <small>打开 →</small>
-              </button>
+          <section v-if="timeline.changedFiles.length || outputRefs.length" class="agent-chat-change-set" aria-label="文件变更与运行产物">
+            <header>
+              <div>
+                <span class="agent-chat-change-mark">±</span>
+                <strong>{{ timeline.changedFiles.length ? `修改了 ${timeline.changedFiles.length} 个文件` : '运行产物' }}</strong>
+              </div>
+              <button v-if="run?.diff?.outputRef" type="button" @click="emit('openOutput', run.diff.outputRef, '完整代码差异')">查看 Diff</button>
+            </header>
+            <div v-if="timeline.changedFiles.length" class="agent-chat-file-list">
+              <div v-for="file in visibleChangedFiles" :key="file">
+                <span>M</span>
+                <strong>{{ fileName(file) }}</strong>
+                <small>{{ fileDirectory(file) }}</small>
+              </div>
             </div>
+            <button
+              v-if="hiddenChangedFileCount"
+              class="agent-chat-file-toggle"
+              type="button"
+              :aria-expanded="filesExpanded"
+              @click="filesExpanded = !filesExpanded"
+            >{{ filesExpanded ? '收起文件列表' : `展开其余 ${hiddenChangedFileCount} 个文件` }}</button>
+            <details v-if="nonDiffOutputRefs.length" class="agent-chat-output-links">
+              <summary>{{ nonDiffOutputRefs.length }} 项运行输出</summary>
+              <div>
+                <button
+                  v-for="(ref, index) in nonDiffOutputRefs"
+                  :key="ref"
+                  type="button"
+                  @click="emit('openOutput', ref, `运行输出 ${index + 1}`)"
+                >运行输出 {{ index + 1 }} →</button>
+              </div>
+            </details>
           </section>
 
+          <div v-if="timeline.verifications.length" class="agent-chat-verifications">
+            <div v-for="group in timeline.verifications" :key="group.key" :class="{ failed: group.event.payload?.passed === false }">
+              <span>{{ group.event.payload?.passed === false ? '×' : '✓' }}</span>
+              <p>{{ group.event.summary }}</p>
+              <time>{{ formatTime(group.event.at) }}</time>
+            </div>
+          </div>
+
+          <article v-if="timeline.terminal" class="agent-chat-response" :class="`is-${run?.status || 'complete'}`">
+            <span class="agent-chat-response-mark">✦</span>
+            <div>
+              <p>{{ humanizeAgentSummary(timeline.terminal.summary) }}</p>
+              <details v-if="timeline.terminal.payload && ['run.failed', 'run.blocked'].includes(timeline.terminal.type || '')" class="agent-chat-event-payload">
+                <summary>错误详情</summary>
+                <pre>{{ eventPayload(timeline.terminal) }}</pre>
+              </details>
+            </div>
+          </article>
+
           <article v-if="run && !props.busy && !waiting && !isTerminal && run.resume?.kind !== 'blocked'" class="agent-chat-next-action">
-            <div><strong>可以继续</strong><small>{{ run.nextAction || '从本地检查点推进下一步' }}</small></div>
-            <button class="btn btn-primary btn-sm" type="button" @click="emit('advance', run.runId)">继续运行</button>
+            <div><strong>自动推进已暂停</strong><small>{{ run.nextAction || '可以从本地检查点安全恢复' }}</small></div>
+            <button class="btn btn-primary btn-sm" type="button" @click="emit('advance', run.runId)">恢复推进</button>
           </article>
 
           <article v-if="props.busy" class="agent-chat-thinking" role="status">
@@ -681,15 +973,14 @@ function shortRevision(value?: string) {
         </template>
 
         <article
-          v-for="message in props.localMessages"
+          v-for="message in remainingLocalMessages"
           :key="message.id"
-          class="agent-chat-message"
-          :class="message.role === 'user' ? 'is-user' : 'is-agent'"
+          :class="message.role === 'user' ? 'agent-chat-message is-user' : 'agent-chat-response'"
         >
-          <span class="agent-chat-avatar">{{ message.role === 'user' ? '你' : 'AI' }}</span>
-          <div class="agent-chat-bubble">
+          <span v-if="message.role === 'assistant'" class="agent-chat-response-mark">✦</span>
+          <div :class="message.role === 'user' ? 'agent-chat-bubble' : ''">
             <header><strong>{{ message.role === 'user' ? '你' : 'Agent' }}</strong><time>{{ formatTime(message.createdAt) }}</time></header>
-              <p>{{ message.content }}</p>
+            <p>{{ message.content }}</p>
           </div>
         </article>
 
@@ -698,6 +989,17 @@ function shortRevision(value?: string) {
           <p>模型正在回复，对话会保存在本机。</p>
         </article>
       </div>
+
+      <section v-if="showRunControl" class="agent-chat-run-control" role="status" aria-live="polite">
+        <span class="agent-chat-run-control-state" :class="{ stopping: stopRequested }"><i /></span>
+        <div>
+          <strong>{{ liveActivityTitle }}</strong>
+          <small>{{ liveActivityDetail }}<template v-if="runElapsed"> · {{ runElapsed }}</template></small>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" type="button" :disabled="stopRequested" @click="requestRunStop">
+          {{ stopRequested ? '正在停止…' : '停止运行' }}
+        </button>
+      </section>
 
       <form class="agent-chat-composer" @submit.prevent="submitMessage">
         <textarea
@@ -727,12 +1029,12 @@ function shortRevision(value?: string) {
   grid-template-columns: 252px minmax(0, 1fr);
   width: 100%;
   height: min(780px, calc(100vh - 136px));
-  min-height: 560px;
+  min-height: min(560px, calc(100vh - 96px));
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9px;
   background: var(--surface);
-  box-shadow: 0 18px 48px color-mix(in srgb, var(--shadow-color) 56%, transparent);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--shadow-color) 24%, transparent);
 }
 
 .agent-chat-sidebar {
@@ -859,6 +1161,44 @@ function shortRevision(value?: string) {
   text-align: left;
 }
 
+.agent-chat-conversation-entry {
+  position: relative;
+  min-width: 0;
+}
+
+.agent-chat-conversation-entry .agent-chat-conversation {
+  width: 100%;
+  padding-right: 32px;
+}
+
+.agent-chat-conversation-delete {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+.agent-chat-conversation-entry:hover .agent-chat-conversation-delete,
+.agent-chat-conversation-delete:focus-visible {
+  opacity: 1;
+}
+
+.agent-chat-conversation-delete:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
 .agent-chat-conversation:hover,
 .agent-chat-conversation.active {
   border-color: var(--border);
@@ -905,13 +1245,14 @@ function shortRevision(value?: string) {
 
 .agent-chat-main {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 0;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 45%, transparent), transparent 190px);
+  background: var(--surface);
 }
 
 .agent-chat-header {
+  grid-row: 1;
   min-height: 70px;
   justify-content: space-between;
   gap: 16px;
@@ -958,6 +1299,7 @@ function shortRevision(value?: string) {
 }
 
 .agent-chat-status {
+  grid-row: 2;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--primary-soft) 64%, var(--surface) 36%);
   color: var(--muted);
@@ -969,19 +1311,98 @@ function shortRevision(value?: string) {
   display: none;
 }
 
+.agent-chat-checklist {
+  width: min(820px, 100%);
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.agent-chat-checklist summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 11px;
+}
+
+.agent-chat-checklist summary small,
+.agent-chat-checklist-items small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.agent-chat-checklist-mark {
+  min-width: 34px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  padding: 3px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.agent-chat-checklist-items {
+  display: grid;
+  border-top: 1px solid var(--border);
+  padding: 5px 12px 9px;
+}
+
+.agent-chat-checklist-items > div {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  padding: 7px 0;
+}
+
+.agent-chat-checklist-items p,
+.agent-chat-checklist-items strong,
+.agent-chat-checklist-items small {
+  display: block;
+  margin: 0;
+}
+
+.agent-chat-checklist-items strong {
+  font-size: 10px;
+}
+
+.agent-chat-checklist-state {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.agent-chat-checklist-items .is-doing .agent-chat-checklist-state {
+  color: var(--primary);
+}
+
+.agent-chat-checklist-items .is-done .agent-chat-checklist-state {
+  color: var(--complete);
+}
+
+.agent-chat-checklist-items .is-blocked .agent-chat-checklist-state {
+  color: var(--danger);
+}
+
 .agent-chat-diagnostics {
-  margin: 0 37px 18px;
-  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--danger) 5%, var(--surface-soft));
-  padding: 11px 13px;
+  width: min(820px, 100%);
+  margin: 0 0 14px;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: transparent;
+  padding: 5px 0 5px 10px;
 }
 
 .agent-chat-diagnostics summary {
   cursor: pointer;
   color: var(--text);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 650;
 }
 
 .agent-chat-diagnostics > div {
@@ -1002,14 +1423,24 @@ function shortRevision(value?: string) {
 .agent-chat-diagnostics p.error { color: var(--danger); }
 .agent-chat-diagnostics time { color: var(--muted); }
 
-.agent-chat-memory {
-  width: min(760px, 94%);
-  margin: 0 0 18px 37px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-soft) 76%, var(--primary-soft) 24%);
-  padding: 11px 13px;
+.agent-chat-context-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(820px, 100%);
+  margin-bottom: 24px;
 }
+
+.agent-chat-memory {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 9px 11px;
+}
+
+.agent-chat-memory[open] { grid-column: 1 / -1; }
 
 .agent-chat-memory summary {
   display: grid;
@@ -1090,9 +1521,10 @@ function shortRevision(value?: string) {
 }
 
 .agent-chat-messages {
+  grid-row: 3;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px max(20px, 7%);
+  padding: 26px clamp(18px, 7vw, 84px);
   scroll-behavior: smooth;
 }
 
@@ -1134,12 +1566,12 @@ function shortRevision(value?: string) {
   grid-template-columns: 28px minmax(0, 1fr);
   align-items: start;
   gap: 9px;
-  width: min(760px, 94%);
-  margin-bottom: 15px;
+  width: min(680px, 86%);
+  margin-bottom: 22px;
 }
 
 .agent-chat-message.is-user {
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr);
   margin-left: auto;
 }
 
@@ -1153,8 +1585,8 @@ function shortRevision(value?: string) {
 .agent-chat-message.is-user .agent-chat-bubble {
   grid-column: 1;
   grid-row: 1;
-  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
-  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
+  background: color-mix(in srgb, var(--primary-soft) 72%, var(--surface) 28%);
 }
 
 .agent-chat-avatar {
@@ -1179,9 +1611,9 @@ function shortRevision(value?: string) {
 .agent-chat-bubble {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-soft);
-  padding: 11px 13px;
+  padding: 10px 13px;
 }
 
 .agent-chat-bubble header {
@@ -1213,12 +1645,276 @@ function shortRevision(value?: string) {
   margin-top: 10px;
 }
 
+.agent-chat-response {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  width: min(820px, 100%);
+  margin: 2px 0 22px;
+  color: var(--text);
+}
+
+.agent-chat-response-mark {
+  color: var(--primary);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.agent-chat-response header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+
+.agent-chat-response header strong,
+.agent-chat-response header time { font-size: 10px; }
+.agent-chat-response header time { color: var(--muted); }
+
+.agent-chat-response p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-chat-response .btn { margin-top: 10px; }
+.agent-chat-response.is-failed,
+.agent-chat-response.is-blocked,
+.agent-chat-response.is-cancelled { color: var(--danger); }
+
+.agent-chat-activity,
+.agent-chat-issues,
+.agent-chat-change-set,
+.agent-chat-verifications {
+  width: min(820px, 100%);
+  margin-bottom: 16px;
+}
+
+.agent-chat-activity,
+.agent-chat-issues {
+  border: 0;
+}
+
+.agent-chat-activity > summary,
+.agent-chat-issues > summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.agent-chat-activity > summary::-webkit-details-marker,
+.agent-chat-issues > summary::-webkit-details-marker { display: none; }
+
+.agent-chat-activity > summary strong,
+.agent-chat-issues > summary strong {
+  color: var(--muted-strong);
+  font-size: 10px;
+}
+
+.agent-chat-activity > summary small,
+.agent-chat-issues > summary small { font-size: 9px; }
+
+.agent-chat-activity-state {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+}
+
+.agent-chat-activity-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--complete);
+}
+
+.agent-chat-activity-state.running i {
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent);
+  animation: agent-chat-pulse 1.1s infinite ease-in-out;
+}
+
+.agent-chat-activity-list {
+  display: grid;
+  gap: 1px;
+  margin: 4px 0 0 7px;
+  border-left: 1px solid var(--border);
+  padding: 4px 0 4px 19px;
+}
+
+.agent-chat-activity-list > div {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  color: var(--muted);
+}
+
+.agent-chat-activity-list > div > span {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px;
+}
+
+.agent-chat-activity-list p {
+  display: flex;
+  gap: 7px;
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 10px;
+}
+
+.agent-chat-activity-list p small,
+.agent-chat-activity-list time {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.agent-chat-issues > summary > span {
+  color: var(--danger);
+  font-weight: 900;
+  text-align: center;
+}
+
+.agent-chat-issues > div {
+  display: grid;
+  gap: 7px;
+  margin: 5px 0 0 26px;
+}
+
+.agent-chat-issues article {
+  border-left: 2px solid color-mix(in srgb, var(--danger) 65%, var(--border));
+  background: color-mix(in srgb, var(--danger) 4%, transparent);
+  padding: 8px 10px;
+}
+
+.agent-chat-issues article header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-chat-issues article strong { font-size: 10px; }
+.agent-chat-issues article time,
+.agent-chat-issues article > small { color: var(--muted); font-size: 9px; }
+
+.agent-chat-change-set {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.agent-chat-change-set > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 9px 11px;
+}
+
+.agent-chat-change-set > header > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-chat-change-set > header strong { font-size: 11px; }
+.agent-chat-change-mark { color: var(--primary); font-weight: 800; }
+
+.agent-chat-change-set button {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  padding: 0;
+  font-size: 9px;
+}
+
+.agent-chat-file-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 14px;
+  padding: 5px 10px;
+}
+
+.agent-chat-file-list > div {
+  display: grid;
+  grid-template-columns: 18px minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  padding: 7px 0;
+}
+
+.agent-chat-file-list > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.agent-chat-file-list span { color: var(--warning); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9px; }
+.agent-chat-file-list strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-chat-file-list small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+
+.agent-chat-file-toggle {
+  display: block;
+  width: 100%;
+  border-top: 1px solid var(--border) !important;
+  padding: 8px 11px !important;
+  text-align: left;
+}
+
+.agent-chat-output-links {
+  border-top: 1px solid var(--border);
+  padding: 8px 11px;
+}
+
+.agent-chat-output-links > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--primary);
+  font-size: 9px;
+}
+
+.agent-chat-output-links > summary::-webkit-details-marker { display: none; }
+
+.agent-chat-output-links > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.agent-chat-verifications {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-chat-verifications > div {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--complete);
+  padding: 3px 0;
+}
+
+.agent-chat-verifications > div.failed { color: var(--danger); }
+.agent-chat-verifications p { margin: 0; color: var(--muted-strong); font-size: 10px; }
+.agent-chat-verifications time { color: var(--muted); font-size: 9px; }
+
 .agent-chat-approval,
 .agent-chat-resume-blocked,
-.agent-chat-outputs,
 .agent-chat-next-action {
-  width: min(760px, calc(100% - 37px));
-  margin: 6px 0 16px 37px;
+  width: min(820px, 100%);
+  margin: 6px 0 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface-soft);
@@ -1270,9 +1966,20 @@ function shortRevision(value?: string) {
 }
 
 .agent-chat-resume-blocked {
-  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
-  padding: 13px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 16px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 0 0;
 }
+
+.agent-chat-resume-blocked strong { font-size: 11px; }
+.agent-chat-resume-blocked p { grid-column: 1; margin: 3px 0 0; }
+.agent-chat-resume-blocked .btn { grid-column: 2; grid-row: 1 / span 2; }
 
 .agent-chat-outputs {
   padding: 12px;
@@ -1406,11 +2113,59 @@ function shortRevision(value?: string) {
 }
 
 .agent-chat-composer {
+  grid-row: 5;
   margin: 0 18px 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--field-bg);
   box-shadow: 0 8px 28px color-mix(in srgb, var(--shadow-color) 35%, transparent);
+}
+
+.agent-chat-run-control {
+  grid-row: 4;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 18px 8px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--primary-soft) 60%, var(--surface) 40%);
+  padding: 9px 10px 9px 12px;
+}
+
+.agent-chat-run-control > div { min-width: 0; }
+.agent-chat-run-control strong,
+.agent-chat-run-control small { display: block; }
+.agent-chat-run-control strong { font-size: 11px; }
+.agent-chat-run-control small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chat-run-control-state {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+}
+
+.agent-chat-run-control-state i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: agent-chat-pulse 1.1s infinite ease-in-out;
+}
+
+.agent-chat-run-control-state.stopping i {
+  border-radius: 2px;
+  background: var(--danger);
+  animation: none;
 }
 
 .agent-chat-composer:focus-within {
@@ -1491,16 +2246,30 @@ function shortRevision(value?: string) {
 
   .agent-chat-approval,
   .agent-chat-resume-blocked,
-  .agent-chat-outputs,
   .agent-chat-next-action,
   .agent-chat-memory {
-    width: calc(100% - 37px);
+    width: 100%;
   }
 
+  .agent-chat-context-tools,
   .agent-chat-memory-body { grid-template-columns: 1fr; }
 
-  .agent-chat-outputs > div {
+  .agent-chat-file-list {
     grid-template-columns: 1fr;
+  }
+
+  .agent-chat-file-list > div:nth-last-child(-n + 2) { border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent); }
+  .agent-chat-file-list > div:last-child { border-bottom: 0; }
+
+  .agent-chat-resume-blocked {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-chat-resume-blocked .btn {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+    margin-top: 7px;
   }
 
   .agent-chat-next-action {

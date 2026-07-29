@@ -46,7 +46,13 @@ test('desktop coordinator runs a project task, publishes persisted events and sy
   const fixture = await createFixture(t, 'completed')
   const modelProvider = provider([
     turn({ kind: 'inspect', request: request('read-1', 'read_file', { path: 'src/value.js' }) }),
-    turn({ kind: 'plan', id: 'plan-1', summary: 'Update and verify the fixture', rationale: 'Standard runs require a plan', actionDigest: 'plan-1-digest' }),
+    turn({
+      kind: 'plan', id: 'plan-1', summary: 'Update and verify the fixture', rationale: 'Standard runs require a plan', actionDigest: 'plan-1-digest',
+      steps: [
+        { id: 'change-value', title: 'Update the fixture value', kind: 'change', dependsOn: [] },
+        { id: 'verify-value', title: 'Run the fixture test', kind: 'verify', dependsOn: ['change-value'] },
+      ],
+    }),
     turn({
       kind: 'tool',
       request: request('patch-1', 'apply_patch', {
@@ -100,6 +106,9 @@ test('desktop coordinator runs a project task, publishes persisted events and sy
   assert.ok(completed.run.logShortId)
   assert.deepEqual(completed.run.progress.changedFiles, ['src/value.js'])
   assert.equal(completed.run.progress.verificationPassed, 1)
+  assert.deepEqual(completed.run.checklist.progress, { total: 2, todo: 0, doing: 0, done: 2, blocked: 0, skipped: 0 })
+  assert.equal(completed.run.graph.currentNode, 'completed')
+  assert.ok(completed.run.graph.historyCount >= 6)
   assert.ok(completed.run.diff.outputRef)
   assert.ok(completed.events.some((event) => event.type === 'run.completed'))
 
@@ -151,6 +160,62 @@ test('blocked run with file changes writes one log and returns the project task 
   assert.equal(logs[0].recordLevel, 'standard')
   assert.match(logs[0].result, /任务已回到 todo/)
   assert.deepEqual(logs[0].changedFiles, ['src/value.js'])
+})
+
+test('a persisted running run can be stopped even when no operation is active', async (t) => {
+  const fixture = await createFixture(t, 'persisted-stop')
+  const coordinator = createCoordinator(fixture, provider([]))
+  await coordinator.startTask({
+    projectRoot: fixture.projectRoot,
+    taskId: fixture.task.id,
+    runId: 'desktop-run-persisted-stop',
+    intent: 'analysis',
+    verificationPlan: { checks: [] },
+  })
+
+  assert.equal(await coordinator.cancelRun('desktop-run-persisted-stop', fixture.projectRoot), true)
+  const stopped = await coordinator.getRun(fixture.projectRoot, 'desktop-run-persisted-stop')
+  assert.equal(stopped.run.status, 'cancelled')
+  assert.equal(stopped.run.task.status, 'todo')
+  assert.equal(await coordinator.cancelRun('desktop-run-persisted-stop', fixture.projectRoot), false)
+})
+
+test('snapshot drift cancels a stale approval and returns the task to todo for a fresh run', async (t) => {
+  const fixture = await createFixture(t, 'snapshot-drift')
+  const initialOptions = runnerOptions(provider([
+    turn({ kind: 'inspect', request: request('read-1', 'read_file', { path: 'src/value.js' }) }),
+  ]))
+  initialOptions.permissionPolicy = new FakePermissionPolicy({ effect: 'ask', reason: 'Confirm read' })
+  const initialBackend = createHeadlessDesktopAgentBackend({
+    storageFor: () => ({ checkpointPath: fixture.checkpointPath, outputDirectory: fixture.outputDirectory }),
+    runnerOptionsFor: () => initialOptions,
+  })
+  const initial = new DesktopAgentCoordinator({ managerDataRoot: fixture.managerDataRoot, backend: initialBackend })
+  await initial.startTask({ projectRoot: fixture.projectRoot, taskId: fixture.task.id, runId: 'stale-approval' })
+  const paused = await initial.advanceRun({ projectRoot: fixture.projectRoot, runId: 'stale-approval' })
+  assert.equal(paused.run.status, 'awaiting_approval')
+
+  const currentOptions = runnerOptions(provider([]))
+  currentOptions.permissionPolicy = new FakePermissionPolicy({ effect: 'ask', reason: 'Confirm read' })
+  currentOptions.outputPreviewCharacters = 40
+  const currentBackend = createHeadlessDesktopAgentBackend({
+    storageFor: () => ({ checkpointPath: fixture.checkpointPath, outputDirectory: fixture.outputDirectory }),
+    runnerOptionsFor: () => currentOptions,
+  })
+  const current = new DesktopAgentCoordinator({ managerDataRoot: fixture.managerDataRoot, backend: currentBackend })
+  const recovered = await current.resolveApproval({
+    projectRoot: fixture.projectRoot,
+    runId: 'stale-approval',
+    decision: 'approved',
+    continueUntilPause: true,
+  })
+
+  assert.equal(recovered.run.status, 'cancelled')
+  assert.equal(recovered.run.task.status, 'todo')
+  assert.equal(recovered.run.waiting, undefined)
+  assert.equal(recovered.recovery?.kind, 'configuration_changed')
+  assert.match(recovered.recovery?.message || '', /旧运行已安全取消/)
+  assert.equal(recovered.events.at(-1).type, 'run.cancelled')
 })
 
 test('coordinator claims a project run before loading it and rejects a concurrent operation', async (t) => {
@@ -206,6 +271,7 @@ test('coordinator claims a project run before loading it and rejects a concurren
           operationSignal = signal
           return result
         },
+        cancel: async () => result,
         close() {},
       }
     },

@@ -167,8 +167,11 @@ function completionLog(task: ProjectTask, ledger: ProjectCompletionInput['ledger
   const changedFiles = deduplicate(ledger.changes.map((change) => change.operation === 'rename' && change.previousPath
     ? `${change.previousPath} -> ${change.path}`
     : change.path))
+  const checklistItems = ledger.checklist?.items || []
+  const checklistDone = checklistItems.filter((item) => ['done', 'skipped'].includes(item.status)).length
   const result = deduplicate([
     ledger.diffSnapshot?.summary || '',
+    ...(checklistItems.length ? [`执行清单 ${checklistDone}/${checklistItems.length}：${checklistItems.map((item) => `${item.title}[${item.status}]`).join('；')}`] : []),
     ...(ledger.status === 'completed' ? [] : [task.status === 'doing'
       ? `Agent Run ${ledger.status}，任务已回到 todo。`
       : `Agent Run ${ledger.status}，任务保持 ${task.status}。`]),

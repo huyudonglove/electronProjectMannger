@@ -45,6 +45,7 @@ async function summarize(
       messages: summaryMessages(input),
       tools: [],
       maxOutputTokens: Math.min(2_000, router.profile.maxOutputTokens),
+      allowedActions: ['finish'],
     })) {
       if (event.type === 'model_attempt') attemptCount += 1
       else if (event.type === 'usage') addUsage(usage, event)

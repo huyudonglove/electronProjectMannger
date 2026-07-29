@@ -71,8 +71,10 @@ export function prepareProjectTaskRun(
     `project:${dashboard.config.projectId}`,
     `version:${task.version}`,
     `task:${task.shortId}@${task.updated}`,
+    ...(task.sourceRefs || []),
     ...constraintRefs.map((item) => item.ref),
   ])
+  const intent = input.intent ?? 'change'
   const goal = [task.title, task.detail].filter((value, index, values) => value.trim() && values.indexOf(value) === index).join('\n\n')
   const prepared: PreparedProjectRun = {
     schemaVersion: PROJECT_ADAPTER_SCHEMA_VERSION,
@@ -84,10 +86,10 @@ export function prepareProjectTaskRun(
       acceptanceCriteria: acceptance.map((description, index) => ({
         id: `acceptance-${String(index + 1).padStart(3, '0')}`,
         description,
-        required: true,
+        required: acceptanceCriterionRequired(description, intent),
       })),
       constraints,
-      intent: input.intent ?? 'change',
+      intent,
       verificationPlan,
       taskId: task.id,
       taskShortId: task.shortId,
@@ -117,6 +119,13 @@ export function prepareProjectTaskRun(
     sourceRefs,
   }
   return { ok: true, value: prepared, warnings }
+}
+
+function acceptanceCriterionRequired(description: string, intent: 'change' | 'analysis') {
+  const normalized = description.trim().replace(/[。.]$/, '')
+  if (normalized === '如遇阻塞，明确说明原因和下一步') return false
+  if (intent === 'analysis' && normalized === '对实际改动执行合适的验证') return false
+  return true
 }
 
 function validateTask(dashboard: Dashboard, task: ProjectTask, issues: ProjectAdapterIssue[]) {

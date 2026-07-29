@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { AgentEvent, LoadedCheckpoint, RunLedger } from '@electron-manager/agent-core'
+import { AgentCoreError, type AgentEvent, type LoadedCheckpoint, type RunLedger } from '@electron-manager/agent-core'
 import {
   applyPreparedProjectRunStart,
   applyProjectRunUpdatePlan,
@@ -83,23 +83,32 @@ export class DesktopAgentCoordinator {
   }
 
   async advanceRun(input: AdvanceProjectRunInput): Promise<DesktopRunDetail> {
-    return await this.#operate(input.projectRoot, input.runId, input.signal, async (runner, signal) =>
-      input.untilPause === false
-        ? await runner.advance(input.runId, signal)
-        : await runner.runUntilPause(input.runId, signal))
+    return await this.#operate(input.projectRoot, input.runId, input.signal, async (runner, signal) => {
+      try {
+        return input.untilPause === false
+          ? await runner.advance(input.runId, signal)
+          : await runner.runUntilPause(input.runId, signal)
+      } catch (error) {
+        return await recoverSnapshotMismatch(runner, input.runId, error)
+      }
+    })
   }
 
   async resolveApproval(input: ResolveProjectRunApprovalInput): Promise<DesktopRunDetail> {
     return await this.#operate(input.projectRoot, input.runId, input.signal, async (runner, signal) => {
-      let result = await runner.resolveApproval(input.runId, {
-        decision: input.decision,
-        decidedAt: this.#clock(),
-        ...(input.reason ? { reason: input.reason } : {}),
-      }, signal)
-      if (input.continueUntilPause && result.decision.kind === 'continue') {
-        result = await runner.runUntilPause(input.runId, signal)
+      try {
+        let result = await runner.resolveApproval(input.runId, {
+          decision: input.decision,
+          decidedAt: this.#clock(),
+          ...(input.reason ? { reason: input.reason } : {}),
+        }, signal)
+        if (input.continueUntilPause && result.decision.kind === 'continue') {
+          result = await runner.runUntilPause(input.runId, signal)
+        }
+        return result
+      } catch (error) {
+        return await recoverSnapshotMismatch(runner, input.runId, error)
       }
-      return result
     })
   }
 
@@ -111,6 +120,15 @@ export class DesktopAgentCoordinator {
       cancelled = true
     }
     return cancelled
+  }
+
+  async cancelRun(runId: string, projectRoot: string) {
+    if (this.cancelActiveRun(runId, projectRoot)) return true
+    const current = await this.#load(projectRoot, runId)
+    if (!current || ['completed', 'blocked', 'failed', 'cancelled'].includes(current.snapshot.ledger.status)) return false
+    await this.#operate(projectRoot, runId, undefined, async (runner) =>
+      await runner.cancel(runId, '用户已停止 Agent 运行'))
+    return true
   }
 
   cancelAllActiveRuns() {
@@ -157,7 +175,10 @@ export class DesktopAgentCoordinator {
     projectRoot: string,
     runId: string,
     externalSignal: AbortSignal | undefined,
-    action: (runner: DesktopAgentRunner, signal: AbortSignal) => Promise<{ checkpoint: LoadedCheckpoint }>,
+    action: (runner: DesktopAgentRunner, signal: AbortSignal) => Promise<{
+      checkpoint: LoadedCheckpoint
+      recovery?: DesktopRunDetail['recovery']
+    }>,
   ) {
     const operationKey = activeOperationKey(projectRoot, runId)
     if (this.#active.has(operationKey)) throw new DesktopAgentCoordinatorError('RUN_OPERATION_ACTIVE', `Run already has an active operation: ${runId}`)
@@ -174,7 +195,7 @@ export class DesktopAgentCoordinator {
       const settled = await this.#settle(projectRoot, result.checkpoint.snapshot.ledger)
       const detail = toDesktopRunDetail(result.checkpoint, settled.dashboard)
       if (settled.projectChanged) await this.#notify(projectRoot, result.checkpoint, [], settled.dashboard)
-      return detail
+      return result.recovery ? { ...detail, recovery: result.recovery } : detail
     } finally {
       runner?.close()
       linked.dispose()
@@ -235,6 +256,23 @@ export class DesktopAgentCoordinator {
         // Notifications are projections of persisted state and can be replayed by reloading the run.
       }
     }
+  }
+}
+
+function isRunSnapshotMismatch(error: unknown) {
+  return error instanceof AgentCoreError
+    && error.code === 'CHECKPOINT_ERROR'
+    && typeof error.details?.component === 'string'
+    && error.message.startsWith('Current ')
+    && error.message.endsWith(' does not match the run snapshot')
+}
+
+async function recoverSnapshotMismatch(runner: DesktopAgentRunner, runId: string, error: unknown) {
+  if (!isRunSnapshotMismatch(error)) throw error
+  const message = '运行配置已更新，旧运行已安全取消；可使用当前配置重新开始。'
+  return {
+    ...await runner.cancel(runId, message),
+    recovery: { kind: 'configuration_changed' as const, message },
   }
 }
 

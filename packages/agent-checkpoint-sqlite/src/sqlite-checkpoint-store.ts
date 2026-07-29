@@ -5,10 +5,9 @@ import { DatabaseSync } from 'node:sqlite'
 
 import {
   AgentCoreError,
-  RUN_SNAPSHOT_SCHEMA_VERSION,
   applyCheckpointCommit,
   effectRecordKey,
-  validateLoadedCheckpoint,
+  migrateLoadedCheckpoint,
   type AgentEvent,
   type CheckpointCommit,
   type CheckpointStore,
@@ -148,16 +147,13 @@ export class SqliteCheckpointStore implements CheckpointStore {
     if (sha256(row.value) !== row.hash) throw checkpointError(`Checkpoint hash mismatch for run: ${runId}`)
 
     try {
-      const snapshot = JSON.parse(row.value) as RunSnapshot
-      if (snapshot.schemaVersion !== RUN_SNAPSHOT_SCHEMA_VERSION) {
-        throw checkpointError(`Unsupported RunSnapshot schema version: ${snapshot.schemaVersion}`)
-      }
+      const rawSnapshot = JSON.parse(row.value) as RunSnapshot
       const eventRows = this.#database.prepare(
         'SELECT event_json AS value FROM events WHERE run_id = ? ORDER BY sequence ASC',
       ).all(runId) as unknown as JsonRow[]
       const events = eventRows.map((eventRow) => JSON.parse(eventRow.value) as AgentEvent)
-      const record = { snapshot, events }
-      validateLoadedCheckpoint(record)
+      const record = migrateLoadedCheckpoint({ snapshot: rawSnapshot, events })
+      const snapshot = record.snapshot
       this.#validateEffects(snapshot)
       return structuredClone(record)
     } catch (error) {

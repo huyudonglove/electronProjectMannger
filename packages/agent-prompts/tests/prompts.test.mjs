@@ -9,13 +9,14 @@ import {
   renderNextActionPrompt,
   renderCompletionRepairPrompt,
   renderInvalidPhaseActionRepairPrompt,
+  renderInvalidChecklistBlockPrompt,
   renderReadonlyProjectOverviewPrompt,
   renderRepositoryMapHeader,
   renderRepositoryMapOmittedLines,
 } from '../dist/index.js'
 
 test('prompt catalog uses stable unique ids and Chinese managed copy', () => {
-  assert.equal(PROMPT_CATALOG_REVISION, 'zh-CN-1')
+  assert.equal(PROMPT_CATALOG_REVISION, 'zh-CN-3')
   assert.equal(new Set(PROMPT_CATALOG.map((prompt) => prompt.id)).size, PROMPT_CATALOG.length)
   for (const prompt of PROMPT_CATALOG) {
     assert.equal(prompt.language, 'zh-CN')
@@ -43,6 +44,8 @@ test('dynamic prompt renderers keep protocol values while using Chinese instruct
     workLevel: 'standard',
     reason: 'invalid phase',
   }), /当前必须返回 plan/)
+  assert.match(renderInvalidChecklistBlockPrompt(['ACCEPTANCE_MISSING']), /空 checklist 对 light Run 是合法状态/)
+  assert.match(renderInvalidChecklistBlockPrompt(['ACCEPTANCE_MISSING']), /ACCEPTANCE_MISSING/)
 })
 
 test('every local runtime tool has centrally managed Chinese prompt copy', () => {

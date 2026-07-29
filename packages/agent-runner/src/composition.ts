@@ -74,7 +74,7 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
     toolInventory,
   })
   if (!resolved.ok) {
-    throw new AgentCoreError('INVALID_INPUT', 'Agent configuration could not be resolved', {
+    throw new AgentCoreError('INVALID_INPUT', configResolutionErrorMessage(resolved.issues), {
       details: { issues: toJson(resolved.issues) },
     })
   }
@@ -238,6 +238,15 @@ export async function composeHeadlessAgent(options: HeadlessAgentRunnerOptions) 
       ),
     },
   }
+}
+
+function configResolutionErrorMessage(issues: Array<{ path: string; message: string }>) {
+  const summary = issues
+    .slice(0, 4)
+    .map((issue) => `${issue.path}: ${issue.message}`)
+    .join('; ')
+  const remainder = issues.length > 4 ? `; and ${issues.length - 4} more issue(s)` : ''
+  return `Agent configuration could not be resolved${summary ? `: ${summary}${remainder}` : ''}`
 }
 
 function registrations(options: HeadlessAgentRunnerOptions) {
