@@ -123,6 +123,8 @@ import {
   parseThoughts,
 } from './parsers.js'
 const fileMutationQueues = new Map<string, Promise<void>>()
+const LEGACY_CHANGE_INDEX_PATH = 'collaboration/需求变更索引.md'
+
 function requiredProjectFiles() {
   return [
     'project.json',
@@ -199,6 +201,7 @@ export async function initProject(managerDataRoot: string, projectRoot: string, 
 export async function updateProjectMetadata(managerDataRoot: string, projectRoot: string) {
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
+  await migrateLegacyProjectMetadata(dataRoot)
   await removeLegacyAgentArtifacts(dataRoot, projectRoot)
   await writeProjectFile(dataRoot, DATA_SPEC_PATH, dataSpecTemplate())
   await refreshRecordSummary(managerDataRoot, projectRoot)
@@ -845,12 +848,21 @@ async function writeRecordSummary(managerDataRoot: string, projectRoot: string, 
   await writeProjectFile(await resolveExistingDataRoot(managerDataRoot, projectRoot), RECORD_SUMMARY_PATH, `${JSON.stringify(summary, null, 2)}\n`)
 }
 
+async function migrateLegacyProjectMetadata(dataRoot: string) {
+  const currentChangeIndex = await readExistingProjectFile(dataRoot, CHANGE_INDEX_PATH)
+  if (currentChangeIndex) return
+
+  const legacyChangeIndex = await readExistingProjectFile(dataRoot, LEGACY_CHANGE_INDEX_PATH)
+  await writeProjectFile(dataRoot, CHANGE_INDEX_PATH, legacyChangeIndex || changeIndexTemplate())
+}
+
 async function removeLegacyAgentArtifacts(dataRoot: string, projectRoot: string) {
   const obsoleteFiles = [
     path.join(dataRoot, 'agent-brief.json'),
     path.join(dataRoot, 'collaboration/Agent 同步交接.md'),
     path.join(dataRoot, 'collaboration/数据层规范.md'),
     path.join(dataRoot, 'collaboration/当前项目基线.md'),
+    path.join(dataRoot, LEGACY_CHANGE_INDEX_PATH),
     path.join(dataRoot, 'skills/project-collaboration/SKILL.md'),
     path.join(projectRoot, '.agent-collaboration.md'),
   ]
