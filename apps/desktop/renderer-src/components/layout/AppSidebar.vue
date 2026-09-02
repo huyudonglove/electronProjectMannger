@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import UiIcon from '../ui/UiIcon.vue'
+
 type NavItem = readonly [string, string, string]
 type NavGroup = {
   label: string
@@ -7,17 +9,18 @@ type NavGroup = {
 
 const props = defineProps<{
   navigationGroups: readonly NavGroup[]
-  knowledgeItem: NavItem
   activeSection: string
   collabAttentionCount: number
+  projectName: string
+  initialized: boolean
   theme: 'dark' | 'light'
   activeThemeIcon: string
   disabled: boolean
-  icon: (name: string) => string
 }>()
 
 const emit = defineEmits<{
   selectSection: [key: string]
+  openProjects: []
   toggleTheme: []
 }>()
 </script>
@@ -26,11 +29,18 @@ const emit = defineEmits<{
   <aside class="sidebar">
     <div class="brand">
       <span class="mark">T</span>
-      <div>
-        <strong>Telance Records</strong>
-        <small>Project Records</small>
-      </div>
+      <strong>Telance Records</strong>
     </div>
+
+    <button class="project-switcher" type="button" :disabled="props.disabled" @click="emit('openProjects')">
+      <span class="project-switcher-mark"><UiIcon name="folderOpen" /></span>
+      <span class="project-switcher-copy">
+        <small>当前项目</small>
+        <strong>{{ props.projectName || '选择项目' }}</strong>
+      </span>
+      <span v-if="props.initialized" class="project-switcher-status" title="项目已就绪"></span>
+      <UiIcon v-else class="project-switcher-chevron" name="chevronDown" />
+    </button>
 
     <nav class="navigation-groups">
       <div v-for="group in props.navigationGroups" :key="group.label" class="navigation-group">
@@ -40,9 +50,11 @@ const emit = defineEmits<{
           :key="key"
           :href="`#${key}`"
           :class="{ active: props.activeSection === key }"
+          :aria-current="props.activeSection === key ? 'page' : undefined"
+          :title="label"
           @click.prevent="emit('selectSection', key)"
         >
-          <span class="nav-icon" v-html="props.icon(iconName)" />
+          <UiIcon class="nav-icon" :name="iconName" />
           <span>{{ label }}</span>
           <span v-if="key === 'collaboration' && props.collabAttentionCount" class="nav-count">{{ props.collabAttentionCount }}</span>
         </a>
@@ -50,15 +62,6 @@ const emit = defineEmits<{
     </nav>
 
     <div class="sidebar-footer">
-      <a
-        class="sidebar-knowledge-link"
-        :href="`#${props.knowledgeItem[0]}`"
-        :class="{ active: props.activeSection === props.knowledgeItem[0] }"
-        @click.prevent="emit('selectSection', props.knowledgeItem[0])"
-      >
-        <span class="nav-icon" v-html="props.icon(props.knowledgeItem[2])" />
-        <span>{{ props.knowledgeItem[1] }}</span>
-      </a>
       <button
         class="theme-toggle"
         type="button"
@@ -67,7 +70,7 @@ const emit = defineEmits<{
         :disabled="props.disabled"
         @click="emit('toggleTheme')"
       >
-        <span class="theme-toggle-icon" v-html="props.icon(props.activeThemeIcon)" />
+        <UiIcon class="theme-toggle-icon" :name="props.activeThemeIcon" />
         <span class="theme-toggle-label">{{ props.theme === 'dark' ? '暗色' : '亮色' }}</span>
       </button>
     </div>

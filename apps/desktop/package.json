@@ -10,8 +10,10 @@
     "start": "electron ."
   },
   "dependencies": {
+    "@lucide/vue": "^1.38.0",
     "@telance-records/project-core": "workspace:*",
     "electron": "^39.2.6",
+    "naive-ui": "^2.45.3",
     "vue": "^3.5.39"
   },
   "devDependencies": {

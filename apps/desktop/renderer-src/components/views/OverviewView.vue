@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import UiIcon from '../ui/UiIcon.vue'
+
 type Counts = {
   tasks: number
   thoughts: number
@@ -9,25 +11,35 @@ type Counts = {
   constraints: number
 }
 
+type OverviewSection = 'board' | 'dialogues' | 'collaboration'
+
 const props = defineProps<{
   generatedAtText: string
   projectRoot: string
   initialized: boolean
   statusTitle: string
   statusDescription: string
+  selectedVersionLabel?: string
+  selectedVersionTitle?: string
+  selectedVersionStatus?: string
   counts: Counts
   dataRoot: string
   knowledgeRoot: string
   recordSkillPath: string
   busy: boolean
-  icon: (name: string) => string
 }>()
 
 const emit = defineEmits<{
   openDataRoot: []
   openKnowledgeRoot: []
   copyRecordSkill: []
+  navigate: [section: OverviewSection]
 }>()
+
+function versionStatusText(status?: string) {
+  if (!status) return ''
+  return ({ planned: '规划中', active: '进行中', paused: '已暂停', completed: '已完成' } as Record<string, string>)[status] || status
+}
 </script>
 
 <template>
@@ -36,60 +48,78 @@ const emit = defineEmits<{
       <h2>总览</h2>
       <span>{{ props.generatedAtText }}</span>
     </div>
-    <section class="card status-panel">
-      <span v-if="!props.projectRoot" class="status-eyebrow">Ready</span>
-      <h2>{{ props.statusTitle }}</h2>
-      <p v-if="props.statusDescription">{{ props.statusDescription }}</p>
-    </section>
-    <div class="stats">
-      <article v-for="item in [
-        ['tasks', '任务', 'listChecks'],
-        ['thoughts', '想法', 'messageCircle'],
-        ['dialogues', '研究', 'messagesSquare'],
-        ['knowledge', '知识', 'bookOpen'],
-        ['questions', '未确认', 'gitPullRequest'],
-        ['logs', '记录', 'scrollText'],
-        ['constraints', '约束', 'shield'],
-      ]" :key="item[0]" class="card stat">
-        <div class="stat-head"><span class="stat-icon" v-html="props.icon(item[2])" /><span>{{ item[1] }}</span></div>
-        <strong>{{ props.counts[item[0] as keyof Counts] }}</strong>
-      </article>
-    </div>
-    <div class="card paths">
-      <div>
-        <span>当前项目</span>
-        <code>{{ props.projectRoot ? props.projectRoot : '尚未打开项目' }}</code>
-      </div>
-      <div>
-        <span>数据层</span>
-        <div class="path-value">
-          <code>{{ props.dataRoot || '初始化后显示' }}</code>
-          <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开数据层文件夹" aria-label="打开数据层文件夹" :disabled="props.busy || !props.initialized || !props.dataRoot" @click="emit('openDataRoot')" v-html="props.icon('folderOpen')" />
+    <div class="overview-layout">
+      <section class="card status-panel overview-focus">
+        <div v-if="props.selectedVersionLabel" class="overview-focus-context">
+          <span>{{ props.selectedVersionLabel }}</span>
+          <span v-if="props.selectedVersionStatus" class="overview-version-status">{{ versionStatusText(props.selectedVersionStatus) }}</span>
         </div>
-      </div>
-      <div>
-        <span>全局知识库</span>
-        <div class="path-value">
-          <code>{{ props.knowledgeRoot || '初始化后显示' }}</code>
-          <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开知识库文件夹" aria-label="打开知识库文件夹" :disabled="props.busy || !props.initialized || !props.knowledgeRoot" @click="emit('openKnowledgeRoot')" v-html="props.icon('folderOpen')" />
+        <span v-else-if="!props.projectRoot" class="status-eyebrow">Ready</span>
+        <h2>{{ props.selectedVersionTitle || props.statusTitle }}</h2>
+        <p v-if="props.statusDescription">{{ props.statusDescription }}</p>
+
+        <div class="overview-core-metrics" aria-label="核心记录">
+          <button class="overview-core-metric" type="button" @click="emit('navigate', 'board')">
+            <span><UiIcon name="listChecks" />任务</span>
+            <strong>{{ props.counts.tasks }}</strong>
+          </button>
+          <button class="overview-core-metric" type="button" @click="emit('navigate', 'dialogues')">
+            <span><UiIcon name="messagesSquare" />研究</span>
+            <strong>{{ props.counts.dialogues }}</strong>
+          </button>
+          <button class="overview-core-metric" type="button" @click="emit('navigate', 'collaboration')">
+            <span><UiIcon name="gitPullRequest" />未确认</span>
+            <strong>{{ props.counts.questions }}</strong>
+          </button>
         </div>
-      </div>
-    </div>
-    <div class="card record-skill-card">
-      <div>
-        <strong>项目记录 Skill</strong>
-        <p>供 Agent 使用。</p>
-      </div>
-      <button
-        class="btn icon-button btn-outline-primary btn-sm"
-        type="button"
-        title="复制 Skill"
-        aria-label="复制 Skill"
-        :disabled="props.busy || !props.initialized || !props.recordSkillPath"
-        @click="emit('copyRecordSkill')"
-        v-html="props.icon('copy')"
-      />
-      <code>{{ props.recordSkillPath || '初始化后显示' }}</code>
+      </section>
+
+      <aside class="card overview-summary" aria-label="记录摘要">
+        <div class="overview-summary-head">
+          <strong>记录摘要</strong>
+          <span>版本 / 项目</span>
+        </div>
+        <dl>
+          <div><dt><UiIcon name="messageCircle" />想法</dt><dd>{{ props.counts.thoughts }}</dd></div>
+          <div><dt><UiIcon name="bookOpen" />知识</dt><dd>{{ props.counts.knowledge }}</dd></div>
+          <div><dt><UiIcon name="scrollText" />记录</dt><dd>{{ props.counts.logs }}</dd></div>
+          <div><dt><UiIcon name="shield" />约束</dt><dd>{{ props.counts.constraints }}</dd></div>
+        </dl>
+      </aside>
+
+      <details class="card project-details">
+        <summary>
+          <span><UiIcon name="folderOpen" />项目与存储</span>
+          <small>路径与 Skill</small>
+        </summary>
+        <div class="project-details-body">
+          <div class="project-detail-row">
+            <span>当前项目</span>
+            <code :title="props.projectRoot">{{ props.projectRoot || '尚未打开项目' }}</code>
+          </div>
+          <div class="project-detail-row">
+            <span>数据层</span>
+            <div class="path-value">
+              <code :title="props.dataRoot">{{ props.dataRoot || '初始化后显示' }}</code>
+              <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开数据层文件夹" aria-label="打开数据层文件夹" :disabled="props.busy || !props.initialized || !props.dataRoot" @click="emit('openDataRoot')"><UiIcon name="folderOpen" /></button>
+            </div>
+          </div>
+          <div class="project-detail-row">
+            <span>全局知识库</span>
+            <div class="path-value">
+              <code :title="props.knowledgeRoot">{{ props.knowledgeRoot || '初始化后显示' }}</code>
+              <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开知识库文件夹" aria-label="打开知识库文件夹" :disabled="props.busy || !props.initialized || !props.knowledgeRoot" @click="emit('openKnowledgeRoot')"><UiIcon name="folderOpen" /></button>
+            </div>
+          </div>
+          <div class="project-detail-row project-detail-skill">
+            <span>项目记录 Skill</span>
+            <div class="path-value">
+              <code :title="props.recordSkillPath">{{ props.recordSkillPath || '初始化后显示' }}</code>
+              <button class="btn icon-button btn-outline-primary btn-sm" type="button" title="复制 Skill" aria-label="复制 Skill" :disabled="props.busy || !props.initialized || !props.recordSkillPath" @click="emit('copyRecordSkill')"><UiIcon name="copy" /></button>
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
   </section>
 </template>

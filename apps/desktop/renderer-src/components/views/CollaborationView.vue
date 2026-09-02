@@ -1,0 +1,205 @@
+<script setup lang="ts">
+import UiIcon from '../ui/UiIcon.vue'
+import UiTag from '../ui/UiTag.vue'
+
+type CollabItem = Record<string, any>
+type VersionItem = Record<string, any>
+type CollabTab = 'open' | 'decided' | 'risks' | 'history'
+
+const props = defineProps<{
+  selectedVersion: VersionItem | null | undefined
+  collabTab: CollabTab
+  openQuestions: CollabItem[]
+  pendingDecisions: CollabItem[]
+  activeRisks: CollabItem[]
+  activeCollabItems: CollabItem[]
+  selectedCollabItem: CollabItem | null | undefined
+  selectedCollabIndex: number
+  versions: VersionItem[]
+  questions: CollabItem[]
+  risks: CollabItem[]
+}>()
+
+const emit = defineEmits<{
+  'update:collabTab': [tab: CollabTab]
+  openCollabItem: [index: number]
+  openQuestionTarget: [item: CollabItem]
+  openReplyDialog: [item: CollabItem]
+  completeQuestion: [item: CollabItem]
+  resolveRisk: [item: CollabItem]
+}>()
+
+function setCollabTab(tab: CollabTab) {
+  emit('update:collabTab', tab)
+}
+
+function versionHistoryQuestions(versionId: string) {
+  return props.questions.filter((item) => item.version === versionId && ['resolved', 'expired'].includes(item.status))
+}
+
+function versionHistoryRisks(versionId: string) {
+  return props.risks.filter((item) => item.version === versionId && ['resolved', 'expired'].includes(item.status))
+}
+
+function versionHistoryCount(versionId: string) {
+  return versionHistoryQuestions(versionId).length + versionHistoryRisks(versionId).length
+}
+
+function questionThreadMessages(item: CollabItem) {
+  const source = Array.isArray(item.messages) ? item.messages : []
+  const question = String(item.question || '').trim()
+  return source.filter((message: CollabItem, index: number) =>
+    !(index === 0 && String(message.content || '').trim() === question))
+}
+
+function questionMessageRole(role: string) {
+  if (role === 'user') return '你'
+  return '历史记录'
+}
+
+function questionMessageClass(role: string) {
+  return role === 'user' ? 'is-user' : 'is-record'
+}
+
+function questionKindText(kind: string) {
+  return ({ decision: '决策', clarification: '澄清', blocker: '阻塞' } as Record<string, string>)[kind] || kind
+}
+
+function riskKindText(kind: string) {
+  return ({ risk: '风险', verification: '验证限制', 'follow-up': '后续事项' } as Record<string, string>)[kind] || kind
+}
+
+function formatTime(value: string) {
+  if (!value) return '未知时间'
+  const date = parseDisplayDate(value)
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (number: number) => String(number).padStart(2, '0')
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function parseDisplayDate(value: any) {
+  if (value instanceof Date) return value
+  const text = String(value || '').trim()
+  const localMatch = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/)
+  if (localMatch && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
+    return new Date(Number(localMatch[1]), Number(localMatch[2]) - 1, Number(localMatch[3]), Number(localMatch[4] || 0), Number(localMatch[5] || 0))
+  }
+  return new Date(text)
+}
+</script>
+
+<template>
+  <section id="collaboration" class="section view active-view">
+    <div class="page-toolbar"><span>{{ selectedVersion?.shortId || '所选版本' }} · 需要继续处理的记录</span></div>
+    <div class="segmented-control collab-tabs" role="tablist" aria-label="协作记录类型">
+      <button type="button" :class="{ active: collabTab === 'open' }" @click="setCollabTab('open')">待我回复 <span>{{ openQuestions.length }}</span></button>
+      <button type="button" :class="{ active: collabTab === 'decided' }" @click="setCollabTab('decided')">待跟进 <span>{{ pendingDecisions.length }}</span></button>
+      <button type="button" :class="{ active: collabTab === 'risks' }" @click="setCollabTab('risks')">风险与后续 <span>{{ activeRisks.length }}</span></button>
+      <button type="button" :class="{ active: collabTab === 'history' }" @click="setCollabTab('history')">版本历史</button>
+    </div>
+
+    <div v-if="collabTab !== 'history'" class="collab-workspace">
+      <aside class="collab-index">
+        <div class="section-head compact-head"><h2>记录</h2><span>{{ activeCollabItems.length }} 条</span></div>
+        <div class="collab-index-list">
+          <p v-if="!activeCollabItems.length" class="empty-panel">
+            {{ collabTab === 'open' ? '当前没有等待你回复的协作问题。' : collabTab === 'decided' ? '当前没有等待跟进的记录。' : '所选范围没有未处理的风险或后续事项。' }}
+          </p>
+          <button
+            v-for="(item, index) in activeCollabItems"
+            :key="item.id"
+            class="collab-index-item"
+            :class="{ active: index === selectedCollabIndex }"
+            type="button"
+            @click="emit('openCollabItem', index)"
+          >
+            <span class="collab-index-meta">
+              <span class="task-short-id">{{ item.shortId }}</span>
+              <UiTag v-if="collabTab === 'open'" :label="questionKindText(item.kind)" icon-name="messageCircle" />
+              <UiTag v-else-if="collabTab === 'decided'" label="待跟进" tone="warning" variant="status" icon-name="clock" />
+              <UiTag v-else :label="riskKindText(item.kind)" tone="warning" icon-name="alertTriangle" />
+            </span>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.question || item.content || '暂无内容。' }}</small>
+            <span class="collab-index-foot">{{ item.scope === 'project' ? '项目级' : item.version || '未标注版本' }}</span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="collab-detail-wrap">
+        <p v-if="!selectedCollabItem" class="empty-panel collab-detail-empty">选择一条协作记录查看详情。</p>
+        <article v-else class="collab-detail" :class="{ 'risk-record': collabTab === 'risks' }">
+          <div class="collab-record-head">
+            <div>
+              <span class="task-short-id">{{ selectedCollabItem.shortId }}</span>
+              <UiTag v-if="collabTab === 'open'" :label="questionKindText(selectedCollabItem.kind)" icon-name="messageCircle" />
+              <UiTag v-else-if="collabTab === 'decided'" label="待跟进" tone="warning" variant="status" icon-name="clock" />
+              <UiTag v-else :label="riskKindText(selectedCollabItem.kind)" tone="warning" icon-name="alertTriangle" />
+              <UiTag v-if="selectedCollabItem.blocking" label="阻塞" tone="warning" variant="status" icon-name="alertTriangle" />
+            </div>
+            <div class="collab-record-actions">
+              <button v-if="collabTab === 'open' && selectedCollabItem.relations?.length" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看关联记录" aria-label="查看关联记录" @click="emit('openQuestionTarget', selectedCollabItem)"><UiIcon name="eye" /></button>
+              <button v-if="collabTab === 'open'" class="btn btn-primary btn-sm" type="button" @click="emit('openReplyDialog', selectedCollabItem)">回复</button>
+              <button v-else-if="collabTab === 'decided'" class="btn btn-outline-secondary btn-sm" type="button" @click="emit('openReplyDialog', selectedCollabItem)">补充说明</button>
+              <button v-if="collabTab === 'decided'" class="btn btn-primary btn-sm" type="button" @click="emit('completeQuestion', selectedCollabItem)">标记已完成</button>
+              <button v-if="collabTab === 'risks'" class="btn btn-primary btn-sm" type="button" @click="emit('resolveRisk', selectedCollabItem)">标记已处理</button>
+            </div>
+          </div>
+          <div class="collab-detail-title">
+            <h2>{{ selectedCollabItem.title }}</h2>
+            <p>{{ selectedCollabItem.question || selectedCollabItem.content }}</p>
+          </div>
+          <div v-if="selectedCollabItem.background && selectedCollabItem.background !== '无。'" class="collab-context"><strong>背景</strong><span>{{ selectedCollabItem.background }}</span></div>
+          <div v-if="selectedCollabItem.recommendation && selectedCollabItem.recommendation !== '无。'" class="collab-recommendation"><strong>建议</strong><span>{{ selectedCollabItem.recommendation }}</span></div>
+          <div v-if="selectedCollabItem.handling && selectedCollabItem.handling !== '无。'" class="collab-context"><strong>处理建议</strong><span>{{ selectedCollabItem.handling }}</span></div>
+          <div v-if="questionThreadMessages(selectedCollabItem).length" class="collab-thread">
+            <div v-for="message in questionThreadMessages(selectedCollabItem)" :key="message.id" class="collab-message" :class="questionMessageClass(message.role)">
+              <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
+              <p>{{ message.content }}</p>
+            </div>
+          </div>
+          <div v-else-if="collabTab === 'decided' && selectedCollabItem.conclusion" class="collab-decision"><strong>最新说明</strong><span>{{ selectedCollabItem.conclusion }}</span></div>
+          <div class="collab-record-meta">
+            <span>{{ selectedCollabItem.scope === 'project' ? '项目级' : selectedCollabItem.version }}</span>
+            <span v-for="relation in selectedCollabItem.relations || []" :key="relation">{{ relation }}</span>
+            <time v-if="selectedCollabItem.updated">{{ formatTime(selectedCollabItem.updated) }}</time>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <div v-else class="version-history-list collab-history-view">
+      <details v-for="version in versions" :key="version.shortId" class="version-history-group" :open="version.status === 'active'">
+        <summary>
+          <span><span class="task-short-id">{{ version.shortId }}</span><strong>{{ version.label }} · {{ version.title }}</strong></span>
+          <span>{{ versionHistoryCount(version.shortId) }} 条</span>
+        </summary>
+        <div class="collab-history-records">
+          <p v-if="!versionHistoryCount(version.shortId)" class="empty-panel">这个版本暂无已归档协作记录。</p>
+          <article v-for="item in versionHistoryQuestions(version.shortId)" :key="item.id" class="collab-history-row">
+            <span class="task-short-id">{{ item.shortId }}</span>
+            <div class="collab-history-main">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.question }}</p>
+              <div v-if="questionThreadMessages(item).length" class="collab-thread compact-thread">
+                <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="questionMessageClass(message.role)">
+                  <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
+                  <p>{{ message.content }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="collab-history-actions">
+              <UiTag :label="item.status === 'resolved' ? '已完成' : '已归档'" :tone="item.status === 'resolved' ? 'complete' : 'neutral'" variant="status" :icon-name="item.status === 'resolved' ? 'circleCheck' : 'archive'" />
+              <button class="btn btn-outline-secondary btn-sm" type="button" @click="emit('openReplyDialog', item)">继续讨论</button>
+            </div>
+          </article>
+          <article v-for="item in versionHistoryRisks(version.shortId)" :key="item.id" class="collab-history-row">
+            <span class="task-short-id">{{ item.shortId }}</span>
+            <div><strong>{{ item.title }}</strong><p>{{ item.content }}</p></div>
+            <UiTag :label="item.status === 'resolved' ? '已处理' : '已归档'" :tone="item.status === 'resolved' ? 'complete' : 'neutral'" variant="status" :icon-name="item.status === 'resolved' ? 'circleCheck' : 'archive'" />
+          </article>
+        </div>
+      </details>
+    </div>
+  </section>
+</template>
