@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import IndexPaneHeader from '../ui/IndexPaneHeader.vue'
+import RecordIndexButton from '../ui/RecordIndexButton.vue'
 import UiEmptyState from '../ui/UiEmptyState.vue'
 import UiIconButton from '../ui/UiIconButton.vue'
+import UiStatusTag from '../ui/UiStatusTag.vue'
 import UiTag from '../ui/UiTag.vue'
 import { dialogueDisplayTitle } from '../../utils/record-formatters'
-import { formatTime, statusIcon, statusLabel, statusTone } from '../../utils/record-presentation'
+import { formatTime, statusLabel } from '../../utils/record-presentation'
 
 type AnyRecord = Record<string, any>
 type ResearchTab = 'active' | 'done'
@@ -118,12 +121,7 @@ function dialogueRefsList(dialogue: AnyRecord) {
                 <div>
                   <span class="task-short-id">{{ activeDialogue.shortId || 'D000' }}</span>
                   <UiTag :label="researchModeLabel(activeDialogue.mode)" :icon-name="researchModeIcon(activeDialogue.mode)" />
-                  <UiTag
-                    :label="researchStatusText(activeDialogue.status)"
-                    :tone="statusTone(activeDialogue.status)"
-                    variant="status"
-                    :icon-name="statusIcon(activeDialogue.status)"
-                  />
+                  <UiStatusTag :status="activeDialogue.status" domain="research" />
                   <strong>{{ dialogueDisplayTitle(activeDialogue) }}</strong>
                 </div>
                 <div class="dialogue-actions">
@@ -145,12 +143,13 @@ function dialogueRefsList(dialogue: AnyRecord) {
           </div>
         </div>
         <aside class="dialogue-index" :class="{ 'is-collapsed': props.tocCollapsed }">
-          <div class="section-head compact-head dialogue-index-head">
-            <h2>{{ props.tocCollapsed ? '' : '目录' }}</h2>
-            <UiIconButton :icon="props.tocCollapsed ? 'panelRightOpen' : 'panelRightClose'" :label="props.tocCollapsed ? '展开目录' : '收起目录'" size="sm" @click="emit('update:tocCollapsed', !props.tocCollapsed)" />
-          </div>
+          <IndexPaneHeader :title="props.tocCollapsed ? '' : '目录'" class="dialogue-index-head">
+            <template #actions>
+              <UiIconButton :icon="props.tocCollapsed ? 'panelRightOpen' : 'panelRightClose'" :label="props.tocCollapsed ? '展开目录' : '收起目录'" size="sm" @click="emit('update:tocCollapsed', !props.tocCollapsed)" />
+            </template>
+          </IndexPaneHeader>
           <div v-if="!props.tocCollapsed" class="dialogue-toc">
-            <button v-for="(dialogue, index) in props.visibleDialogues" :key="dialogue.id || index" class="dialogue-toc-item" :class="{ active: index === props.selectedIndex }" type="button" @click="emit('select', index)">
+            <RecordIndexButton v-for="(dialogue, index) in props.visibleDialogues" :key="dialogue.id || index" class="dialogue-toc-item" :active="index === props.selectedIndex" @click="emit('select', index)">
               <div class="dialogue-toc-meta">
                 <span>{{ dialogue.shortId || 'D000' }}</span>
                 <span>{{ researchModeLabel(dialogue.mode) }}</span>
@@ -158,7 +157,7 @@ function dialogueRefsList(dialogue: AnyRecord) {
               </div>
               <strong>{{ dialogueDisplayTitle(dialogue) }}</strong>
               <small>{{ dialogueTocSummary(dialogue) }}</small>
-            </button>
+            </RecordIndexButton>
           </div>
         </aside>
       </template>

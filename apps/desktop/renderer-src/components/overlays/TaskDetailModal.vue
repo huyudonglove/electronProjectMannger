@@ -4,14 +4,12 @@ import {
   formatTime,
   priorityIcon,
   priorityTone,
-  statusIcon,
-  statusLabel,
-  statusTone,
   workLevelIcon,
   workLevelLabel,
   workLevelLabelWithReason,
 } from '../../utils/record-presentation'
 import DialogHeader from '../ui/DialogHeader.vue'
+import UiStatusTag from '../ui/UiStatusTag.vue'
 import UiTag from '../ui/UiTag.vue'
 import ModalLayer from './ModalLayer.vue'
 
@@ -62,7 +60,7 @@ defineEmits<{
             <span v-if="task.shortId" class="task-short-id">{{ task.shortId }}</span>
             <UiTag :label="task.priority || 'medium'" :tone="priorityTone(task.priority)" :icon-name="priorityIcon(task.priority)" />
             <UiTag :label="workLevelLabelWithReason(task.workLevel, task.depthReason)" :icon-name="workLevelIcon(task.workLevel)" />
-            <UiTag :label="statusLabel(task.status)" :tone="statusTone(task.status)" variant="status" :icon-name="statusIcon(task.status)" />
+            <UiStatusTag :status="task.status" />
           </div>
         </template>
       </DialogHeader>

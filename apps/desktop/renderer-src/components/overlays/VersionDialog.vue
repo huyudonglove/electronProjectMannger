@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { versionStatusOptions } from '../../config/ui'
 import DialogHeader from '../ui/DialogHeader.vue'
+import FormActions from '../ui/FormActions.vue'
 import UiSelect from '../ui/UiSelect.vue'
 import ModalLayer from './ModalLayer.vue'
 
@@ -67,9 +68,6 @@ function updateForm(patch: Partial<VersionForm>) {
       <span>内容描述</span>
       <textarea :value="form.summary" rows="3" placeholder="大致包含哪些工作。" @input="updateForm({ summary: eventValue($event) })"></textarea>
     </label>
-    <div class="quick-task-actions">
-      <span>{{ form.feedback }}</span>
-      <button class="btn btn-primary" type="submit">创建版本</button>
-    </div>
+    <FormActions :status="form.feedback" submit-label="创建版本" />
   </ModalLayer>
 </template>

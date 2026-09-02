@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import UiEmptyState from '../ui/UiEmptyState.vue'
 import UiIconButton from '../ui/UiIconButton.vue'
-import UiTag from '../ui/UiTag.vue'
-import { formatTime, statusIcon, statusLabel, statusTone } from '../../utils/record-presentation'
+import UiStatusTag from '../ui/UiStatusTag.vue'
+import { formatTime } from '../../utils/record-presentation'
 
 type ThoughtItem = Record<string, any>
 
@@ -40,12 +40,7 @@ function thoughtDisplayTitle(thought: ThoughtItem) {
             <div class="thought-title-row">
               <span v-if="thought.shortId" class="thought-short-id">{{ thought.shortId }}</span>
               <strong v-if="thoughtDisplayTitle(thought)">{{ thoughtDisplayTitle(thought) }}</strong>
-              <UiTag
-                :label="statusLabel(thought.status)"
-                :tone="statusTone(thought.status)"
-                variant="status"
-                :icon-name="statusIcon(thought.status)"
-              />
+              <UiStatusTag :status="thought.status" />
             </div>
           </div>
           <UiIconButton class="delete-action" icon="trash" label="删除输入" size="sm" @click="emit('deleteThought', thought.id)" />

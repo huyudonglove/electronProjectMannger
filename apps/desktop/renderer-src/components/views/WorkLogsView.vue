@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import UiIcon from '../ui/UiIcon.vue'
+import IndexPaneHeader from '../ui/IndexPaneHeader.vue'
+import RecordIndexButton from '../ui/RecordIndexButton.vue'
 import UiEmptyState from '../ui/UiEmptyState.vue'
+import UiSearchField from '../ui/UiSearchField.vue'
 import UiTag from '../ui/UiTag.vue'
+import UiStatusTag from '../ui/UiStatusTag.vue'
 import { renderInlineMarkdown, renderListTextBlock, renderTextBlock } from '../../utils/markdown'
 import {
   formatTime,
   logLevelIcon,
   logLevelLabel,
-  statusIcon,
-  statusLabel,
-  statusTone,
 } from '../../utils/record-presentation'
 
 type RecordItem = Record<string, any>
@@ -27,10 +27,6 @@ const emit = defineEmits<{
   'update:logQuery': [value: string]
   openWorkLog: [index: number]
 }>()
-
-function updateLogQuery(event: Event) {
-  emit('update:logQuery', (event.target as HTMLInputElement).value)
-}
 
 function resolveLogTasks(log: RecordItem) {
   return (log.relatedTasks || []).map((task: RecordItem) => {
@@ -55,24 +51,21 @@ function primaryLogPrompt(log: RecordItem) {
     <div class="work-log-layout">
       <aside class="work-log-index">
         <div class="work-log-index-head">
-          <div class="section-head compact-head"><h2>目录</h2><span>{{ logs.length }} 条</span></div>
-          <label class="work-log-search">
-            <UiIcon name="search" />
-            <input :value="logQuery" type="search" placeholder="搜索记录、任务或内容" aria-label="搜索工作记录" @input="updateLogQuery" />
-          </label>
+          <IndexPaneHeader title="目录" :count-text="`${logs.length} 条`" />
+          <UiSearchField :model-value="logQuery" class="work-log-search" placeholder="搜索记录、任务或内容" aria-label="搜索工作记录" @update:model-value="emit('update:logQuery', $event)" />
         </div>
         <div class="work-log-toc">
           <UiEmptyState v-if="!logs.length" :message="logQuery.trim() ? '没有匹配的工作记录。' : '暂无工作记录。'" compact />
-          <button v-for="(log, index) in logs" :key="log.id || index" class="work-log-toc-item" :class="{ active: index === selectedLogIndex }" type="button" @click="emit('openWorkLog', index)">
+          <RecordIndexButton v-for="(log, index) in logs" :key="log.id || index" class="work-log-toc-item" :active="index === selectedLogIndex" @click="emit('openWorkLog', index)">
             <span class="work-log-toc-meta">
               <span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span>
-              <UiTag v-if="log.status && log.status !== 'done'" :label="statusLabel(log.status)" :tone="statusTone(log.status)" variant="status" :icon-name="statusIcon(log.status)" />
+              <UiStatusTag v-if="log.status && log.status !== 'done'" :status="log.status" />
               <UiTag :label="logLevelLabel(log.recordLevel)" :icon-name="logLevelIcon(log.recordLevel)" />
             </span>
             <span class="work-log-toc-relations"><UiTag v-if="!resolveLogTasks(log).length" label="general" icon-name="tag" /><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
             <strong>{{ primaryLogPrompt(log) }}</strong>
             <small>{{ log.title }} · {{ formatTime(log.created) || '未标注日期' }}</small>
-          </button>
+          </RecordIndexButton>
         </div>
       </aside>
       <div class="work-log-list-wrap">
@@ -89,7 +82,7 @@ function primaryLogPrompt(log: RecordItem) {
               <div>
                 <div class="log-badges">
                   <span v-if="visibleLog.shortId" class="task-short-id">{{ visibleLog.shortId }}</span>
-                  <UiTag :label="statusLabel(visibleLog.status || 'done')" :tone="statusTone(visibleLog.status || 'done')" variant="status" :icon-name="statusIcon(visibleLog.status || 'done')" />
+                  <UiStatusTag :status="visibleLog.status || 'done'" />
                   <UiTag :label="logLevelLabel(visibleLog.recordLevel)" :icon-name="logLevelIcon(visibleLog.recordLevel)" />
                   <UiTag v-if="visibleLog.source" :label="visibleLog.source" icon-name="tag" />
                 </div>

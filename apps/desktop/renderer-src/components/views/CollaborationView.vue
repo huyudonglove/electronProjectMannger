@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import UiEmptyState from '../ui/UiEmptyState.vue'
 import UiIconButton from '../ui/UiIconButton.vue'
+import IndexPaneHeader from '../ui/IndexPaneHeader.vue'
+import RecordIndexButton from '../ui/RecordIndexButton.vue'
 import UiTag from '../ui/UiTag.vue'
 import { formatTime } from '../../utils/record-presentation'
 
@@ -85,19 +87,18 @@ function riskKindText(kind: string) {
 
     <div v-if="collabTab !== 'history'" class="collab-workspace">
       <aside class="collab-index">
-        <div class="section-head compact-head"><h2>记录</h2><span>{{ activeCollabItems.length }} 条</span></div>
+        <IndexPaneHeader title="记录" :count-text="`${activeCollabItems.length} 条`" />
         <div class="collab-index-list">
           <UiEmptyState
             v-if="!activeCollabItems.length"
             :message="collabTab === 'open' ? '当前没有等待你回复的协作问题。' : collabTab === 'decided' ? '当前没有等待跟进的记录。' : '所选范围没有未处理的风险或后续事项。'"
             compact
           />
-          <button
+          <RecordIndexButton
             v-for="(item, index) in activeCollabItems"
             :key="item.id"
             class="collab-index-item"
-            :class="{ active: index === selectedCollabIndex }"
-            type="button"
+            :active="index === selectedCollabIndex"
             @click="emit('openCollabItem', index)"
           >
             <span class="collab-index-meta">
@@ -109,7 +110,7 @@ function riskKindText(kind: string) {
             <strong>{{ item.title }}</strong>
             <small>{{ item.question || item.content || '暂无内容。' }}</small>
             <span class="collab-index-foot">{{ item.scope === 'project' ? '项目级' : item.version || '未标注版本' }}</span>
-          </button>
+          </RecordIndexButton>
         </div>
       </aside>
 

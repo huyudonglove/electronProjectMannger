@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import UiEmptyState from '../ui/UiEmptyState.vue'
-import UiIcon from '../ui/UiIcon.vue'
 import UiIconButton from '../ui/UiIconButton.vue'
+import RecordIndexButton from '../ui/RecordIndexButton.vue'
+import UiSearchField from '../ui/UiSearchField.vue'
 
 type ResourceKind = 'knowledge' | 'document' | 'constraint'
 type ResourceRecord = Record<string, any>
@@ -114,10 +115,6 @@ const selectedItem = computed(() => {
   return allItems.find((item) => item.key === props.selectedKey) || allItems[0] || null
 })
 
-function updateQuery(event: Event) {
-  emit('update:query', (event.target as HTMLInputElement).value)
-}
-
 function isSelected(item: ResourceViewItem) {
   return selectedItem.value?.key === item.key
 }
@@ -130,16 +127,13 @@ function itemKicker(item: ResourceViewItem) {
 <template>
   <section :id="props.kind === 'document' ? 'documents' : props.kind" class="section view active-view">
     <div class="page-toolbar resource-page-toolbar">
-      <label class="resource-search">
-        <UiIcon name="search" />
-        <input
-          :value="props.query"
-          type="search"
-          :placeholder="copy.searchPlaceholder"
-          :aria-label="copy.searchLabel"
-          @input="updateQuery"
-        />
-      </label>
+      <UiSearchField
+        :model-value="props.query"
+        class="resource-search"
+        :placeholder="copy.searchPlaceholder"
+        :aria-label="copy.searchLabel"
+        @update:model-value="emit('update:query', $event)"
+      />
       <span>{{ countText }}</span>
     </div>
 
@@ -169,10 +163,9 @@ function itemKicker(item: ResourceViewItem) {
               class="resource-row"
               :class="{ active: isSelected(item) }"
             >
-              <button
+              <RecordIndexButton
                 class="resource-row-main"
-                type="button"
-                :aria-current="isSelected(item) ? 'true' : undefined"
+                :aria-current="isSelected(item) || undefined"
                 @click="emit('select', item)"
               >
                 <span class="resource-row-meta">
@@ -182,7 +175,7 @@ function itemKicker(item: ResourceViewItem) {
                 <strong>{{ item.title }}</strong>
                 <small v-if="item.summary">{{ item.summary }}</small>
                 <span v-if="item.origin" class="resource-row-origin">{{ item.origin }}</span>
-              </button>
+              </RecordIndexButton>
               <UiIconButton
                 v-if="item.deletable !== false"
                 class="resource-row-delete delete-action"
@@ -206,10 +199,9 @@ function itemKicker(item: ResourceViewItem) {
                 class="resource-row system-resource-row"
                 :class="{ active: isSelected(item) }"
               >
-                <button
+                <RecordIndexButton
                   class="resource-row-main"
-                  type="button"
-                  :aria-current="isSelected(item) ? 'true' : undefined"
+                  :aria-current="isSelected(item) || undefined"
                   @click="emit('select', item)"
                 >
                   <span class="resource-row-meta">
@@ -218,7 +210,7 @@ function itemKicker(item: ResourceViewItem) {
                   </span>
                   <strong>{{ item.title }}</strong>
                   <small v-if="item.summary">{{ item.summary }}</small>
-                </button>
+                </RecordIndexButton>
               </article>
             </div>
           </details>

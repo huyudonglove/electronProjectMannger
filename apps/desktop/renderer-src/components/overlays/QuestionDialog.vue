@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { questionKindOptions, questionScopeOptions } from '../../config/ui'
 import DialogHeader from '../ui/DialogHeader.vue'
+import FormActions from '../ui/FormActions.vue'
 import UiSelect from '../ui/UiSelect.vue'
 import ModalLayer from './ModalLayer.vue'
 
@@ -62,6 +63,6 @@ function updateForm(patch: Partial<QuestionForm>) {
       <label><span>范围</span><UiSelect :model-value="form.scope" :options="questionScopeOptions" aria-label="范围" @update:model-value="updateForm({ scope: $event })" /></label>
     </div>
     <label class="checkbox-row"><input :checked="form.blocking" type="checkbox" @change="updateForm({ blocking: eventChecked($event) })" /><span>阻塞当前工作</span></label>
-    <div class="quick-task-actions"><span>{{ form.status }}</span><button class="btn btn-primary" type="submit">提交记录</button></div>
+    <FormActions :status="form.status" submit-label="提交记录" />
   </ModalLayer>
 </template>

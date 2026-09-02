@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AnyRecord } from '../../utils/record-formatters'
 import DialogHeader from '../ui/DialogHeader.vue'
-import UiIconButton from '../ui/UiIconButton.vue'
+import FormActions from '../ui/FormActions.vue'
 import ModalLayer from './ModalLayer.vue'
 
 interface ReplyForm {
@@ -55,10 +55,7 @@ function updateAnswer(event: Event) {
         placeholder="写下回复、补充说明或新的问题。"
         @input="updateAnswer"
       ></textarea>
-      <div class="quick-task-actions">
-        <span>{{ form.status }}</span>
-        <UiIconButton icon="check" label="发送回复" variant="primary" type="submit" />
-      </div>
+      <FormActions :status="form.status" submit-label="发送回复" submit-icon="check" />
     </template>
   </ModalLayer>
 </template>
