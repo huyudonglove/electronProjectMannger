@@ -78,7 +78,7 @@ const emit = defineEmits<{
     <div class="card record-skill-card">
       <div>
         <strong>项目记录 Skill</strong>
-        <p>复制使用指令，供本机外部代码工具读取和维护项目记录。</p>
+        <p>复制使用指令，供 Agent 读取和维护项目记录。</p>
       </div>
       <button
         class="btn icon-button btn-outline-primary btn-sm"

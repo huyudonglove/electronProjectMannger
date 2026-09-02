@@ -467,7 +467,7 @@ async function copyRecordSkill() {
   const skillPath = String(dashboard.value?.recordSummary?.recordSkillPath || '').trim()
   if (!state.initialized || !skillPath) return
   const instruction = [
-    `请先完整读取本机项目记录 Skill：${skillPath}`,
+    `请先完整读取项目记录 Skill：${skillPath}`,
     '然后严格按照该 SKILL.md 中的规则，使用当前项目的 record-summary.json 读取和维护项目记录。',
   ].join('\n')
   try {
