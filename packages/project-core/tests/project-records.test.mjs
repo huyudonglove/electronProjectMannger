@@ -38,7 +38,7 @@ test('project records initialize without Agent runtime artifacts', async (t) => 
   assert.match(skill, /set its T record to `doing`/)
   assert.match(skill, /verification succeeds, set it to `done` and write one L work log/)
   assert.match(skill, /task_short_id:: T000/)
-  assert.match(skill, /Do not write while Electron Manager or another agent is changing/)
+  assert.match(skill, /Do not write while Telance Records or another agent is changing/)
   assert.doesNotMatch(skill, /\b(?:Chat|model|Run|approval)\b|task[ -]tree|delegat/i)
 
   await writeFile(skillPath, '# stale\n', 'utf8')

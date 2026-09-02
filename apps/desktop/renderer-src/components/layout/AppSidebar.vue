@@ -25,10 +25,10 @@ const emit = defineEmits<{
 <template>
   <aside class="sidebar">
     <div class="brand">
-      <span class="mark">E</span>
+      <span class="mark">T</span>
       <div>
-        <strong>Electron Manager</strong>
-        <small>Project Collaboration</small>
+        <strong>Telance Records</strong>
+        <small>Project Records</small>
       </div>
     </div>
 

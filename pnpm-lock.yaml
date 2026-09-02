@@ -17,7 +17,7 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@electron-manager/project-core':
+      '@telance-records/project-core':
         specifier: workspace:*
         version: link:../../packages/project-core
       electron:

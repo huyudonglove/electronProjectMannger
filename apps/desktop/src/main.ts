@@ -28,7 +28,7 @@ import {
   updateProjectMetadata,
   updateAllProjectMetadata,
   updateTaskStatus,
-} from '@electron-manager/project-core'
+} from '@telance-records/project-core'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -46,7 +46,7 @@ async function createWindow() {
     height: 820,
     minWidth: 960,
     minHeight: 640,
-    title: 'Electron Manager',
+    title: 'Telance Records',
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.cjs'),
@@ -57,7 +57,7 @@ async function createWindow() {
 
   await mainWindow.loadFile(path.join(__dirname, '..', 'renderer-vue', 'index.html'))
 
-  if (process.env.ELECTRON_MANAGER_DEVTOOLS === '1') {
+  if (process.env.TELANCE_RECORDS_DEVTOOLS === '1' || process.env.ELECTRON_MANAGER_DEVTOOLS === '1') {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 }

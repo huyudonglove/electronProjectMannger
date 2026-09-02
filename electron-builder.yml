@@ -1,5 +1,5 @@
 appId: com.huyudong.electronmanager
-productName: Electron Manager
+productName: Telance Records
 electronVersion: 39.8.10
 electronDist: node_modules/.pnpm/electron@39.8.10/node_modules/electron/dist
 directories:
@@ -11,7 +11,7 @@ files:
   - renderer-vue/**/*
   - preload.cjs
   - package.json
-  - node_modules/@electron-manager/**/*
+  - node_modules/@telance-records/**/*
 asar: true
 mac:
   category: public.app-category.developer-tools

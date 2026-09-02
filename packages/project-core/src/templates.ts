@@ -39,7 +39,7 @@ version:: V001
 
 ### 验收
 
-- Electron Manager 管理数据目录存在。
+- Telance Records 管理数据目录存在。
 - ${RECORD_SUMMARY_PATH} 和 index.json 存在。
 `
 }
@@ -260,10 +260,10 @@ export function changeIndexTemplate() {
 export function recordSkillTemplate(dataRoot: string) {
   return `---
 name: project-records
-description: Read and maintain Electron Manager project records when work requires reading or updating the project's durable task, idea, research, question, risk, constraint, document, knowledge, version, or work-log data.
+description: Read and maintain Telance Records project records when work requires reading or updating the project's durable task, idea, research, question, risk, constraint, document, knowledge, version, or work-log data.
 ---
 
-# Electron Manager Project Records
+# Telance Records Project Records
 
 Use this skill only for the project's durable record layer.
 
@@ -291,7 +291,7 @@ Write new version-scoped records only to the active version. Keep aggregate Mark
 
 ## Safe Direct Writes
 
-- Do not write while Electron Manager or another agent is changing the same project records.
+- Do not write while Telance Records or another agent is changing the same project records.
 - Immediately before allocating an ID, re-read the target Markdown and \`${path.join(dataRoot, RECORD_COUNTERS_PATH)}\`. Choose the next unused ID above both the stored counter and every observed ID, then advance the matching counter when adding the record.
 - For tracked work, set its T record to \`doing\`; after the requested verification succeeds, set it to \`done\` and write one L work log for completed code, configuration, or documentation changes.
 - Use \`task_short_id:: T000\` only for immediate light work that does not need a task card.
@@ -301,6 +301,6 @@ Write new version-scoped records only to the active version. Keep aggregate Mark
 - Preserve completed-version and historical Markdown verbatim unless the user explicitly requests a migration.
 - Re-read a target before writing and preserve unrelated records and user changes.
 - Keep references non-owning: deleting one record does not delete referenced documents, knowledge, or other records.
-- Do not replace \`${RECORD_SUMMARY_PATH}\`, \`index.json\`, or the generated baseline with handwritten source data; refresh those derived files through Electron Manager.
+- Do not replace \`${RECORD_SUMMARY_PATH}\`, \`index.json\`, or the generated baseline with handwritten source data; refresh those derived files through Telance Records.
 `
 }

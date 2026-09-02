@@ -1,7 +1,7 @@
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-const WORKSPACE_SCOPE = '@electron-manager/'
+const WORKSPACE_SCOPE = '@telance-records/'
 const RUNTIME_DEPENDENCY_FIELDS = ['dependencies', 'optionalDependencies', 'peerDependencies']
 
 const root = process.cwd()
@@ -12,7 +12,7 @@ const rootPackage = await readManifest(path.join(root, 'package.json'))
 const desktopPackage = await readManifest(path.join(desktop, 'package.json'))
 const workspacePackages = await loadWorkspacePackages(packagesRoot)
 const runtimePackages = collectRuntimePackages(desktopPackage, workspacePackages)
-const projectCorePackage = workspacePackages.get('@electron-manager/project-core')?.manifest
+const projectCorePackage = workspacePackages.get('@telance-records/project-core')?.manifest
 const verifyOnly = process.argv.includes('--verify-only')
 
 if (rootPackage.version !== desktopPackage.version || rootPackage.version !== projectCorePackage?.version) {
@@ -30,7 +30,7 @@ if (verifyOnly) {
 
 async function prepareStagedRuntime() {
   await rm(staging, { recursive: true, force: true })
-  await mkdir(path.join(staging, 'node_modules', '@electron-manager'), { recursive: true })
+  await mkdir(path.join(staging, 'node_modules', '@telance-records'), { recursive: true })
 
   await cp(path.join(desktop, 'dist'), path.join(staging, 'dist'), { recursive: true })
   await cp(path.join(desktop, 'assets'), path.join(staging, 'assets'), { recursive: true })
@@ -50,7 +50,7 @@ async function prepareStagedRuntime() {
   await writeFile(
     path.join(staging, 'package.json'),
     `${JSON.stringify({
-      name: 'electron-manager',
+      name: 'telance-records',
       version: rootPackage.version,
       private: true,
       type: 'module',
@@ -258,7 +258,7 @@ async function findJavaScriptFiles(directory) {
 
 function findWorkspaceImports(source) {
   const imports = new Set()
-  const importPattern = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*|\brequire\s*\(\s*)['"](@electron-manager\/[^/'"]+)(?:\/[^'"]*)?['"]/g
+  const importPattern = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*|\brequire\s*\(\s*)['"](@telance-records\/[^/'"]+)(?:\/[^'"]*)?['"]/g
   let match
 
   while ((match = importPattern.exec(source)) !== null) imports.add(match[1])

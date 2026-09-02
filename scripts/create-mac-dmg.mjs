@@ -5,10 +5,10 @@ import path from 'node:path'
 const root = process.cwd()
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 const releaseDir = path.join(root, 'release')
-const appPath = path.join(releaseDir, 'mac-arm64', 'Electron Manager.app')
-const tempDmgPath = path.join(root, 'build', 'Electron Manager-temp.dmg')
+const appPath = path.join(releaseDir, 'mac-arm64', 'Telance Records.app')
+const tempDmgPath = path.join(root, 'build', 'Telance Records-temp.dmg')
 const mountPoint = path.join(root, 'build', 'dmg-mount')
-const dmgPath = path.join(releaseDir, `Electron Manager-${packageJson.version}-arm64.dmg`)
+const dmgPath = path.join(releaseDir, `Telance Records-${packageJson.version}-arm64.dmg`)
 
 async function ensureExists(filePath, label) {
   try {
@@ -79,7 +79,7 @@ try {
   run('hdiutil', [
     'create',
     '-volname',
-    'Electron Manager',
+    'Telance Records',
     '-size',
     `${imageSizeMb}m`,
     '-fs',
@@ -106,7 +106,7 @@ try {
     '--noacl',
     '--nopreserveHFSCompression',
     appPath,
-    path.join(mountPoint, 'Electron Manager.app'),
+    path.join(mountPoint, 'Telance Records.app'),
   ])
   await symlink('/Applications', path.join(mountPoint, 'Applications'))
 

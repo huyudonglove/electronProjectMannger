@@ -6,7 +6,7 @@ const root = process.cwd()
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 const releaseDir = path.join(root, 'release')
 const appDir = path.join(releaseDir, 'mac-arm64')
-const zipPath = path.join(releaseDir, `Electron Manager-${packageJson.version}-arm64.zip`)
+const zipPath = path.join(releaseDir, `Telance Records-${packageJson.version}-arm64.zip`)
 
 await rm(zipPath, { force: true })
 await rm(`${zipPath}.blockmap`, { force: true })
@@ -16,7 +16,7 @@ const result = spawnSync('ditto', [
   '-k',
   '--sequesterRsrc',
   '--keepParent',
-  path.join(appDir, 'Electron Manager.app'),
+  path.join(appDir, 'Telance Records.app'),
   zipPath,
 ], {
   stdio: 'inherit',
