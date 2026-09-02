@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import UiIcon from '../ui/UiIcon.vue'
+import DialogHeader from '../ui/DialogHeader.vue'
 import UiTag from '../ui/UiTag.vue'
 import ModalLayer from './ModalLayer.vue'
 
@@ -29,13 +29,7 @@ defineEmits<{
     overlay-class="markdown-modal-overlay"
     @close="$emit('close')"
   >
-    <div class="project-dialog-head markdown-dialog-head">
-      <div>
-        <h2 id="markdownDialogTitle" tabindex="-1" data-dialog-initial>{{ title }}</h2>
-        <p>{{ subtitle }}</p>
-      </div>
-      <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="$emit('close')"><UiIcon name="x" /></button>
-    </div>
+    <DialogHeader class="markdown-dialog-head" title-id="markdownDialogTitle" :title="title" :subtitle="subtitle" initial-focus @close="$emit('close')" />
     <div class="markdown-dialog-meta">
       <UiTag :label="`出处：${origin}`" icon-name="fileText" />
       <UiTag v-for="label in badges" :key="label" :label="label" icon-name="tag" />

@@ -158,6 +158,28 @@ export function renderInlineMarkdown(value: string) {
   return escapeHtml(value).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
 }
 
+export function renderTextBlock(value = '') {
+  const paragraphs = String(value)
+    .split(/\n{2,}/)
+    .map((text) => text.trim())
+    .filter(Boolean)
+  return paragraphs.length
+    ? paragraphs.map((text) => `<p>${text.split('\n').map(renderInlineMarkdown).join('<br>')}</p>`).join('')
+    : ''
+}
+
+export function renderListTextBlock(value = '') {
+  const lines = String(value)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (!lines.length) return ''
+  if (lines.some((line) => /^[-*]\s+/.test(line))) {
+    return `<ul>${lines.map((line) => `<li>${renderInlineMarkdown(line.replace(/^[-*]\s+/, ''))}</li>`).join('')}</ul>`
+  }
+  return renderTextBlock(value)
+}
+
 export function escapeHtml(value: unknown) {
   return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }

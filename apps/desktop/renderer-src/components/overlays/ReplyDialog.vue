@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AnyRecord } from '../../utils/record-formatters'
-import UiIcon from '../ui/UiIcon.vue'
+import DialogHeader from '../ui/DialogHeader.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import ModalLayer from './ModalLayer.vue'
 
 interface ReplyForm {
@@ -46,15 +47,7 @@ function updateAnswer(event: Event) {
     @submit="emit('submit')"
   >
     <template v-if="item">
-      <div class="project-dialog-head">
-        <div>
-          <h2 id="replyDialogTitle">{{ replyDialogTitle(item) }}</h2>
-          <p>{{ item.question || '协作内容' }}</p>
-        </div>
-        <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="emit('close')">
-          <UiIcon name="x" />
-        </button>
-      </div>
+      <DialogHeader title-id="replyDialogTitle" :title="replyDialogTitle(item)" :subtitle="item.question || '协作内容'" @close="emit('close')" />
       <textarea
         :value="form.answer"
         rows="5"
@@ -64,9 +57,7 @@ function updateAnswer(event: Event) {
       ></textarea>
       <div class="quick-task-actions">
         <span>{{ form.status }}</span>
-        <button class="btn icon-button btn-primary" type="submit" title="发送回复" aria-label="发送回复">
-          <UiIcon name="check" />
-        </button>
+        <UiIconButton icon="check" label="发送回复" variant="primary" type="submit" />
       </div>
     </template>
   </ModalLayer>

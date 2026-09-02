@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick } from 'vue'
 import UiIcon from '../ui/UiIcon.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 
 type AnyRecord = Record<string, any>
 
@@ -120,7 +121,7 @@ function handleVersionMenuKeydown(event: KeyboardEvent) {
           </button>
         </div>
       </div>
-      <button class="btn icon-button btn-ghost" type="button" title="手动刷新" aria-label="手动刷新" :disabled="props.busy || !props.initialized" @click="emit('refresh')"><UiIcon name="refresh" /></button>
+      <UiIconButton icon="refresh" label="手动刷新" variant="ghost" :disabled="props.busy || !props.initialized" @click="emit('refresh')" />
       <button
         v-if="props.showCreate"
         class="btn btn-primary topbar-create"

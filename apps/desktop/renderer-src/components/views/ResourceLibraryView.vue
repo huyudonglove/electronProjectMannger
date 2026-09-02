@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import UiEmptyState from '../ui/UiEmptyState.vue'
 import UiIcon from '../ui/UiIcon.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 
 type ResourceKind = 'knowledge' | 'document' | 'constraint'
 type ResourceRecord = Record<string, any>
@@ -144,19 +146,23 @@ function itemKicker(item: ResourceViewItem) {
     <div class="resource-workspace">
       <aside class="resource-index">
         <div class="resource-index-list">
-          <div v-if="props.kind !== 'constraint' && !props.items.length" class="empty-panel empty-state">
-            <UiIcon class="empty-state-icon" :name="copy.emptyIcon" />
-            <strong>{{ props.query ? copy.emptySearch : copy.empty }}</strong>
-          </div>
+          <UiEmptyState
+            v-if="props.kind !== 'constraint' && !props.items.length"
+            :icon="copy.emptyIcon"
+            :message="props.query ? copy.emptySearch : copy.empty"
+          />
 
           <section v-for="group in primaryGroups" :key="group.key" class="resource-index-group">
             <div v-if="group.showHeader" class="resource-index-group-head">
               <strong>{{ group.label }}</strong>
               <span>{{ group.items.length }}</span>
             </div>
-            <div v-if="props.kind === 'constraint' && !group.items.length" class="empty-panel resource-index-empty">
-              {{ props.query ? copy.emptySearch : copy.empty }}
-            </div>
+            <UiEmptyState
+              v-if="props.kind === 'constraint' && !group.items.length"
+              class="resource-index-empty"
+              :message="props.query ? copy.emptySearch : copy.empty"
+              compact
+            />
             <article
               v-for="item in group.items"
               :key="item.key"
@@ -177,16 +183,14 @@ function itemKicker(item: ResourceViewItem) {
                 <small v-if="item.summary">{{ item.summary }}</small>
                 <span v-if="item.origin" class="resource-row-origin">{{ item.origin }}</span>
               </button>
-              <button
+              <UiIconButton
                 v-if="item.deletable !== false"
-                class="btn icon-button btn-outline-secondary btn-sm resource-row-delete delete-action"
-                type="button"
-                :title="copy.deleteLabel"
-                :aria-label="copy.deleteLabel"
+                class="resource-row-delete delete-action"
+                icon="trash"
+                size="sm"
+                :label="copy.deleteLabel"
                 @click="emit('delete', item)"
-              >
-                <UiIcon name="trash" />
-              </button>
+              />
             </article>
           </section>
 
@@ -231,7 +235,7 @@ function itemKicker(item: ResourceViewItem) {
         </div>
         <div class="resource-detail-body rendered-markdown" v-html="selectedItem.contentHtml || ''" />
       </article>
-      <div v-else class="empty-panel resource-detail-empty">{{ copy.detailEmpty }}</div>
+      <UiEmptyState v-else class="resource-detail-empty" :message="copy.detailEmpty" compact />
     </div>
   </section>
 </template>

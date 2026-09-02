@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import UiIcon from '../ui/UiIcon.vue'
+import UiEmptyState from '../ui/UiEmptyState.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import UiTag from '../ui/UiTag.vue'
+import { dialogueDisplayTitle } from '../../utils/record-formatters'
+import { formatTime, statusIcon, statusLabel, statusTone } from '../../utils/record-presentation'
 
 type AnyRecord = Record<string, any>
 type ResearchTab = 'active' | 'done'
-type UiTone = 'neutral' | 'complete' | 'warning' | 'danger'
 
 const props = withDefaults(defineProps<{
   visibleDialogues: AnyRecord[]
@@ -43,22 +45,6 @@ const activeDialogue = computed(() => (
 
 const activeDocument = computed(() => activeDialogue.value ? dialogueDocument(activeDialogue.value) : null)
 
-function dialogueDisplayTitle(dialogue: AnyRecord) {
-  return firstMeaningfulLine(dialogue.recordContent || dialogue.answer || dialogue.title || '') || dialogueTitle(dialogue)
-}
-
-function dialogueTitle(dialogue: AnyRecord) {
-  return String(dialogue.title || '').replace(/^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*/, '').trim() || '研究'
-}
-
-function firstMeaningfulLine(value: string) {
-  return String(value || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line && !/^```/.test(line) && !/^#{1,6}\s+/.test(line) && !/^[-*]\s+/.test(line) && !/^[A-Za-z0-9_-]+::\s*/.test(line))
-    || ''
-}
-
 function researchModeLabel(mode: string) {
   if (mode === 'depth') return '深度'
   if (mode === 'breadth') return '广度'
@@ -70,26 +56,7 @@ function researchModeIcon(mode: string) {
 }
 
 function researchStatusText(status: string) {
-  return ({
-    pending: '待研究',
-    doing: '进行中',
-    done: '已完成',
-    archived: '已归档',
-  } as Record<string, string>)[status] || '待研究'
-}
-
-function statusTone(status: string): UiTone {
-  if (['done', 'handled', 'resolved'].includes(status)) return 'complete'
-  if (['doing', 'pending'].includes(status)) return 'warning'
-  if (['abandoned', 'failed', 'blocked'].includes(status)) return 'danger'
-  return 'neutral'
-}
-
-function statusIcon(status: string) {
-  if (['done', 'handled', 'resolved'].includes(status)) return 'circleCheck'
-  if (['doing', 'pending'].includes(status)) return 'clock'
-  if (['abandoned', 'failed', 'blocked'].includes(status)) return 'circleX'
-  return 'circleDot'
+  return statusLabel(status, 'research')
 }
 
 function dialogueDocument(dialogue: AnyRecord) {
@@ -126,29 +93,6 @@ function dialogueRefsList(dialogue: AnyRecord) {
   ]
 }
 
-function formatTime(value: string) {
-  if (!value) return '未知时间'
-  const date = parseDisplayDate(value)
-  if (Number.isNaN(date.getTime())) return value
-  const pad = (number: number) => String(number).padStart(2, '0')
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function parseDisplayDate(value: unknown) {
-  if (value instanceof Date) return value
-  const text = String(value || '').trim()
-  const localMatch = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/)
-  if (localMatch && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
-    return new Date(
-      Number(localMatch[1]),
-      Number(localMatch[2]) - 1,
-      Number(localMatch[3]),
-      Number(localMatch[4] || 0),
-      Number(localMatch[5] || 0),
-    )
-  }
-  return new Date(text)
-}
 </script>
 
 <template>
@@ -159,8 +103,8 @@ function parseDisplayDate(value: unknown) {
       <button type="button" role="tab" :aria-selected="props.tab === 'done'" :class="{ active: props.tab === 'done' }" @click="emit('update:tab', 'done')">已完成 <span>{{ props.completedCount }}</span></button>
     </div>
     <div class="dialogue-layout" :class="{ 'toc-collapsed': props.tocCollapsed }">
-      <p v-if="!props.totalCount" class="empty-panel">暂无研究。</p>
-      <p v-else-if="!props.visibleDialogues.length" class="empty-panel">{{ props.tab === 'active' ? '暂无待研究事项。' : '暂无已完成研究。' }}</p>
+      <UiEmptyState v-if="!props.totalCount" message="暂无研究。" compact />
+      <UiEmptyState v-else-if="!props.visibleDialogues.length" :message="props.tab === 'active' ? '暂无待研究事项。' : '暂无已完成研究。'" compact />
       <template v-else-if="activeDialogue">
         <div class="dialogue-list-wrap">
           <div class="dialogue-list">
@@ -184,9 +128,9 @@ function parseDisplayDate(value: unknown) {
                 </div>
                 <div class="dialogue-actions">
                   <small>{{ formatTime(activeDialogue.created) }}</small>
-                  <button class="btn icon-button btn-outline-secondary btn-sm" type="button" :title="researchPromptLabel(activeDialogue)" :aria-label="researchPromptLabel(activeDialogue)" @click="emit('copy', activeDialogue)"><UiIcon name="copy" /></button>
-                  <button v-if="activeDocument" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开详细文档" aria-label="打开详细文档" @click="emit('openDocument', activeDocument)"><UiIcon name="fileText" /></button>
-                  <button class="btn icon-button btn-outline-secondary btn-sm delete-action" type="button" title="删除研究" aria-label="删除研究" @click="emit('delete', activeDialogue)"><UiIcon name="trash" /></button>
+                  <UiIconButton icon="copy" :label="researchPromptLabel(activeDialogue)" size="sm" @click="emit('copy', activeDialogue)" />
+                  <UiIconButton v-if="activeDocument" icon="fileText" label="打开详细文档" size="sm" @click="emit('openDocument', activeDocument)" />
+                  <UiIconButton class="delete-action" icon="trash" label="删除研究" size="sm" @click="emit('delete', activeDialogue)" />
                 </div>
               </div>
               <section class="dialogue-block dialogue-prompt"><strong>概要</strong><p>{{ dialogueSummary(activeDialogue) }}</p></section>
@@ -203,7 +147,7 @@ function parseDisplayDate(value: unknown) {
         <aside class="dialogue-index" :class="{ 'is-collapsed': props.tocCollapsed }">
           <div class="section-head compact-head dialogue-index-head">
             <h2>{{ props.tocCollapsed ? '' : '目录' }}</h2>
-            <button class="btn icon-button btn-outline-secondary btn-sm" type="button" :title="props.tocCollapsed ? '展开目录' : '收起目录'" :aria-label="props.tocCollapsed ? '展开目录' : '收起目录'" @click="emit('update:tocCollapsed', !props.tocCollapsed)"><UiIcon :name="props.tocCollapsed ? 'panelRightOpen' : 'panelRightClose'" /></button>
+            <UiIconButton :icon="props.tocCollapsed ? 'panelRightOpen' : 'panelRightClose'" :label="props.tocCollapsed ? '展开目录' : '收起目录'" size="sm" @click="emit('update:tocCollapsed', !props.tocCollapsed)" />
           </div>
           <div v-if="!props.tocCollapsed" class="dialogue-toc">
             <button v-for="(dialogue, index) in props.visibleDialogues" :key="dialogue.id || index" class="dialogue-toc-item" :class="{ active: index === props.selectedIndex }" type="button" @click="emit('select', index)">

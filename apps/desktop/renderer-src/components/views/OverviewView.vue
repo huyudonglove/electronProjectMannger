@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiIcon from '../ui/UiIcon.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 
 type Counts = {
   tasks: number
@@ -101,21 +102,21 @@ function versionStatusText(status?: string) {
             <span>数据层</span>
             <div class="path-value">
               <code :title="props.dataRoot">{{ props.dataRoot || '初始化后显示' }}</code>
-              <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开数据层文件夹" aria-label="打开数据层文件夹" :disabled="props.busy || !props.initialized || !props.dataRoot" @click="emit('openDataRoot')"><UiIcon name="folderOpen" /></button>
+              <UiIconButton icon="folderOpen" label="打开数据层文件夹" size="sm" :disabled="props.busy || !props.initialized || !props.dataRoot" @click="emit('openDataRoot')" />
             </div>
           </div>
           <div class="project-detail-row">
             <span>全局知识库</span>
             <div class="path-value">
               <code :title="props.knowledgeRoot">{{ props.knowledgeRoot || '初始化后显示' }}</code>
-              <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开知识库文件夹" aria-label="打开知识库文件夹" :disabled="props.busy || !props.initialized || !props.knowledgeRoot" @click="emit('openKnowledgeRoot')"><UiIcon name="folderOpen" /></button>
+              <UiIconButton icon="folderOpen" label="打开知识库文件夹" size="sm" :disabled="props.busy || !props.initialized || !props.knowledgeRoot" @click="emit('openKnowledgeRoot')" />
             </div>
           </div>
           <div class="project-detail-row project-detail-skill">
             <span>项目记录 Skill</span>
             <div class="path-value">
               <code :title="props.recordSkillPath">{{ props.recordSkillPath || '初始化后显示' }}</code>
-              <button class="btn icon-button btn-outline-primary btn-sm" type="button" title="复制 Skill" aria-label="复制 Skill" :disabled="props.busy || !props.initialized || !props.recordSkillPath" @click="emit('copyRecordSkill')"><UiIcon name="copy" /></button>
+              <UiIconButton icon="copy" label="复制 Skill" variant="outline-primary" size="sm" :disabled="props.busy || !props.initialized || !props.recordSkillPath" @click="emit('copyRecordSkill')" />
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { versionStatusOptions } from '../../config/ui'
-import UiIcon from '../ui/UiIcon.vue'
+import DialogHeader from '../ui/DialogHeader.vue'
 import UiSelect from '../ui/UiSelect.vue'
 import ModalLayer from './ModalLayer.vue'
 
@@ -44,15 +44,7 @@ function updateForm(patch: Partial<VersionForm>) {
     @close="emit('close')"
     @submit="emit('submit')"
   >
-    <div class="project-dialog-head">
-      <div>
-        <h2 id="versionDialogTitle">创建新版本</h2>
-        <p>版本独立管理；创建后可从顶部选择它来记录内容。</p>
-      </div>
-      <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="emit('close')">
-        <UiIcon name="x" />
-      </button>
-    </div>
+    <DialogHeader title-id="versionDialogTitle" title="创建新版本" subtitle="版本独立管理；创建后可从顶部选择它来记录内容。" @close="emit('close')" />
     <div class="record-dialog-grid">
       <label>
         <span>版本名称</span>

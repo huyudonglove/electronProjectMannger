@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import UiIcon from '../ui/UiIcon.vue'
+import UiEmptyState from '../ui/UiEmptyState.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import UiTag from '../ui/UiTag.vue'
+import { formatTime } from '../../utils/record-presentation'
 
 type CollabItem = Record<string, any>
 type VersionItem = Record<string, any>
@@ -69,23 +71,6 @@ function riskKindText(kind: string) {
   return ({ risk: '风险', verification: '验证限制', 'follow-up': '后续事项' } as Record<string, string>)[kind] || kind
 }
 
-function formatTime(value: string) {
-  if (!value) return '未知时间'
-  const date = parseDisplayDate(value)
-  if (Number.isNaN(date.getTime())) return value
-  const pad = (number: number) => String(number).padStart(2, '0')
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function parseDisplayDate(value: any) {
-  if (value instanceof Date) return value
-  const text = String(value || '').trim()
-  const localMatch = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/)
-  if (localMatch && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
-    return new Date(Number(localMatch[1]), Number(localMatch[2]) - 1, Number(localMatch[3]), Number(localMatch[4] || 0), Number(localMatch[5] || 0))
-  }
-  return new Date(text)
-}
 </script>
 
 <template>
@@ -102,9 +87,11 @@ function parseDisplayDate(value: any) {
       <aside class="collab-index">
         <div class="section-head compact-head"><h2>记录</h2><span>{{ activeCollabItems.length }} 条</span></div>
         <div class="collab-index-list">
-          <p v-if="!activeCollabItems.length" class="empty-panel">
-            {{ collabTab === 'open' ? '当前没有等待你回复的协作问题。' : collabTab === 'decided' ? '当前没有等待跟进的记录。' : '所选范围没有未处理的风险或后续事项。' }}
-          </p>
+          <UiEmptyState
+            v-if="!activeCollabItems.length"
+            :message="collabTab === 'open' ? '当前没有等待你回复的协作问题。' : collabTab === 'decided' ? '当前没有等待跟进的记录。' : '所选范围没有未处理的风险或后续事项。'"
+            compact
+          />
           <button
             v-for="(item, index) in activeCollabItems"
             :key="item.id"
@@ -127,7 +114,7 @@ function parseDisplayDate(value: any) {
       </aside>
 
       <div class="collab-detail-wrap">
-        <p v-if="!selectedCollabItem" class="empty-panel collab-detail-empty">选择一条协作记录查看详情。</p>
+        <UiEmptyState v-if="!selectedCollabItem" class="collab-detail-empty" message="选择一条协作记录查看详情。" compact />
         <article v-else class="collab-detail" :class="{ 'risk-record': collabTab === 'risks' }">
           <div class="collab-record-head">
             <div>
@@ -138,7 +125,7 @@ function parseDisplayDate(value: any) {
               <UiTag v-if="selectedCollabItem.blocking" label="阻塞" tone="warning" variant="status" icon-name="alertTriangle" />
             </div>
             <div class="collab-record-actions">
-              <button v-if="collabTab === 'open' && selectedCollabItem.relations?.length" class="btn icon-button btn-outline-secondary btn-sm" type="button" title="查看关联记录" aria-label="查看关联记录" @click="emit('openQuestionTarget', selectedCollabItem)"><UiIcon name="eye" /></button>
+              <UiIconButton v-if="collabTab === 'open' && selectedCollabItem.relations?.length" icon="eye" label="查看关联记录" size="sm" @click="emit('openQuestionTarget', selectedCollabItem)" />
               <button v-if="collabTab === 'open'" class="btn btn-primary btn-sm" type="button" @click="emit('openReplyDialog', selectedCollabItem)">回复</button>
               <button v-else-if="collabTab === 'decided'" class="btn btn-outline-secondary btn-sm" type="button" @click="emit('openReplyDialog', selectedCollabItem)">补充说明</button>
               <button v-if="collabTab === 'decided'" class="btn btn-primary btn-sm" type="button" @click="emit('completeQuestion', selectedCollabItem)">标记已完成</button>
@@ -175,7 +162,7 @@ function parseDisplayDate(value: any) {
           <span>{{ versionHistoryCount(version.shortId) }} 条</span>
         </summary>
         <div class="collab-history-records">
-          <p v-if="!versionHistoryCount(version.shortId)" class="empty-panel">这个版本暂无已归档协作记录。</p>
+          <UiEmptyState v-if="!versionHistoryCount(version.shortId)" message="这个版本暂无已归档协作记录。" compact />
           <article v-for="item in versionHistoryQuestions(version.shortId)" :key="item.id" class="collab-history-row">
             <span class="task-short-id">{{ item.shortId }}</span>
             <div class="collab-history-main">

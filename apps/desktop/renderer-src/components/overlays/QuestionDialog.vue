@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { questionKindOptions, questionScopeOptions } from '../../config/ui'
-import UiIcon from '../ui/UiIcon.vue'
+import DialogHeader from '../ui/DialogHeader.vue'
 import UiSelect from '../ui/UiSelect.vue'
 import ModalLayer from './ModalLayer.vue'
 
@@ -52,10 +52,7 @@ function updateForm(patch: Partial<QuestionForm>) {
     @close="emit('close')"
     @submit="emit('submit')"
   >
-    <div class="project-dialog-head">
-      <div><h2 id="questionDialogTitle">发起协作记录</h2><p>提交后会进入“待跟进”。</p></div>
-      <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="emit('close')"><UiIcon name="x" /></button>
-    </div>
+    <DialogHeader title-id="questionDialogTitle" title="发起协作记录" subtitle="提交后会进入“待跟进”。" @close="emit('close')" />
     <label><span>标题</span><input :value="form.title" type="text" data-dialog-initial placeholder="需要继续跟进什么" @input="updateForm({ title: eventValue($event) })" /></label>
     <label><span>内容</span><textarea :value="form.question" rows="3" placeholder="写下问题、决定或需要落实的事项。" @input="updateForm({ question: eventValue($event) })"></textarea></label>
     <label><span>背景</span><textarea :value="form.background" rows="2" placeholder="补充必要的上下文。" @input="updateForm({ background: eventValue($event) })"></textarea></label>
