@@ -4,6 +4,5 @@
 @import './record-library/markdown-content.css';
 @import './record-library/notes.css';
 @import './record-library/resource-search.css';
-@import './record-library/resource-index.css';
-@import './record-library/resource-detail.css';
+@import './record-library/resource-cards.css';
 @import './record-library/empty-states.css';

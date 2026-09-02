@@ -21,7 +21,8 @@
   letter-spacing: 0.04em;
 }
 
-.navigation-group a {
+.navigation-group a,
+.sidebar-knowledge-link {
   position: relative;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
@@ -54,15 +55,18 @@
   stroke-width: var(--icon-stroke);
 }
 
-.navigation-group a.active .nav-icon {
+.navigation-group a.active .nav-icon,
+.sidebar-knowledge-link.active .nav-icon {
   color: var(--primary-text);
 }
 
-.navigation-group a:hover {
+.navigation-group a:hover,
+.sidebar-knowledge-link:hover {
   background: var(--hover);
 }
 
-.navigation-group a.active {
+.navigation-group a.active,
+.sidebar-knowledge-link.active {
   background: var(--active);
   border-color: transparent;
   color: var(--text);
@@ -146,4 +150,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-

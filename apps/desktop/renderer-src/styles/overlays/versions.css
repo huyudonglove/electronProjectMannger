@@ -197,16 +197,3 @@
   color: var(--complete);
 }
 
-.version-metrics {
-  border-top: 1px solid var(--border);
-  margin-top: 3px;
-  padding-top: 9px;
-  color: var(--muted);
-  font-size: var(--font-size-sm);
-}
-
-.version-metrics span + span::before {
-  content: "·";
-  margin-right: 7px;
-}
-

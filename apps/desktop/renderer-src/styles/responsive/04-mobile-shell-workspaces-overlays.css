@@ -129,8 +129,7 @@
 
   .dialogue-layout,
   .work-log-layout,
-  .collab-workspace,
-  .resource-workspace {
+  .collab-workspace {
     height: auto;
     min-height: 0;
     overflow: visible;
@@ -146,22 +145,16 @@
   .collab-index,
   .collab-index-list,
   .collab-detail-wrap,
-  .collab-detail,
-  .resource-index,
-  .resource-index-list,
-  .resource-detail,
-  .resource-detail-body {
+  .collab-detail {
     max-height: none;
     overflow: visible;
   }
 
-  .collab-workspace,
-  .resource-workspace {
+  .collab-workspace {
     grid-template-columns: 1fr;
   }
 
-  .collab-index-list,
-  .resource-index-list {
+  .collab-index-list {
     max-height: 280px;
     overflow-y: auto;
   }
@@ -179,4 +172,3 @@
   }
 
 }
-

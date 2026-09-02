@@ -12,9 +12,11 @@ import ReplyDialog from './components/overlays/ReplyDialog.vue'
 import TaskDetailModal from './components/overlays/TaskDetailModal.vue'
 import VersionDialog from './components/overlays/VersionDialog.vue'
 import CollaborationView from './components/views/CollaborationView.vue'
+import ConstraintsView from './components/views/ConstraintsView.vue'
+import DocumentsView from './components/views/DocumentsView.vue'
+import KnowledgeView from './components/views/KnowledgeView.vue'
 import OverviewView from './components/views/OverviewView.vue'
 import ResearchView from './components/views/ResearchView.vue'
-import ResourceLibraryView from './components/views/ResourceLibraryView.vue'
 import TaskBoardView from './components/views/TaskBoardView.vue'
 import ThoughtsView from './components/views/ThoughtsView.vue'
 import VersionsView from './components/views/VersionsView.vue'
@@ -38,6 +40,7 @@ import {
   boardColumns,
   createLabels,
   defaultPageMeta,
+  knowledgeNavigationItem,
   navigationGroups,
   pageMetaBySection,
   versionScopedSections,
@@ -72,9 +75,6 @@ const state = reactive({
   knowledgeQuery: '',
   documentQuery: '',
   constraintQuery: '',
-  selectedKnowledgeKey: '',
-  selectedDocumentKey: '',
-  selectedConstraintKey: '',
   selectedVersionId: '',
   selectedVersionByProject: {} as Record<string, string>,
   versionMenuOpen: false,
@@ -211,7 +211,6 @@ const {
   documentViewItems,
   constraintViewItems,
   systemConstraintViewItems,
-  selectResourceViewItem,
   deleteResourceViewItem,
   openMarkdownDocument,
   closeMarkdownDocument,
@@ -230,9 +229,6 @@ const {
   knowledgeQuery: toRef(state, 'knowledgeQuery'),
   documentQuery: toRef(state, 'documentQuery'),
   constraintQuery: toRef(state, 'constraintQuery'),
-  selectedKnowledgeKey: toRef(state, 'selectedKnowledgeKey'),
-  selectedDocumentKey: toRef(state, 'selectedDocumentKey'),
-  selectedConstraintKey: toRef(state, 'selectedConstraintKey'),
   markdownDocument: toRef(state, 'markdownDocument'),
   deleteKnowledgeNote: (note) => deleteKnowledgeNote(note),
   deleteDocumentNote: (note) => deleteDocumentNote(note),
@@ -445,6 +441,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   <main class="page-shell" :inert="Boolean(activeModal)" :aria-hidden="activeModal ? 'true' : undefined">
     <AppSidebar
       :navigation-groups="navigationGroups"
+      :knowledge-item="knowledgeNavigationItem"
       :active-section="state.section"
       :collab-attention-count="collabAttentionCount"
       :project-name="projectName"
@@ -604,39 +601,33 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
         @open-work-log="openWorkLog"
       />
 
-      <ResourceLibraryView
+      <KnowledgeView
         v-if="state.section === 'knowledge'"
-        kind="knowledge"
         :query="state.knowledgeQuery"
         :items="knowledgeViewItems"
-        :selected-key="state.selectedKnowledgeKey"
         :total-count="knowledge.length"
         @update:query="state.knowledgeQuery = $event"
-        @select="selectResourceViewItem('knowledge', $event)"
+        @open="openMarkdownDocument($event.record, 'knowledge')"
         @delete="deleteResourceViewItem('knowledge', $event)"
       />
 
-      <ResourceLibraryView
+      <DocumentsView
         v-if="state.section === 'documents'"
-        kind="document"
         :query="state.documentQuery"
         :items="documentViewItems"
-        :selected-key="state.selectedDocumentKey"
         :total-count="documents.length"
         @update:query="state.documentQuery = $event"
-        @select="selectResourceViewItem('document', $event)"
+        @open="openMarkdownDocument($event.record, 'document')"
         @delete="deleteResourceViewItem('document', $event)"
       />
 
-      <ResourceLibraryView
+      <ConstraintsView
         v-if="state.section === 'constraints'"
-        kind="constraint"
         :query="state.constraintQuery"
         :items="constraintViewItems"
         :system-items="systemConstraintViewItems"
-        :selected-key="state.selectedConstraintKey"
         @update:query="state.constraintQuery = $event"
-        @select="selectResourceViewItem('constraint', $event)"
+        @open="openMarkdownDocument($event.record, 'constraint')"
         @delete="deleteResourceViewItem('constraint', $event)"
       />
     </section>

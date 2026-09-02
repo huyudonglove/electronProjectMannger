@@ -38,7 +38,7 @@ export function useRecordCollections(options: {
   const dialogues = computed(() => allDialogues.value.filter(recordMatchesSelectedVersion))
   const documents = computed(() => allDocuments.value.filter(recordMatchesSelectedVersion))
   const userConstraints = computed(() => allConstraints.value.filter(
-    (item: AnyRecord) => item.source !== 'system' && recordMatchesSelectedVersion(item),
+    (item: AnyRecord) => item.source !== 'system',
   ))
   const systemConstraints = computed(() => allConstraints.value.filter((item: AnyRecord) => item.source === 'system'))
   const constraints = computed(() => [...userConstraints.value, ...systemConstraints.value])

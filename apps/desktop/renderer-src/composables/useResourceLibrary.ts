@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
 import type { AnyRecord } from '../utils/record-formatters'
 import { useMarkdownDialogModel } from './resource-library/useMarkdownDialogModel'
-import { resourceKey, useResourceViewModels } from './resource-library/useResourceViewModels'
+import { useResourceViewModels } from './resource-library/useResourceViewModels'
 import type { DeleteResource, ResourceKind, ResourceViewItem } from './resource-library/types'
 
 type ResourceLibraryOptions = {
@@ -14,9 +14,6 @@ type ResourceLibraryOptions = {
   knowledgeQuery: Readonly<Ref<string>>
   documentQuery: Readonly<Ref<string>>
   constraintQuery: Readonly<Ref<string>>
-  selectedKnowledgeKey: Ref<string>
-  selectedDocumentKey: Ref<string>
-  selectedConstraintKey: Ref<string>
   markdownDocument: Ref<AnyRecord | null>
   deleteKnowledgeNote: DeleteResource
   deleteDocumentNote: DeleteResource
@@ -27,13 +24,6 @@ export function useResourceLibrary(options: ResourceLibraryOptions) {
   const viewModels = useResourceViewModels(options)
   const markdownDialog = useMarkdownDialogModel(options)
 
-  function selectResourceViewItem(kind: ResourceKind, item: ResourceViewItem) {
-    const key = resourceKey(item.record)
-    if (kind === 'knowledge') options.selectedKnowledgeKey.value = key
-    else if (kind === 'document') options.selectedDocumentKey.value = key
-    else options.selectedConstraintKey.value = key
-  }
-
   function deleteResourceViewItem(kind: ResourceKind, item: ResourceViewItem) {
     if (kind === 'knowledge') return options.deleteKnowledgeNote(item.record)
     if (kind === 'document') return options.deleteDocumentNote(item.record)
@@ -43,7 +33,6 @@ export function useResourceLibrary(options: ResourceLibraryOptions) {
   return {
     ...viewModels,
     ...markdownDialog,
-    selectResourceViewItem,
     deleteResourceViewItem,
   }
 }

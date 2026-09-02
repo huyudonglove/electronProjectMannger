@@ -1,5 +1,5 @@
 import { nextTick, onBeforeUnmount, type Ref } from 'vue'
-import { navigationGroups } from '../../config/ui'
+import { knowledgeNavigationItem, navigationGroups } from '../../config/ui'
 import { clampLogIndex, type AnyRecord } from '../../utils/record-formatters'
 
 type TargetNavigationOptions = {
@@ -76,7 +76,8 @@ export function useTargetNavigation(options: TargetNavigationOptions) {
   })
 
   function setActiveSection(nextSection: string) {
-    const valid = navigationGroups.some((group) => group.items.some(([key]) => key === nextSection))
+    const valid = nextSection === knowledgeNavigationItem[0]
+      || navigationGroups.some((group) => group.items.some(([key]) => key === nextSection))
     section.value = valid ? nextSection : 'overview'
     history.replaceState(null, '', `#${section.value}`)
   }

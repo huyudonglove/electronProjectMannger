@@ -56,7 +56,6 @@ export const navigationGroups = [
       ['capture', '想法', 'messageCircle'],
       ['work-logs', '工作记录', 'scrollText'],
       ['documents', '文档', 'fileText'],
-      ['knowledge', '知识库', 'bookOpen'],
     ],
   },
   {
@@ -67,6 +66,8 @@ export const navigationGroups = [
     ],
   },
 ] as const satisfies readonly NavigationGroup[]
+
+export const knowledgeNavigationItem = ['knowledge', '知识库', 'bookOpen'] as const satisfies NavigationItem
 
 export const versionScopedSections: ReadonlySet<string> = new Set([
   'overview',

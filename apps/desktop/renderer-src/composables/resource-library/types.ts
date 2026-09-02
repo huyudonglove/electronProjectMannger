@@ -11,9 +11,7 @@ export type ResourceViewItem = {
   rowMeta?: string
   origin?: string
   folder?: string
-  detailKicker?: string
   detailMeta?: string
-  contentHtml?: string
   deletable?: boolean
 }
 

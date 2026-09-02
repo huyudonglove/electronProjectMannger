@@ -91,7 +91,13 @@
 
 .work-log-list-wrap {
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface-soft) 62%, transparent);
+  padding: var(--space-3);
 }
 
 .work-log-list {
@@ -112,5 +118,5 @@
 
 .work-log-detail > .work-log-card {
   min-height: 100%;
+  box-shadow: none;
 }
-

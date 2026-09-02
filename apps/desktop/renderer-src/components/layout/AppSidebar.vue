@@ -9,6 +9,7 @@ type NavGroup = {
 
 const props = defineProps<{
   navigationGroups: readonly NavGroup[]
+  knowledgeItem: NavItem
   activeSection: string
   collabAttentionCount: number
   projectName: string
@@ -62,6 +63,17 @@ const emit = defineEmits<{
     </nav>
 
     <div class="sidebar-footer">
+      <a
+        class="sidebar-knowledge-link"
+        :href="`#${props.knowledgeItem[0]}`"
+        :class="{ active: props.activeSection === props.knowledgeItem[0] }"
+        :aria-current="props.activeSection === props.knowledgeItem[0] ? 'page' : undefined"
+        :title="props.knowledgeItem[1]"
+        @click.prevent="emit('selectSection', props.knowledgeItem[0])"
+      >
+        <UiIcon class="nav-icon" :name="props.knowledgeItem[2]" />
+        <span>{{ props.knowledgeItem[1] }}</span>
+      </a>
       <button
         class="theme-toggle"
         type="button"

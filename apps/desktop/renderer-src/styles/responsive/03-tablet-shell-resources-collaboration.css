@@ -48,6 +48,17 @@
     padding: 7px;
   }
 
+  .sidebar-knowledge-link {
+    grid-template-columns: 1fr;
+    min-height: 38px;
+    place-items: center;
+    padding: 7px;
+  }
+
+  .sidebar-knowledge-link > span:not(.nav-icon) {
+    display: none;
+  }
+
   .navigation-group a > span:not(.nav-icon):not(.nav-count) {
     display: none;
   }
@@ -95,14 +106,8 @@
     padding: 24px;
   }
 
-  .resource-workspace {
-    grid-template-columns: 260px minmax(0, 1fr);
-    gap: var(--space-3);
-  }
-
   .collab-workspace {
     grid-template-columns: 280px minmax(0, 1fr);
     gap: var(--space-3);
   }
 }
-

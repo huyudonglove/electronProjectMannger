@@ -1,5 +1,4 @@
 import { computed, type Ref } from 'vue'
-import { renderReadableMarkdown } from '../../utils/markdown'
 import {
   constraintStatusText,
   constraintSummary,
@@ -42,9 +41,7 @@ export function useResourceViewModels(options: {
     summary: noteCardSummary(note, 'knowledge'),
     rowMeta: knowledgeStatusText(note.status),
     origin: noteOriginProject(note, 'knowledge'),
-    detailKicker: `${note.shortId || 'K000'} · ${knowledgeStatusText(note.status)}`,
     detailMeta: `出处：${noteOriginProject(note, 'knowledge')}`,
-    contentHtml: renderReadableMarkdown(note.content || note.summary || ''),
   })))
 
   const documentViewItems = computed<ResourceViewItem[]>(() => filteredDocuments.value.map((note) => ({
@@ -55,9 +52,7 @@ export function useResourceViewModels(options: {
     summary: noteCardSummary(note, 'document'),
     rowMeta: `${noteCategory(note.path)} · ${note.version || '未标注'}`,
     folder: note.folder || '根目录',
-    detailKicker: `${note.shortId || 'W000'} · ${noteCategory(note.path)}`,
     detailMeta: `${note.path} · ${note.version || '未标注版本'}`,
-    contentHtml: renderReadableMarkdown(note.content || note.summary || ''),
   })))
 
   const constraintViewItems = computed<ResourceViewItem[]>(() => filteredUserConstraints.value.map((constraint) => ({
@@ -67,9 +62,7 @@ export function useResourceViewModels(options: {
     title: constraint.title,
     summary: constraintSummary(constraint),
     rowMeta: `${constraintStatusText(constraint.status)} · ${constraint.version || '未标注'}`,
-    detailKicker: `${constraint.shortId || 'C000'} · ${constraintStatusText(constraint.status)}`,
     detailMeta: `${constraint.path || constraint.scope || '项目约束'} · ${constraint.version || '未标注版本'}`,
-    contentHtml: renderReadableMarkdown(constraint.content || constraintSummary(constraint)),
   })))
 
   const systemConstraintViewItems = computed<ResourceViewItem[]>(() => filteredSystemConstraints.value.map((constraint) => ({
@@ -79,9 +72,7 @@ export function useResourceViewModels(options: {
     title: constraint.title,
     summary: constraintSummary(constraint),
     rowMeta: '只读',
-    detailKicker: `${constraint.shortId || 'C000'} · 系统规则 · 只读`,
     detailMeta: `${constraint.path || constraint.scope || '项目约束'} · ${constraint.version || '未标注版本'}`,
-    contentHtml: renderReadableMarkdown(constraint.content || constraintSummary(constraint)),
     deletable: false,
   })))
 

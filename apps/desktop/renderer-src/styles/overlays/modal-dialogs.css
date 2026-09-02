@@ -18,6 +18,11 @@
 
 .markdown-modal-overlay {
   overflow: hidden;
+  backdrop-filter: none;
+}
+
+.markdown-modal-overlay > .markdown-dialog {
+  animation-name: markdown-surface-enter;
 }
 
 .modal-overlay[hidden] {
@@ -219,4 +224,3 @@
   gap: 8px;
   margin-top: 4px;
 }
-
