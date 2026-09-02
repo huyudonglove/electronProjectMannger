@@ -1853,14 +1853,14 @@ function escapeHtml(value: any) {
                 <span class="task-short-id">{{ version.shortId }}</span>
                 <UiTag :label="version.label" :icon-svg="icon('tag')" />
               </div>
-              <label class="version-status-control">
-                <span>状态</span>
+              <label class="version-status-control" :class="`is-${version.status || 'planned'}`">
                 <select :value="version.status || 'planned'" :disabled="state.busy" :aria-label="`${version.label} 状态`" @change="changeVersionStatus(version, ($event.target as HTMLSelectElement).value)">
                   <option value="planned">规划中</option>
                   <option value="active">进行中</option>
                   <option value="paused">已暂停</option>
                   <option value="completed">已完成</option>
                 </select>
+                <span class="version-status-chevron" v-html="icon('chevronDown')" />
               </label>
             </div>
             <h3>{{ version.title }}</h3>

@@ -3177,18 +3177,77 @@ code {
 }
 
 .version-status-control {
-  display: inline-grid;
-  grid-template-columns: auto minmax(104px, auto);
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
   color: var(--muted);
   font-size: 12px;
 }
 
 .version-status-control select {
+  width: auto;
+  min-width: 102px;
   min-height: 30px;
-  padding: 4px 26px 4px 8px;
+  appearance: none;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: inherit;
+  padding: 4px 30px 4px 12px;
   font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.version-status-control.is-active select {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  background: var(--primary-soft);
+}
+
+.version-status-control.is-paused select {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--border));
+  background: var(--warning-soft);
+}
+
+.version-status-control.is-completed select {
+  border-color: color-mix(in srgb, var(--complete) 34%, var(--border));
+  background: var(--complete-soft);
+}
+
+.version-status-control.is-active {
+  color: var(--primary-text);
+}
+
+.version-status-control.is-paused {
+  color: var(--warning);
+}
+
+.version-status-control.is-completed {
+  color: var(--complete);
+}
+
+.version-status-control select:disabled {
+  cursor: not-allowed;
+}
+
+.version-status-chevron {
+  position: absolute;
+  right: 10px;
+  display: grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  color: currentColor;
+  pointer-events: none;
+}
+
+.version-status-chevron svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .version-metrics {
