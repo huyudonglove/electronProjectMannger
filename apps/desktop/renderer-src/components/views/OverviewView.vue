@@ -78,13 +78,13 @@ const emit = defineEmits<{
     <div class="card record-skill-card">
       <div>
         <strong>项目记录 Skill</strong>
-        <p>复制使用指令，供 Agent 读取和维护项目记录。</p>
+        <p>供 Agent 使用。</p>
       </div>
       <button
         class="btn icon-button btn-outline-primary btn-sm"
         type="button"
-        title="复制项目记录 Skill 使用指令"
-        aria-label="复制项目记录 Skill 使用指令"
+        title="复制 Skill"
+        aria-label="复制 Skill"
         :disabled="props.busy || !props.initialized || !props.recordSkillPath"
         @click="emit('copyRecordSkill')"
         v-html="props.icon('copy')"
