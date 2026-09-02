@@ -42,11 +42,11 @@ declare global {
 }
 
 const statusLabels: Record<string, string> = {
-  backlog: 'Backlog',
+  backlog: '待规划',
   todo: 'Todo',
   doing: 'Doing',
   done: 'Done',
-  abandoned: 'Abandoned',
+  abandoned: '已放弃',
   inbox: 'Inbox',
   handled: 'Done',
   pending: '待研究',
@@ -137,6 +137,7 @@ const state = reactive({
   recentProjects: [] as AnyRecord[],
   projectOverlayOpen: false,
   doneExpanded: false,
+  secondaryTasksExpanded: false,
   section: 'overview',
   busy: false,
   autoRefreshing: false,
@@ -304,6 +305,7 @@ function setActiveSection(section: string) {
 function selectVersion(versionId: string) {
   state.selectedVersionId = versionId
   state.versionMenuOpen = false
+  state.secondaryTasksExpanded = false
   const targetVersion = versions.value.find((version: AnyRecord) => version.shortId === versionId)
   if (versionId === 'all' || targetVersion?.status === 'completed') {
     closeQuickTask()
@@ -1036,6 +1038,8 @@ async function scrollToRef(refs: Map<any, Element>, key: any, highlight: () => v
 }
 
 function openBoardTask(taskId: string) {
+  const target = tasks.value.find((task: AnyRecord) => task.id === taskId)
+  if (target && ['backlog', 'abandoned'].includes(target.status)) state.secondaryTasksExpanded = true
   setActiveSection('board')
   scrollToRef(taskRefs, taskId, () => { state.highlightedTask = taskId }, () => { state.highlightedTask = '' })
 }
@@ -1096,13 +1100,11 @@ function hiddenDoneCount(status: string) {
   return tasks.value.filter((task: AnyRecord) => task.status === 'done').length - boardItems(status).length
 }
 
-function boardSummaryParts() {
-  const backlog = tasks.value.filter((task: AnyRecord) => task.status === 'backlog').length
-  const abandoned = tasks.value.filter((task: AnyRecord) => task.status === 'abandoned').length
+function secondaryTaskGroups() {
   return [
-    backlog ? `Backlog ${backlog}` : '',
-    abandoned ? `Abandoned ${abandoned}` : '',
-  ].filter(Boolean)
+    { status: 'backlog', label: '待规划', count: tasks.value.filter((task: AnyRecord) => task.status === 'backlog').length },
+    { status: 'abandoned', label: '已放弃', count: tasks.value.filter((task: AnyRecord) => task.status === 'abandoned').length },
+  ].filter((group) => group.count > 0)
 }
 
 function thoughtDisplayTitle(thought: AnyRecord) {
@@ -1752,7 +1754,8 @@ function escapeHtml(value: any) {
         :columns="boardColumns"
         :tasks="tasks"
         :board-items="boardItems"
-        :board-summary="boardSummaryParts()"
+        :secondary-groups="secondaryTaskGroups()"
+        :secondary-expanded="state.secondaryTasksExpanded"
         :hidden-done-count="hiddenDoneCount"
         :done-expanded="state.doneExpanded"
         :highlighted-task="state.highlightedTask"
@@ -1761,6 +1764,7 @@ function escapeHtml(value: any) {
         @open-task="openTaskDetail"
         @delete-task="deleteTask"
         @toggle-done="state.doneExpanded = !state.doneExpanded"
+        @toggle-secondary="state.secondaryTasksExpanded = !state.secondaryTasksExpanded"
       />
 
       <section v-if="state.section === 'dialogues'" id="dialogues" class="section view active-view">
