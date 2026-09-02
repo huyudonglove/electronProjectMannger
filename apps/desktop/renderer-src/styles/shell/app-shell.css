@@ -1,0 +1,48 @@
+.page-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  height: 100vh;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 78%, var(--bg) 22%);
+  padding: 16px 12px 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 0 6px;
+}
+
+.mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.brand strong {
+  overflow: hidden;
+  font-size: var(--font-size-md);
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

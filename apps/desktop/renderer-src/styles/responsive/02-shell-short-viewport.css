@@ -1,0 +1,6 @@
+@media (max-height: 700px) and (min-width: 761px) {
+  .view.active-view {
+    padding-bottom: 24px;
+  }
+}
+

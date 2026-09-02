@@ -1,0 +1,26 @@
+.resource-page-toolbar {
+  min-width: 0;
+}
+
+.resource-search {
+  position: relative;
+  display: block;
+  width: min(360px, 48%);
+  min-width: 220px;
+}
+
+.resource-search > .ui-icon {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  z-index: 1;
+  color: var(--muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.resource-search input {
+  min-height: var(--control-height-md);
+  padding-left: 34px;
+}
+

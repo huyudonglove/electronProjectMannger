@@ -1,0 +1,21 @@
+@keyframes overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sync-pulse {
+  from { opacity: 0.45; }
+  to { opacity: 1; }
+}
+

@@ -1,0 +1,212 @@
+.version-list {
+  display: grid;
+  gap: 10px;
+}
+
+.version-list-surface {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.version-row {
+  display: grid;
+  grid-template-columns: 18px minmax(280px, 1fr) auto 112px;
+  align-items: center;
+  min-height: 112px;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-4) var(--space-4) var(--space-4) 12px;
+  transition: background var(--motion-base) var(--ease-standard);
+}
+
+.version-row:last-child {
+  border-bottom: 0;
+}
+
+.version-row:hover,
+.version-row.is-selected {
+  background: color-mix(in srgb, var(--primary-soft) 24%, transparent);
+}
+
+.version-rail {
+  position: relative;
+  display: grid;
+  align-self: stretch;
+  place-items: center;
+}
+
+.version-rail::before {
+  position: absolute;
+  top: -17px;
+  bottom: -17px;
+  left: 50%;
+  width: 1px;
+  background: var(--border);
+  content: '';
+  transform: translateX(-50%);
+}
+
+.version-row:first-child .version-rail::before {
+  top: 50%;
+}
+
+.version-row:last-child .version-rail::before {
+  bottom: 50%;
+}
+
+.version-rail > span {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--surface);
+  border-radius: var(--radius-round);
+  background: var(--muted);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.version-row.is-active .version-rail > span {
+  background: var(--primary-text);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.version-row.is-paused .version-rail > span {
+  background: var(--warning);
+}
+
+.version-row.is-completed .version-rail > span {
+  background: var(--complete);
+}
+
+.version-row-main {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.version-row-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.version-row-title > strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-lg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-row-main p,
+.version-row-main small {
+  overflow: hidden;
+  margin: 0;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-row-main small {
+  font-size: var(--font-size-xs);
+}
+
+.version-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(38px, 1fr));
+  gap: var(--space-2);
+}
+
+.version-metrics > span {
+  display: grid;
+  min-width: 38px;
+  justify-items: center;
+  gap: 2px;
+}
+
+.version-metrics strong {
+  font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.version-metrics small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.collab-record-head {
+  justify-content: space-between;
+}
+
+.collab-record-head > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.version-status-control {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.ui-select {
+  width: 100%;
+}
+
+.version-status-control .ui-select {
+  width: 108px;
+}
+
+.version-status-control .n-base-selection,
+.version-status-control .n-base-selection-label {
+  border-radius: var(--radius-round);
+}
+
+.version-status-control .n-base-selection-label {
+  background: var(--surface-soft);
+}
+
+.version-status-control.is-active .n-base-selection-label {
+  background: var(--primary-soft);
+}
+
+.version-status-control.is-paused .n-base-selection-label {
+  background: var(--warning-soft);
+}
+
+.version-status-control.is-completed .n-base-selection-label {
+  background: var(--complete-soft);
+}
+
+.version-status-control.is-active .n-base-selection-input__content {
+  color: var(--primary-text);
+}
+
+.version-status-control.is-paused .n-base-selection-input__content {
+  color: var(--warning);
+}
+
+.version-status-control.is-completed .n-base-selection-input__content {
+  color: var(--complete);
+}
+
+.version-metrics {
+  border-top: 1px solid var(--border);
+  margin-top: 3px;
+  padding-top: 9px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.version-metrics span + span::before {
+  content: "·";
+  margin-right: 7px;
+}
+

@@ -1,0 +1,68 @@
+.project-switcher {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text);
+  gap: 9px;
+  margin-bottom: 20px;
+  padding: 7px 9px;
+  text-align: left;
+  transition: border-color var(--motion-base) var(--ease-standard), background var(--motion-base) var(--ease-standard);
+}
+
+.project-switcher:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+}
+
+.project-switcher-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+.project-switcher-mark svg,
+.project-switcher-chevron svg {
+  width: 15px;
+  height: 15px;
+}
+
+.project-switcher-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.project-switcher-copy small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.project-switcher-copy strong {
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-switcher-status {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-round);
+  background: #5da66f;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #5da66f 14%, transparent);
+}
+
+.project-switcher-chevron {
+  color: var(--muted);
+}
+

@@ -1,0 +1,5 @@
+@import './responsive/01-motion-preference.css';
+@import './responsive/02-shell-short-viewport.css';
+@import './responsive/03-tablet-shell-resources-collaboration.css';
+@import './responsive/04-mobile-shell-workspaces-overlays.css';
+@import './responsive/05-compact-shell-board-overlays-collaboration.css';

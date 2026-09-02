@@ -1,0 +1,222 @@
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: var(--overlay-bg);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  padding: 24px;
+  animation: overlay-enter var(--motion-base) var(--ease-standard);
+  backdrop-filter: blur(3px);
+}
+
+.modal-overlay > .card {
+  animation: surface-enter var(--motion-base) var(--ease-standard);
+}
+
+.markdown-modal-overlay {
+  overflow: hidden;
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.init-dialog {
+  display: grid;
+  width: min(380px, 100%);
+  gap: 10px;
+  padding: 18px;
+  box-shadow: var(--shadow-dialog);
+}
+
+.project-dialog,
+.reply-dialog {
+  display: grid;
+  width: min(520px, 100%);
+  max-height: min(640px, calc(100vh - 48px));
+  gap: 12px;
+  padding: 18px;
+  box-shadow: var(--shadow-dialog);
+}
+
+.reply-dialog {
+  overflow-y: auto;
+}
+
+.project-dialog {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(560px, 100%);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.markdown-dialog {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(980px, 100%);
+  max-height: calc(100dvh - 48px);
+  gap: 14px;
+  padding: 18px;
+  box-shadow: var(--shadow-dialog);
+}
+
+.markdown-dialog-head {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.markdown-dialog-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.markdown-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--field-bg);
+  padding: 16px;
+}
+
+.markdown-dialog-body pre {
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.project-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-dialog-head h2,
+.project-dialog-head p {
+  margin: 0;
+}
+
+.project-dialog-head p {
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.recent-project-list {
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+  align-content: start;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.recent-project-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--control-height-sm);
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-project-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text);
+  padding: 10px;
+  text-align: left;
+}
+
+.recent-project-item > span {
+  min-width: 0;
+}
+
+.recent-project-item:hover {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: var(--hover);
+}
+
+.recent-project-item strong,
+.recent-project-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-project-item small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.project-dialog > .init-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 0;
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.recent-project-mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--icon-accent);
+}
+
+.recent-project-mark svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--icon-stroke);
+}
+
+.done-toggle {
+  width: 100%;
+  min-height: 32px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.done-toggle:hover {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: var(--hover);
+}
+
+.init-dialog h2,
+.init-dialog p {
+  margin: 0;
+}
+
+.init-dialog p {
+  color: var(--muted);
+}
+
+.init-dialog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+

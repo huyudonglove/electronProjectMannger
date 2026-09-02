@@ -1,0 +1,6 @@
+@import './shell/app-shell.css';
+@import './shell/project-switcher.css';
+@import './shell/sidebar-navigation.css';
+@import './shell/topbar.css';
+@import './shell/view-layout.css';
+@import './shell/controls.css';

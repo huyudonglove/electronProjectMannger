@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, toRef } from 'vue'
+import { computed, onMounted, reactive, toRef } from 'vue'
 import { darkTheme, NConfigProvider } from 'naive-ui'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AppTopbar from './components/layout/AppTopbar.vue'
@@ -20,7 +20,10 @@ import ThoughtsView from './components/views/ThoughtsView.vue'
 import VersionsView from './components/views/VersionsView.vue'
 import WorkLogsView from './components/views/WorkLogsView.vue'
 import { useCollaborationCommands } from './composables/useCollaborationCommands'
+import { useDashboardReconciliation } from './composables/useDashboardReconciliation'
+import { useGlobalDismiss } from './composables/useGlobalDismiss'
 import { useModalCoordinator } from './composables/useModalCoordinator'
+import { useProjectUiActions } from './composables/useProjectUiActions'
 import { useProjectWorkspace } from './composables/useProjectWorkspace'
 import { useQuickCreateController } from './composables/useQuickCreateController'
 import { useRecordCommands } from './composables/useRecordCommands'
@@ -100,8 +103,8 @@ const {
   openRecordRoot,
 } = useProjectWorkspace({
   state,
-  applyProjectResult: updateState,
-  replaceDashboard: updateDashboard,
+  applyProjectResult: (result) => applyProjectResult(result),
+  replaceDashboard: (nextDashboard) => replaceDashboard(nextDashboard),
 })
 
 const dashboard = computed(() => state.dashboard)
@@ -119,6 +122,40 @@ const {
   projectRoot: toRef(state, 'projectRoot'),
   selectedVersionId: toRef(state, 'selectedVersionId'),
   selectedVersionByProject: state.selectedVersionByProject,
+})
+const { applyProjectResult, replaceDashboard } = useDashboardReconciliation({
+  projectRoot: toRef(state, 'projectRoot'),
+  initialized: toRef(state, 'initialized'),
+  dashboard: toRef(state, 'dashboard'),
+  selectedTask: toRef(state, 'selectedTask'),
+  resetForProject,
+  syncSelectedVersion,
+})
+const {
+  openRecentProjects,
+  closeRecentProjects,
+  openProjectPicker,
+  openProjectPath,
+  removeRecentProject,
+  initializeCurrentProject,
+  openDataRoot,
+  openKnowledgeRoot,
+  copyRecordSkill,
+} = useProjectUiActions({
+  initialized: toRef(state, 'initialized'),
+  busy: toRef(state, 'busy'),
+  dashboard,
+  projectOverlayOpen: toRef(state, 'projectOverlayOpen'),
+  runAction,
+  loadRecentProjects,
+  pickProject,
+  applyProjectResult,
+  openProject,
+  removeRecentProjectRecord,
+  initializeProject,
+  openRecordRoot,
+  setStatus: (message) => { state.status = message },
+  showToast,
 })
 const {
   quickOpen,
@@ -223,7 +260,7 @@ const {
   runAction,
   ensureReady,
   requireCreationVersion,
-  replaceDashboard: updateDashboard,
+  replaceDashboard,
   closeQuickCreate: closeQuickTask,
   closeTaskDetail,
   closeMarkdownDocument,
@@ -244,7 +281,7 @@ const {
     const api = ensureReady()
     return api ? { api, projectRoot: state.projectRoot } : null
   },
-  replaceDashboard: updateDashboard,
+  replaceDashboard,
   showToast,
   setStatus: (message) => { state.status = message },
   onSelectedVersionCompleted: () => {
@@ -270,7 +307,7 @@ const {
   runAction,
   ensureReady,
   projectRoot: toRef(state, 'projectRoot'),
-  replaceDashboard: updateDashboard,
+  replaceDashboard,
   showToast,
   setStatus: (message) => { state.status = message },
   onReplySaved: () => { state.collabTab = 'decided' },
@@ -329,6 +366,12 @@ const { activeModal } = useModalCoordinator({
   closeQuickCreate: () => closeQuickTask({ restoreFocus: false }),
   versionMenuOpen: toRef(state, 'versionMenuOpen'),
 })
+const { closeVersionMenu } = useGlobalDismiss({
+  activeModal,
+  quickOpen,
+  closeQuickCreate: closeQuickTask,
+  versionMenuOpen: toRef(state, 'versionMenuOpen'),
+})
 const projectName = computed(() => dashboard.value?.config?.name || projectDisplayName(state.projectRoot) || '')
 const pageMeta = computed(() => pageMetaBySection[state.section] || defaultPageMeta)
 const showVersionSwitcher = computed(() => versionScopedSections.has(state.section))
@@ -359,39 +402,7 @@ onMounted(() => {
   } else {
     state.status = 'preload API 未注入，请重新启动 Electron。'
   }
-  document.addEventListener('keydown', handleDocumentKeydown)
-  document.addEventListener('pointerdown', handleDocumentPointerDown, true)
 })
-
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', handleDocumentKeydown)
-  document.removeEventListener('pointerdown', handleDocumentPointerDown, true)
-})
-
-function handleDocumentKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return
-  if (activeModal.value) return
-  if (quickOpen.value) {
-    event.preventDefault()
-    closeQuickTask()
-  } else if (state.versionMenuOpen) {
-    event.preventDefault()
-    state.versionMenuOpen = false
-  }
-}
-
-function handleDocumentPointerDown(event: PointerEvent) {
-  const target = event.target as Element | null
-  if (!target) return
-  if (quickOpen.value && !target.closest('.quick-task, .topbar-create')) closeQuickTask()
-  if (state.versionMenuOpen && !target.closest('.version-switcher')) state.versionMenuOpen = false
-}
-
-function closeVersionMenu(event: FocusEvent) {
-  const container = event.currentTarget as HTMLElement
-  const nextTarget = event.relatedTarget as Node | null
-  if (!nextTarget || !container.contains(nextTarget)) state.versionMenuOpen = false
-}
 
 function requireCreationVersion(form?: { status: string }, requestedVersionId = creationVersionId.value) {
   const { versionId, reason } = validateCreationVersion(requestedVersionId)
@@ -400,102 +411,6 @@ function requireCreationVersion(form?: { status: string }, requestedVersionId = 
   state.status = reason
   showToast(reason)
   return versionId
-}
-
-async function openRecentProjects() {
-  await runAction('正在读取最近项目...', async () => {
-    await loadRecentProjects()
-    state.projectOverlayOpen = true
-    state.status = ''
-  })
-}
-
-function closeRecentProjects() {
-  if (state.busy) return
-  state.projectOverlayOpen = false
-}
-
-async function openProjectPicker() {
-  await runAction('正在打开项目选择器...', async () => {
-    const result = await pickProject()
-    if (!result) {
-      state.status = ''
-      return
-    }
-    state.projectOverlayOpen = false
-    updateState(result)
-    state.status = state.initialized ? '' : '项目尚未初始化。'
-  })
-}
-
-async function openProjectPath(projectRoot: string) {
-  await runAction('正在打开项目...', async () => {
-    state.projectOverlayOpen = false
-    await openProject(projectRoot)
-    state.status = state.initialized ? '' : '项目尚未初始化。'
-  })
-}
-
-async function removeRecentProject(projectId: string) {
-  if (!String(projectId || '').trim()) {
-    state.status = '项目 ID 不能为空。'
-    return
-  }
-  if (!confirm('移除这条最近项目记录？项目文件和管理数据不会被删除。')) return
-  await runAction('正在移除历史记录...', async () => {
-    await removeRecentProjectRecord(projectId)
-    state.status = ''
-  })
-}
-
-async function initializeCurrentProject() {
-  await runAction('正在初始化项目管理数据...', async () => {
-    await initializeProject()
-    state.status = ''
-  })
-}
-
-async function openDataRoot() {
-  await runAction('正在打开数据层...', async () => {
-    await openRecordRoot('data')
-    state.status = ''
-  })
-}
-
-async function openKnowledgeRoot() {
-  await runAction('正在打开知识库...', async () => {
-    await openRecordRoot('knowledge')
-    state.status = ''
-  })
-}
-
-async function copyRecordSkill() {
-  const skillPath = String(dashboard.value?.recordSummary?.recordSkillPath || '').trim()
-  if (!state.initialized || !skillPath) return
-  const instruction = `使用此 Skill：${skillPath}`
-  try {
-    await navigator.clipboard.writeText(instruction)
-    showToast('Skill 已复制')
-  } catch {
-    showToast('复制失败')
-  }
-}
-
-function updateState(result: AnyRecord) {
-  state.projectRoot = result.projectRoot
-  state.initialized = result.initialized
-  state.dashboard = result.dashboard
-  resetForProject(result.projectRoot)
-  syncSelectedVersion(result.dashboard)
-}
-
-function updateDashboard(nextDashboard: AnyRecord) {
-  state.initialized = true
-  state.dashboard = nextDashboard
-  syncSelectedVersion(nextDashboard)
-  if (state.selectedTask) {
-    state.selectedTask = (nextDashboard.tasks || []).find((task: AnyRecord) => task.id === state.selectedTask?.id) || null
-  }
 }
 
 function openTaskDetail(task: AnyRecord) {

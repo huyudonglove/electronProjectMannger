@@ -1,0 +1,55 @@
+@media (max-width: 620px) {
+  .navigation-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats,
+  .board {
+    grid-template-columns: 1fr;
+  }
+
+  .board-secondary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .markdown-dialog {
+    padding: 14px;
+  }
+
+  .segmented-control,
+  .record-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .segmented-control button {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .segmented-control button:last-child {
+    border-bottom: 0;
+  }
+
+  .collab-record-head {
+    align-items: flex-start;
+  }
+
+  .collab-record-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .collab-record-meta time {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .collab-history-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .collab-history-actions {
+    grid-column: 2;
+    align-items: flex-start;
+  }
+}
