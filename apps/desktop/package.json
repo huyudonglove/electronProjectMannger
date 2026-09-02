@@ -10,12 +10,6 @@
     "start": "electron ."
   },
   "dependencies": {
-    "@electron-manager/agent-credential-vault": "workspace:*",
-    "@electron-manager/agent-desktop-config": "workspace:*",
-    "@electron-manager/agent-desktop-coordinator": "workspace:*",
-    "@electron-manager/agent-model-router": "workspace:*",
-    "@electron-manager/agent-prompts": "workspace:*",
-    "@electron-manager/agent-repo-map": "workspace:*",
     "@electron-manager/project-core": "workspace:*",
     "electron": "^39.2.6",
     "vue": "^3.5.39"

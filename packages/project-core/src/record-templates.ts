@@ -1,4 +1,4 @@
-import type { ProjectRunLogInput, ProjectTask } from './types.js'
+import type { ProjectTask } from './types.js'
 
 export function taskRecordTemplate(
   task: ProjectTask,
@@ -30,7 +30,6 @@ ${deepMetadata}area:: ${task.area}
 created:: ${meta.created}
 updated:: ${task.updated}
 version:: ${task.version}
-source_refs:: ${sourceRefs(task.sourceRefs)}
 
 ### 用户原话
 
@@ -52,7 +51,6 @@ export function thoughtRecordTemplate(input: {
   created: string
   version: string
   content: string
-  sourceRefs?: string[]
 }) {
   return `## ${input.created} 想法
 
@@ -62,7 +60,6 @@ status:: inbox
 type:: thought
 created:: ${input.created}
 version:: ${input.version}
-source_refs:: ${sourceRefs(input.sourceRefs)}
 
 ### 内容
 
@@ -229,48 +226,4 @@ ${input.recommendation}
 
 ${input.question}
 `
-}
-
-export function projectRunLogRecordTemplate(input: ProjectRunLogInput & { shortId: string; created: string }) {
-  const decisions = input.recordLevel === 'deep' && input.decisions.length
-    ? `\n### 关键判断\n\n${markdownList(input.decisions)}\n`
-    : ''
-  return `## ${singleLine(input.title) || 'Agent Run 工作记录'}
-
-type:: agent-log
-log_short_id:: ${input.shortId}
-created:: ${input.created}
-task_short_id:: ${singleLine(input.taskShortId)}
-version:: ${singleLine(input.version)}
-record_level:: ${input.recordLevel}
-source:: ${singleLine(input.source)}
-idempotency_key:: ${singleLine(input.idempotencyKey)}
-
-### 结果
-
-${markdownList(input.result)}
-${decisions}
-
-### 修改文件
-
-${markdownList(input.changedFiles)}
-
-### 验证
-
-${markdownList(input.verification)}
-`
-}
-
-function markdownList(values: string[]) {
-  const normalized = values.map(singleLine).filter(Boolean)
-  return normalized.length ? normalized.map((value) => `- ${value}`).join('\n') : '- 无。'
-}
-
-function singleLine(value: string) {
-  return String(value || '').replace(/\s+/g, ' ').trim()
-}
-
-function sourceRefs(values: string[] | undefined) {
-  const normalized = [...new Set((values || []).map(singleLine).filter(Boolean))]
-  return normalized.length ? normalized.join(',') : '无'
 }

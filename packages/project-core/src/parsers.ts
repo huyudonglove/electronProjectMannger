@@ -131,7 +131,7 @@ export function stripFencedCode(content: string) {
 }
 
 export function questionMessageMarkdown(role: ProjectQuestionMessage['role'], created: string, content: string) {
-  const label = role === 'user' ? '用户' : role === 'agent' ? 'Agent' : '历史记录'
+  const label = role === 'user' ? '用户' : '记录'
   const normalized = String(content || '').trim().replace(/^####\s+/gm, '##### ')
   return `#### ${label} · ${created}\n\n${normalized}`
 }
@@ -139,17 +139,17 @@ export function questionMessageMarkdown(role: ProjectQuestionMessage['role'], cr
 export function isQuestionConclusionMessage(value: string) {
   const normalized = String(value || '').trim()
   return Boolean(normalized)
-    && !['待确认。', '待确认', '待用户回复。', '待用户回复', '待 Agent 跟进。', '待 Agent 跟进'].includes(normalized)
+    && !['待确认。', '待确认', '待用户回复。', '待用户回复', '待跟进。', '待跟进'].includes(normalized)
 }
 
 export function parseQuestionMessages(content: string): ProjectQuestionMessage[] {
   const section = readSection(content, ['对话记录'])
-  const pattern = /^####\s+(用户|Agent|历史记录)\s+·\s+(.+)\n+([\s\S]*?)(?=^####\s+|$)/gm
+  const pattern = /^####\s+(用户|记录|Agent|历史记录)\s+·\s+(.+)\n+([\s\S]*?)(?=^####\s+|$)/gm
   const messages: ProjectQuestionMessage[] = []
   let match: RegExpExecArray | null
 
   while ((match = pattern.exec(section))) {
-    const role = match[1] === '用户' ? 'user' : match[1] === 'Agent' ? 'agent' : 'system'
+    const role = match[1] === '用户' ? 'user' : 'system'
     const created = match[2].trim()
     const messageContent = match[3].trim()
     if (!messageContent) continue
@@ -210,7 +210,7 @@ export function parseProjectQuestions(content: string): ProjectOpenQuestion[] {
         created: fields.created || '',
         updated: fields.updated || fields.created || '',
         relations: splitRefs(fields.source_refs),
-        origin: fields.origin === 'user' ? 'user' as const : 'agent' as const,
+        origin: fields.origin === 'user' ? 'user' as const : 'system' as const,
         messages: parseQuestionMessages(block),
       }
     })
@@ -261,7 +261,6 @@ export function parseProjectTasks(content: string): ProjectTask[] {
         acceptance: readSection(block, ['验收']),
         constraints: readSection(block, ['关键约束']),
         planRollback: readSection(block, ['方案与回退']),
-        sourceRefs: splitRefs(fields.source_refs),
       }
     })
 }
@@ -280,7 +279,6 @@ export function parseThoughts(content: string): ProjectThought[] {
         version: normalizeVersionId(fields.version),
         content: readSection(block, ['内容']),
         answer: readSection(block, ['回答']),
-        sourceRefs: splitRefs(fields.source_refs),
       }
     })
 }

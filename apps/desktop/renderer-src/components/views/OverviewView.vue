@@ -25,7 +25,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   openDataRoot: []
   openKnowledgeRoot: []
-  copyBrief: []
 }>()
 </script>
 
@@ -73,15 +72,6 @@ const emit = defineEmits<{
           <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开知识库文件夹" aria-label="打开知识库文件夹" :disabled="props.busy || !props.initialized || !props.knowledgeRoot" @click="emit('openKnowledgeRoot')" v-html="props.icon('folderOpen')" />
         </div>
       </div>
-    </div>
-    <div class="card agent-sync-card">
-      <div class="agent-sync-head">
-        <div><strong>Agent 同步</strong></div>
-        <div class="agent-sync-actions">
-          <button class="btn icon-button btn-outline-primary btn-sm" type="button" title="复制同步" aria-label="复制同步" :disabled="props.busy || !props.initialized" @click="emit('copyBrief')" v-html="props.icon('copy')" />
-        </div>
-      </div>
-      <p class="brief-summary">{{ props.initialized ? '复制给新 Agent 的同步指令' : '打开项目后显示同步入口。' }}</p>
     </div>
   </section>
 </template>

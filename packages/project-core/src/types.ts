@@ -27,7 +27,6 @@ export type ProjectTask = {
   acceptance: string
   constraints: string
   planRollback: string
-  sourceRefs: string[]
 }
 
 export type ProjectThought = {
@@ -39,7 +38,6 @@ export type ProjectThought = {
   version: string
   content: string
   answer: string
-  sourceRefs: string[]
 }
 
 export type ProjectLogLevel = ProjectWorkLevel
@@ -139,13 +137,13 @@ export type ProjectOpenQuestion = {
   created: string
   updated: string
   relations: string[]
-  origin: 'user' | 'agent'
+  origin: 'user' | 'system'
   messages: ProjectQuestionMessage[]
 }
 
 export type ProjectQuestionMessage = {
   id: string
-  role: 'user' | 'agent' | 'system'
+  role: 'user' | 'system'
   created: string
   content: string
 }
@@ -183,12 +181,11 @@ export type ProjectVersion = {
   followUps: string[]
 }
 
-export type AgentBrief = {
+export type RecordSummary = {
   generatedAt: string
   projectRoot: string
   dataRoot: string
   knowledgeRoot: string
-  skillPath: string
   baselinePath: string
   currentVersionRoot: string
   currentDataPaths: {
@@ -206,7 +203,6 @@ export type AgentBrief = {
   pendingDecisions: ProjectOpenQuestion[]
   activeRisks: ProjectRiskSummary[]
   latestLogs: string[]
-  instructions: string[]
 }
 
 export type Dashboard = {
@@ -224,9 +220,9 @@ export type Dashboard = {
   risks: ProjectRisk[]
   activeTasks: ProjectTask[]
   activeResearch: ProjectDialogue[]
-  openQuestions: AgentBrief['openQuestions']
+  openQuestions: RecordSummary['openQuestions']
   latestLogs: string[]
-  agentBrief: AgentBrief
+  recordSummary: RecordSummary
 }
 
 export type ManagedProject = {
@@ -238,7 +234,7 @@ export type ManagedProject = {
   lastOpenedAt: string
 }
 
-export type ProjectGuidanceSyncResult = {
+export type ProjectMetadataSyncResult = {
   projectId: string
   projectName: string
   projectRoot: string
@@ -258,12 +254,6 @@ export type NewTaskInput = {
   acceptance?: string
   constraints?: string
   planRollback?: string
-  sourceRefs?: string[]
-}
-
-export type NewThoughtInput = {
-  content: string
-  sourceRefs?: string[]
 }
 
 export type NewDialogueInput = {
@@ -300,40 +290,5 @@ export type NewQuestionInput = {
   scope?: ProjectOpenQuestion['scope']
   blocking?: boolean
   relations?: string[]
-  origin?: 'user' | 'agent'
-}
-
-export type ProjectTaskStatusUpdateInput = {
-  taskId: string
-  taskShortId?: string
-  expectedStatus: string
-  expectedUpdated: string
-  nextStatus: 'todo' | 'doing' | 'done'
-}
-
-export type ProjectRunLogInput = {
-  source: string
-  idempotencyKey: string
-  title: string
-  taskId: string
-  taskShortId: string
-  version: string
-  recordLevel: ProjectLogLevel
-  result: string[]
-  changedFiles: string[]
-  verification: string[]
-  decisions: string[]
-}
-
-export type ProjectRunCompletionUpdateInput = {
-  taskUpdate?: ProjectTaskStatusUpdateInput
-  log: ProjectRunLogInput
-}
-
-export type ProjectRunUpdateResult = {
-  applied: boolean
-  taskUpdated: boolean
-  logCreated: boolean
-  logShortId?: string
-  dashboard: Dashboard
+  origin?: 'user' | 'system'
 }

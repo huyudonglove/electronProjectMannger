@@ -7,9 +7,9 @@ contextBridge.exposeInMainWorld('electronManager', {
   openPath: (projectRoot) => ipcRenderer.invoke('project:open-path', projectRoot),
   openFolderPath: (folderPath) => ipcRenderer.invoke('system:open-folder', folderPath),
   initProject: (projectRoot) => ipcRenderer.invoke('project:init', projectRoot),
-  refreshBrief: (projectRoot) => ipcRenderer.invoke('project:refresh-brief', projectRoot),
+  refreshSummary: (projectRoot) => ipcRenderer.invoke('project:refresh-summary', projectRoot),
   getDashboard: (projectRoot) => ipcRenderer.invoke('project:get-dashboard', projectRoot),
-  updateGuidance: (projectRoot) => ipcRenderer.invoke('project:update-guidance', projectRoot),
+  updateMetadata: (projectRoot) => ipcRenderer.invoke('project:update-metadata', projectRoot),
   createVersion: (projectRoot, payload) => ipcRenderer.invoke('project:create-version', projectRoot, payload),
   addQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:add-question', projectRoot, payload),
   updateQuestionStatus: (projectRoot, questionId, status) =>
@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('electronManager', {
   updateTaskStatus: (projectRoot, taskId, status) =>
     ipcRenderer.invoke('project:update-task-status', projectRoot, taskId, status),
   deleteTask: (projectRoot, taskId) => ipcRenderer.invoke('project:delete-task', projectRoot, taskId),
-  addThought: (projectRoot, input) => ipcRenderer.invoke('project:add-thought', projectRoot, input),
+  addThought: (projectRoot, content) => ipcRenderer.invoke('project:add-thought', projectRoot, content),
   addDialogue: (projectRoot, payload) => ipcRenderer.invoke('project:add-dialogue', projectRoot, payload),
   deleteDialogue: (projectRoot, dialogueId) => ipcRenderer.invoke('project:delete-dialogue', projectRoot, dialogueId),
   addConstraint: (projectRoot, payload) => ipcRenderer.invoke('project:add-constraint', projectRoot, payload),
@@ -29,35 +29,9 @@ contextBridge.exposeInMainWorld('electronManager', {
   deleteKnowledge: (projectRoot, knowledgeTarget) => ipcRenderer.invoke('project:delete-knowledge', projectRoot, knowledgeTarget),
   deleteThought: (projectRoot, thoughtId) => ipcRenderer.invoke('project:delete-thought', projectRoot, thoughtId),
   replyOpenQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:reply-open-question', projectRoot, payload),
-  getAgentSettings: (projectRoot) => ipcRenderer.invoke('agent:settings:get', projectRoot),
-  getModelDiagnostics: (projectRoot) => ipcRenderer.invoke('agent:model-diagnostics:list', projectRoot),
-  getProjectMaps: (projectRoot) => ipcRenderer.invoke('agent:project-maps:get', projectRoot),
-  getDiagnosticReport: (input) => ipcRenderer.invoke('agent:diagnostics:report', input),
-  listAgentChats: (projectRoot) => ipcRenderer.invoke('agent:chats:list', projectRoot),
-  sendAgentChat: (payload) => ipcRenderer.invoke('agent:chats:send', payload),
-  deleteAgentChat: (projectRoot, conversationId) => ipcRenderer.invoke('agent:chats:delete', projectRoot, conversationId),
-  updateOpenAIModel: (payload) => ipcRenderer.invoke('agent:settings:update-openai', payload),
-  updateProjectModelRoute: (payload) => ipcRenderer.invoke('agent:settings:update-project-model-route', payload),
-  listAgentRuns: (projectRoot) => ipcRenderer.invoke('agent:runs:list', projectRoot),
-  getAgentRun: (projectRoot, runId) => ipcRenderer.invoke('agent:runs:get', projectRoot, runId),
-  startAgentTask: (payload) => ipcRenderer.invoke('agent:runs:start-task', payload),
-  advanceAgentRun: (payload) => ipcRenderer.invoke('agent:runs:advance', payload),
-  resolveAgentApproval: (payload) => ipcRenderer.invoke('agent:runs:resolve-approval', payload),
-  cancelAgentRun: (projectRoot, runId) => ipcRenderer.invoke('agent:runs:cancel', projectRoot, runId),
-  readAgentOutput: (projectRoot, ref) => ipcRenderer.invoke('agent:runs:read-output', projectRoot, ref),
   onProjectDataChanged: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('project:data-changed', listener)
     return () => ipcRenderer.removeListener('project:data-changed', listener)
-  },
-  onAgentRunChanged: (callback) => {
-    const listener = (_event, payload) => callback(payload)
-    ipcRenderer.on('agent:runs:changed', listener)
-    return () => ipcRenderer.removeListener('agent:runs:changed', listener)
-  },
-  onAgentMapsChanged: (callback) => {
-    const listener = (_event, payload) => callback(payload)
-    ipcRenderer.on('agent:project-maps:changed', listener)
-    return () => ipcRenderer.removeListener('agent:project-maps:changed', listener)
   },
 })

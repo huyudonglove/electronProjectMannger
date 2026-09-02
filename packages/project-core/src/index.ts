@@ -3,14 +3,12 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 
 import type {
-  AgentBrief,
   Dashboard,
   ManagedProject,
   NewConstraintInput,
   NewDialogueInput,
   NewQuestionInput,
   NewTaskInput,
-  NewThoughtInput,
   NewVersionInput,
   OpenQuestionReplyInput,
   ProjectConfig,
@@ -25,26 +23,22 @@ import type {
   ProjectQuestionMessage,
   ProjectRisk,
   ProjectRiskSummary,
-  ProjectRunCompletionUpdateInput,
-  ProjectRunUpdateResult,
   ProjectTask,
-  ProjectTaskStatusUpdateInput,
   ProjectThought,
   ProjectVersion,
-  ProjectGuidanceSyncResult,
+  ProjectMetadataSyncResult,
+  RecordSummary,
   ProjectWorkLevel,
   ResearchMode,
   ResearchStatus,
 } from './types.js'
 export type {
-  AgentBrief,
   Dashboard,
   ManagedProject,
   NewConstraintInput,
   NewDialogueInput,
   NewQuestionInput,
   NewTaskInput,
-  NewThoughtInput,
   NewVersionInput,
   OpenQuestionReplyInput,
   ProjectConfig,
@@ -59,30 +53,25 @@ export type {
   ProjectQuestionMessage,
   ProjectRisk,
   ProjectRiskSummary,
-  ProjectRunCompletionUpdateInput,
-  ProjectRunLogInput,
-  ProjectRunUpdateResult,
   ProjectTask,
-  ProjectTaskStatusUpdateInput,
   ProjectThought,
   ProjectVersion,
-  ProjectGuidanceSyncResult,
+  ProjectMetadataSyncResult,
+  RecordSummary,
   ProjectWorkLevel,
   ResearchMode,
   ResearchStatus,
 } from './types.js'
 import {
-  COLLABORATION_ENTRY,
   DATA_DIR,
   DATA_SPEC_PATH,
-  HANDOFF_PATH,
   CHANGE_INDEX_PATH,
   CONSTRAINTS_PATH,
   BASELINE_PATH,
   VERSIONS_PATH,
   DOCUMENTS_DIR,
   GLOBAL_KNOWLEDGE_DIR,
-  SKILL_PATH,
+  RECORD_SUMMARY_PATH,
   RECORD_COUNTERS_PATH,
   VERSION_TASKS_FILE,
   VERSION_THOUGHTS_FILE,
@@ -92,17 +81,13 @@ import {
   VERSION_LOGS_DIR,
 } from './paths.js'
 import {
-  agentBriefWorkInstructions,
-  agentLogTemplate,
-  agentLogRecordsTemplate,
+  workLogTemplate,
   changeIndexTemplate,
   constraintsTemplate,
   dataSpecTemplate,
   dialoguesTemplate,
-  handoffTemplate,
   questionsTemplate,
   risksTemplate,
-  skillTemplate,
   taskRecordsTemplate,
   tasksTemplate,
   thoughtsTemplate,
@@ -113,7 +98,6 @@ import {
   constraintRecordTemplate,
   dialogueRecordTemplate,
   questionRecordTemplate,
-  projectRunLogRecordTemplate,
   taskRecordTemplate,
   thoughtRecordTemplate,
   versionRecordTemplate,
@@ -143,11 +127,9 @@ function requiredProjectFiles() {
   return [
     'project.json',
     DATA_SPEC_PATH,
-    HANDOFF_PATH,
     CHANGE_INDEX_PATH,
     CONSTRAINTS_PATH,
     VERSIONS_PATH,
-    SKILL_PATH,
   ]
 }
 
@@ -179,7 +161,7 @@ export async function initProject(managerDataRoot: string, projectRoot: string, 
   const projectId = createProjectId(projectRoot, name)
   const dataRoot = resolveDataRoot(managerDataRoot, projectRoot, name)
   if (await readExistingProjectFile(dataRoot, 'project.json')) {
-    return updateProjectGuidance(managerDataRoot, projectRoot)
+    return updateProjectMetadata(managerDataRoot, projectRoot)
   }
   const config: ProjectConfig = {
     projectId,
@@ -193,7 +175,6 @@ export async function initProject(managerDataRoot: string, projectRoot: string, 
 
   await writeProjectFile(dataRoot, 'project.json', `${JSON.stringify(config, null, 2)}\n`)
   await writeProjectFile(dataRoot, DATA_SPEC_PATH, dataSpecTemplate())
-  await writeProjectFile(dataRoot, HANDOFF_PATH, handoffTemplate(projectRoot))
   await ensureProjectDirectory(dataRoot, DOCUMENTS_DIR)
   await writeProjectFile(dataRoot, CHANGE_INDEX_PATH, changeIndexTemplate())
   await writeProjectFile(dataRoot, CONSTRAINTS_PATH, constraintsTemplate())
@@ -203,30 +184,24 @@ export async function initProject(managerDataRoot: string, projectRoot: string, 
   await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_DIALOGUES_FILE), dialoguesTemplate())
   await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_QUESTIONS_FILE), questionsTemplate())
   await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_RISKS_FILE), risksTemplate())
-  await writeProjectFile(dataRoot, versionLogPath('V001'), agentLogTemplate())
+  await writeProjectFile(dataRoot, versionLogPath('V001'), workLogTemplate())
   await ensureGlobalKnowledgeRoot(managerDataRoot)
-  await writeProjectFile(dataRoot, SKILL_PATH, skillTemplate(projectRoot, dataRoot))
-  await writeCollaborationEntry(projectRoot, dataRoot)
-  await ensureCollaborationIgnored(projectRoot)
   await upsertProjectIndex(managerDataRoot, config)
 
   const dashboard = await getDashboard(managerDataRoot, projectRoot)
-  await writeAgentBrief(managerDataRoot, projectRoot, dashboard.agentBrief)
+  await writeRecordSummary(managerDataRoot, projectRoot, dashboard.recordSummary)
   await writeProjectFile(dataRoot, BASELINE_PATH, baselineMarkdown(dashboard))
   await writeProjectFile(dataRoot, 'index.json', `${JSON.stringify(indexFromDashboard(dashboard), null, 2)}\n`)
 
   return dashboard
 }
 
-export async function updateProjectGuidance(managerDataRoot: string, projectRoot: string) {
+export async function updateProjectMetadata(managerDataRoot: string, projectRoot: string) {
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
+  await removeLegacyAgentArtifacts(dataRoot, projectRoot)
   await writeProjectFile(dataRoot, DATA_SPEC_PATH, dataSpecTemplate())
-  await writeProjectFile(dataRoot, HANDOFF_PATH, handoffTemplate(projectRoot))
-  await writeProjectFile(dataRoot, SKILL_PATH, skillTemplate(projectRoot, dataRoot))
-  await writeCollaborationEntry(projectRoot, dataRoot)
-  await ensureCollaborationIgnored(projectRoot)
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   await upsertProjectIndex(managerDataRoot, config, false)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -300,12 +275,11 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     workLogs: path.join(currentVersionRoot, VERSION_LOGS_DIR),
   }
 
-  const agentBrief: AgentBrief = {
+  const recordSummary: RecordSummary = {
     generatedAt: new Date().toISOString(),
     projectRoot,
     dataRoot,
     knowledgeRoot: resolveGlobalKnowledgeRoot(managerDataRoot),
-    skillPath: path.join(dataRoot, SKILL_PATH),
     baselinePath: path.join(dataRoot, BASELINE_PATH),
     currentVersionRoot,
     currentDataPaths,
@@ -316,17 +290,6 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     pendingDecisions,
     activeRisks,
     latestLogs,
-    instructions: [
-      `需要操作协作数据时读取 ${path.join(dataRoot, SKILL_PATH)}；它是任务等级、记录分类、合并和日志格式的完整规则来源。`,
-      `需要人类可读的项目概览时再读取 ${path.join(dataRoot, BASELINE_PATH)}，不要默认重复读取相同内容。`,
-      ...agentBriefWorkInstructions(),
-      `精确路径以 currentDataPaths 为准：执行任务读取 ${currentDataPaths.tasks}；对话式决定、澄清和阻塞写入 ${currentDataPaths.questions}；验证限制、技术风险和非对话后续写入 ${currentDataPaths.risks}；项目全局约束读取 ${path.join(dataRoot, CONSTRAINTS_PATH)}。只在当前工作相关时读取完整研究或历史记录。`,
-      '同一聚合 Markdown 内按 ID 倒序维护 Txxx/Ixxx/Dxxx/Qxxx/Rxxx/Lxxx/Cxxx/Vxxx；Wxxx/Kxxx 是按 ID 命名的独立文件。',
-      `所有项目级和版本级记录必须写入 version:: ${currentVersionId}；项目文档和项目约束仅用版本号追溯来源，不参与版本过滤，跨项目共享的全局知识除外。`,
-      '执行任务前将任务状态改为 doing，完成验收后改为 done。',
-      `完成文件修改后按月份写入 ${currentDataPaths.workLogs}；协作元数据和派生缓存更新不递归生成日志。`,
-      '不要回滚或覆盖用户、其他 Agent 的无关改动。',
-    ],
   }
 
   return {
@@ -346,7 +309,7 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     activeResearch,
     openQuestions,
     latestLogs,
-    agentBrief,
+    recordSummary,
   }
 }
 
@@ -356,12 +319,12 @@ export async function listManagedProjects(managerDataRoot: string): Promise<Mana
     .sort((a, b) => projectOpenTime(b).localeCompare(projectOpenTime(a)))
 }
 
-export async function updateAllProjectGuidance(managerDataRoot: string): Promise<ProjectGuidanceSyncResult[]> {
+export async function updateAllProjectMetadata(managerDataRoot: string): Promise<ProjectMetadataSyncResult[]> {
   const projects = await listManagedProjects(managerDataRoot)
-  const results: ProjectGuidanceSyncResult[] = []
+  const results: ProjectMetadataSyncResult[] = []
   for (const project of projects) {
     try {
-      await updateProjectGuidance(managerDataRoot, project.projectRoot)
+      await updateProjectMetadata(managerDataRoot, project.projectRoot)
       results.push({
         projectId: project.projectId,
         projectName: project.projectName,
@@ -437,14 +400,13 @@ export async function appendTask(managerDataRoot: string, projectRoot: string, i
       acceptance: input.acceptance || '待补充。',
       constraints: input.constraints || '待补充。',
       planRollback: input.planRollback || '待补充。',
-      sourceRefs: normalizeRecordSourceRefs(input.sourceRefs),
     }, {
       created: now,
       userOriginal: input.userOriginal || title,
     })
     return { content: insertMarkdownEntry(current, task), value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -472,96 +434,8 @@ export async function updateTaskStatus(managerDataRoot: string, projectRoot: str
     if (!updatedTask) throw new Error('未找到任务记录')
     return { content: next.endsWith('\n') ? next : `${next}\n`, value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
-}
-
-export async function appendTaskSourceRefs(
-  managerDataRoot: string,
-  projectRoot: string,
-  taskId: string,
-  sourceRefs: string[],
-) {
-  const id = String(taskId || '').trim()
-  if (!id) throw new Error('任务 ID 不能为空')
-  const additions = normalizeRecordSourceRefs(sourceRefs)
-  if (!additions.length) return false
-
-  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const taskPath = await findVersionRecordPath(dataRoot, VERSION_TASKS_FILE, id)
-  if (!taskPath) throw new Error('未找到任务记录')
-  const changed = await mutateProjectFile(dataRoot, taskPath, (current) => {
-    let matched = false
-    let updated = false
-    const content = splitMarkdownBlocks(current).map((block, index) => {
-      if (index === 0 && !block.trim().startsWith('## ')) return block
-      const fields = parseFields(block)
-      if (fields.id !== id && fields.short_id !== id) return block
-      matched = true
-      const merged = [...new Set([...splitRefs(fields.source_refs), ...additions])]
-      if (merged.length === splitRefs(fields.source_refs).length) return block
-      updated = true
-      return /^source_refs::/m.test(block)
-        ? block.replace(/^source_refs::\s*.*$/m, `source_refs:: ${merged.join(',')}`)
-        : block.replace(/^(version::\s*.+)$/m, `$1\nsource_refs:: ${merged.join(',')}`)
-    }).join('\n')
-    if (!matched) throw new Error('未找到任务记录')
-    return { content: content.endsWith('\n') ? content : `${content}\n`, value: updated }
-  })
-  if (changed) await refreshAgentBrief(managerDataRoot, projectRoot)
-  return changed
-}
-
-export async function applyProjectTaskStatusUpdate(
-  managerDataRoot: string,
-  projectRoot: string,
-  input: ProjectTaskStatusUpdateInput,
-): Promise<ProjectRunUpdateResult> {
-  validateProjectTaskStatusUpdate(input)
-  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const taskUpdated = await withFileMutation(path.join(dataRoot, '.agent-project-update'), async () =>
-    applyTaskStatusUpdate(dataRoot, input))
-  await refreshAgentBrief(managerDataRoot, projectRoot)
-  return {
-    applied: taskUpdated,
-    taskUpdated,
-    logCreated: false,
-    dashboard: await getDashboard(managerDataRoot, projectRoot),
-  }
-}
-
-export async function applyProjectRunCompletionUpdate(
-  managerDataRoot: string,
-  projectRoot: string,
-  input: ProjectRunCompletionUpdateInput,
-): Promise<ProjectRunUpdateResult> {
-  validateProjectRunCompletionInput(input)
-  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
-  const result = await withFileMutation(path.join(dataRoot, '.agent-project-update'), async () => {
-    const existing = await findRunLog(dataRoot, input.log.source)
-    if (existing && existing.idempotencyKey !== input.log.idempotencyKey) {
-      throw new Error(`Agent Run 日志幂等键冲突：${input.log.source}`)
-    }
-    const taskUpdated = input.taskUpdate ? await applyTaskStatusUpdate(dataRoot, input.taskUpdate) : false
-    if (existing) {
-      return { applied: taskUpdated, taskUpdated, logCreated: false, logShortId: existing.shortId }
-    }
-
-    const allLogs = parseProjectLogs(await readVersionLogs(dataRoot))
-    const shortId = await allocateShortId(dataRoot, 'L', allLogs.map((log) => log.shortId))
-    const created = localTime()
-    const logPath = versionLogPath(input.log.version, created)
-    await mutateProjectFile(dataRoot, logPath, (current) => ({
-      content: insertMarkdownEntry(
-        current || agentLogRecordsTemplate(),
-        projectRunLogRecordTemplate({ ...input.log, shortId, created }),
-      ),
-      value: undefined,
-    }))
-    return { applied: true, taskUpdated, logCreated: true, logShortId: shortId }
-  })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
-  return { ...result, dashboard: await getDashboard(managerDataRoot, projectRoot) }
 }
 
 export async function deleteTask(managerDataRoot: string, projectRoot: string, taskId: string) {
@@ -586,15 +460,13 @@ export async function deleteTask(managerDataRoot: string, projectRoot: string, t
     if (!deleted) throw new Error('未找到任务记录')
     return { content: `${next}\n`, value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
-export async function appendThought(managerDataRoot: string, projectRoot: string, input: string | NewThoughtInput) {
-  const content = typeof input === 'string' ? input : input?.content
+export async function appendThought(managerDataRoot: string, projectRoot: string, content: string) {
   const normalized = String(content || '').trim()
   if (!normalized) throw new Error('输入内容不能为空')
-  const sourceRefs = normalizeRecordSourceRefs(typeof input === 'string' ? undefined : input.sourceRefs)
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
@@ -608,20 +480,11 @@ export async function appendThought(managerDataRoot: string, projectRoot: string
       created: now,
       version: config.currentVersionId,
       content: normalized,
-      sourceRefs,
     })
     return { content: insertMarkdownEntry(current, entry), value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
-}
-
-function normalizeRecordSourceRefs(values: string[] | undefined) {
-  if (values === undefined) return []
-  if (!Array.isArray(values)) throw new Error('来源引用必须是字符串数组')
-  const normalized = [...new Set(values.map((value) => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean))]
-  if (normalized.some((value) => value.length > 1024)) throw new Error('单条来源引用过长')
-  return normalized
 }
 
 export async function appendDialogue(managerDataRoot: string, projectRoot: string, input: NewDialogueInput) {
@@ -650,7 +513,7 @@ export async function appendDialogue(managerDataRoot: string, projectRoot: strin
     content: insertMarkdownEntry(current || dialoguesTemplate(), entry),
     value: undefined,
   }))
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -679,7 +542,7 @@ export async function appendConstraint(managerDataRoot: string, projectRoot: str
     })
     return { content: insertMarkdownEntry(source, entry), value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -703,7 +566,7 @@ export async function deleteConstraint(managerDataRoot: string, projectRoot: str
     if (!deleted) throw new Error('未找到约束记录')
     return { content: `${next}\n`, value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -729,7 +592,7 @@ export async function deleteThought(managerDataRoot: string, projectRoot: string
     if (!deleted) throw new Error('未找到输入记录')
     return { content: `${next}\n`, value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -756,7 +619,7 @@ export async function deleteDialogue(managerDataRoot: string, projectRoot: strin
     if (!deleted) throw new Error('未找到研究记录')
     return { content: `${next}\n`, value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -773,7 +636,7 @@ export async function deleteDocument(managerDataRoot: string, projectRoot: strin
   if (!note) throw new Error('未找到文档')
 
   await removeProjectMarkdownFile(dataRoot, note.path, DOCUMENTS_DIR)
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -789,7 +652,7 @@ export async function deleteKnowledge(managerDataRoot: string, projectRoot: stri
   if (!note) throw new Error('未找到知识条目')
 
   await removeProjectMarkdownFile(managerDataRoot, note.path, GLOBAL_KNOWLEDGE_DIR)
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -827,7 +690,7 @@ export async function createProjectVersion(managerDataRoot: string, projectRoot:
   })
   await ensureVersionRecordFiles(dataRoot, shortId)
   await writeProjectFile(dataRoot, 'project.json', `${JSON.stringify({ ...config, currentVersionId: shortId }, null, 2)}\n`)
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -844,9 +707,9 @@ export async function appendProjectQuestion(managerDataRoot: string, projectRoot
     const questions = parseProjectQuestions(current)
     const now = localTime()
     const shortId = await allocateShortId(dataRoot, 'Q', questions.map((item) => item.shortId))
-    const origin = input.origin === 'user' ? 'user' : 'agent'
+    const origin = input.origin === 'user' ? 'user' : 'system'
     const status = origin === 'user' ? 'decided' : 'open'
-    const role = origin === 'user' ? '用户' : 'Agent'
+    const role = origin === 'user' ? '用户' : '记录'
     const entry = questionRecordTemplate({
       title,
       id: createId('question', title),
@@ -866,7 +729,7 @@ export async function appendProjectQuestion(managerDataRoot: string, projectRoot
     })
     return { content: insertMarkdownEntry(current, entry), value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -892,7 +755,7 @@ export async function replyOpenQuestion(managerDataRoot: string, projectRoot: st
       localTime(),
       answer,
     ))
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -911,7 +774,7 @@ export async function updateReplyRecord(managerDataRoot: string, projectRoot: st
       '结论',
       answer,
     ))
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -928,7 +791,7 @@ export async function updateQuestionStatus(
   await updateQuestionRecord(dataRoot, id, (block) => block
     .replace(/^status::\s*.+$/m, `status:: ${nextStatus}`)
     .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`))
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
@@ -959,18 +822,18 @@ export async function updateRiskStatus(
     if (!handled) throw new Error('未找到风险或后续事项')
     return { content: next, value: undefined }
   })
-  await refreshAgentBrief(managerDataRoot, projectRoot)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
 
-export async function refreshAgentBrief(managerDataRoot: string, projectRoot: string) {
+export async function refreshRecordSummary(managerDataRoot: string, projectRoot: string) {
   const dashboard = await getDashboard(managerDataRoot, projectRoot)
-  await writeAgentBrief(managerDataRoot, projectRoot, dashboard.agentBrief)
+  await writeRecordSummary(managerDataRoot, projectRoot, dashboard.recordSummary)
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   await writeProjectFile(dataRoot, BASELINE_PATH, baselineMarkdown(dashboard))
   await writeProjectFile(dataRoot, 'index.json', `${JSON.stringify(indexFromDashboard(dashboard), null, 2)}\n`)
   await upsertProjectIndex(managerDataRoot, dashboard.config, false)
-  return dashboard.agentBrief
+  return dashboard.recordSummary
 }
 
 async function readProjectConfig(managerDataRoot: string, projectRoot: string): Promise<ProjectConfig> {
@@ -978,8 +841,30 @@ async function readProjectConfig(managerDataRoot: string, projectRoot: string): 
   return JSON.parse(raw) as ProjectConfig
 }
 
-async function writeAgentBrief(managerDataRoot: string, projectRoot: string, brief: AgentBrief) {
-  await writeProjectFile(await resolveExistingDataRoot(managerDataRoot, projectRoot), 'agent-brief.json', `${JSON.stringify(brief, null, 2)}\n`)
+async function writeRecordSummary(managerDataRoot: string, projectRoot: string, summary: RecordSummary) {
+  await writeProjectFile(await resolveExistingDataRoot(managerDataRoot, projectRoot), RECORD_SUMMARY_PATH, `${JSON.stringify(summary, null, 2)}\n`)
+}
+
+async function removeLegacyAgentArtifacts(dataRoot: string, projectRoot: string) {
+  const obsoleteFiles = [
+    path.join(dataRoot, 'agent-brief.json'),
+    path.join(dataRoot, 'collaboration/Agent 同步交接.md'),
+    path.join(dataRoot, 'collaboration/数据层规范.md'),
+    path.join(dataRoot, 'collaboration/当前项目基线.md'),
+    path.join(dataRoot, 'skills/project-collaboration/SKILL.md'),
+    path.join(projectRoot, '.agent-collaboration.md'),
+  ]
+  await Promise.all(obsoleteFiles.map((filePath) => rm(filePath, { force: true })))
+
+  const gitignorePath = path.join(projectRoot, '.gitignore')
+  const gitignore = await readExistingRootFile(projectRoot, '.gitignore')
+  if (!gitignore) return
+  const next = gitignore
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '.agent-collaboration.md')
+    .join('\n')
+    .replace(/\n+$/g, '')
+  if (`${next}\n` !== gitignore) await atomicWriteFile(gitignorePath, next ? `${next}\n` : '')
 }
 
 function resolveGlobalKnowledgeRoot(managerDataRoot: string) {
@@ -1072,99 +957,12 @@ async function findVersionRecordPath(
   return ''
 }
 
-async function applyTaskStatusUpdate(dataRoot: string, input: ProjectTaskStatusUpdateInput) {
-  validateProjectTaskStatusUpdate(input)
-  const taskPath = await findVersionRecordPath(dataRoot, VERSION_TASKS_FILE, input.taskId)
-  if (!taskPath) throw new Error(`未找到任务记录：${input.taskId}`)
-
-  return mutateProjectFile(dataRoot, taskPath, (current) => {
-    let matched = false
-    let changed = false
-    const next = splitMarkdownBlocks(current)
-      .map((block, index) => {
-        if (index === 0 && !block.trim().startsWith('## ')) return block
-        const fields = parseFields(block)
-        if (fields.id !== input.taskId) return block
-        matched = true
-        if (input.taskShortId && fields.short_id !== input.taskShortId) {
-          throw new Error(`任务引用不一致：${input.taskId} 不对应 ${input.taskShortId}`)
-        }
-
-        const currentStatus = String(fields.status || '').trim()
-        if (currentStatus === input.nextStatus) return block
-        if (currentStatus !== input.expectedStatus || String(fields.updated || '').trim() !== input.expectedUpdated) {
-          throw new Error(
-            `任务已被其他操作更新：${fields.short_id || input.taskId}，预期 ${input.expectedStatus}@${input.expectedUpdated}，实际 ${currentStatus}@${fields.updated || ''}`,
-          )
-        }
-        changed = true
-        return block
-          .replace(/^status::\s*.+$/m, `status:: ${input.nextStatus}`)
-          .replace(/^updated::\s*.+$/m, `updated:: ${localTime()}`)
-      })
-      .join('\n')
-    if (!matched) throw new Error(`未找到任务记录：${input.taskId}`)
-    return {
-      content: changed && !next.endsWith('\n') ? `${next}\n` : next,
-      value: changed,
-    }
-  })
-}
-
-function validateProjectTaskStatusUpdate(input: ProjectTaskStatusUpdateInput) {
-  if (!String(input.taskId || '').trim()) throw new Error('任务 ID 不能为空')
-  if (!String(input.expectedStatus || '').trim()) throw new Error('任务预期状态不能为空')
-  if (!String(input.expectedUpdated || '').trim()) throw new Error('任务预期更新时间不能为空')
-  if (!['todo', 'doing', 'done'].includes(input.nextStatus)) throw new Error(`Agent Run 不支持目标任务状态：${input.nextStatus}`)
-}
-
 async function readVersionLogs(dataRoot: string) {
   const files = (await listMarkdownFiles(dataRoot, 'versions'))
     .filter((relativePath) => /^versions\/V\d+\/工作记录\/\d{4}-\d{2}\.md$/.test(relativePath.replaceAll('\\', '/')))
     .sort()
   const contents = await Promise.all(files.map((relativePath) => readProjectFile(dataRoot, relativePath)))
   return contents.join('\n\n')
-}
-
-async function findRunLog(dataRoot: string, source: string) {
-  const block = splitMarkdownBlocks(await readVersionLogs(dataRoot))
-    .find((candidate) => parseFields(candidate).source === source)
-  if (!block) return undefined
-  const fields = parseFields(block)
-  return {
-    shortId: fields.log_short_id || '',
-    idempotencyKey: fields.idempotency_key || '',
-  }
-}
-
-function validateProjectRunCompletionInput(input: ProjectRunCompletionUpdateInput) {
-  if (!input?.log) throw new Error('Agent Run 工作记录不能为空')
-  if (!/^agent-run:[A-Za-z0-9._:-]+$/.test(input.log.source)) {
-    throw new Error(`Agent Run 日志来源不合法：${input.log.source || '空'}`)
-  }
-  if (!/^[a-f0-9]{64}$/.test(input.log.idempotencyKey)) throw new Error('Agent Run 日志幂等键不合法')
-  if (!String(input.log.title || '').trim()) throw new Error('Agent Run 工作记录标题不能为空')
-  if (!String(input.log.taskId || '').trim()) throw new Error('Agent Run 任务 ID 不能为空')
-  if (!/^T\d{3,4}$/i.test(input.log.taskShortId)) throw new Error(`Agent Run 任务短 ID 不合法：${input.log.taskShortId}`)
-  if (!/^V\d+$/i.test(input.log.version)) throw new Error(`Agent Run 版本 ID 不合法：${input.log.version}`)
-  if (!['light', 'standard', 'deep'].includes(input.log.recordLevel)) {
-    throw new Error(`Agent Run 记录等级不合法：${input.log.recordLevel}`)
-  }
-  if (input.taskUpdate && (
-    input.taskUpdate.taskId !== input.log.taskId
-    || (input.taskUpdate.taskShortId && input.taskUpdate.taskShortId !== input.log.taskShortId)
-  )) throw new Error('Agent Run 任务状态更新与工作记录引用不一致')
-  for (const [field, values] of Object.entries({
-    result: input.log.result,
-    changedFiles: input.log.changedFiles,
-    verification: input.log.verification,
-    decisions: input.log.decisions,
-  })) {
-    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string')) {
-      throw new Error(`Agent Run 工作记录字段不合法：${field}`)
-    }
-  }
-  if (input.taskUpdate) validateProjectTaskStatusUpdate(input.taskUpdate)
 }
 
 function escapeRegExp(value: string) {
@@ -1509,8 +1307,6 @@ async function listSystemConstraints(dataRoot: string, currentVersionId: string)
   const now = localTime()
   const sources = [
     { id: 'system-data-spec', shortId: 'SYS-数据规范', title: '数据层规范', path: DATA_SPEC_PATH },
-    { id: 'system-handoff', shortId: 'SYS-交接', title: 'Agent 同步交接', path: HANDOFF_PATH },
-    { id: 'system-skill', shortId: 'SYS-SKILL', title: 'Project Collaboration Skill', path: SKILL_PATH },
   ]
 
   return Promise.all(sources.map(async (source) => {
@@ -1622,7 +1418,7 @@ function noteTypeFromPath(relativePath: string) {
   if (relativePath.startsWith('tasks/')) return 'task'
   if (relativePath.startsWith('thoughts/')) return 'thought'
   if (relativePath.startsWith('research/')) return 'research'
-  if (relativePath.startsWith('collaboration/')) return 'collaboration'
+  if (relativePath.startsWith('metadata/')) return 'metadata'
   if (relativePath.startsWith('constraints/')) return 'constraint'
   if (relativePath.startsWith('work-logs/')) return 'work-log'
   if (relativePath.startsWith('documents/')) return 'document'
@@ -1701,84 +1497,10 @@ async function updateQuestionRecord(dataRoot: string, questionId: string, update
 }
 
 function appendQuestionMessage(block: string, role: ProjectQuestionMessage['role'], created: string, content: string) {
-  const label = role === 'user' ? '用户' : role === 'agent' ? 'Agent' : '历史记录'
+  const label = role === 'user' ? '用户' : '记录'
   const existing = readSection(block, ['对话记录'])
   const message = '#### ' + label + ' · ' + created + '\n\n' + String(content || '').trim()
   return replaceSection(block, ['对话记录'], '对话记录', [existing, message].filter(Boolean).join('\n\n'))
-}
-
-async function writeCollaborationEntry(projectRoot: string, dataRoot: string) {
-  const knowledgeRoot = path.join(path.dirname(path.dirname(dataRoot)), GLOBAL_KNOWLEDGE_DIR)
-  const content = `# Electron Manager Collaboration
-
-This project is managed by Electron Manager.
-
-## Managed Data
-
-Data root:
-
-\`${dataRoot}\`
-
-Agent brief:
-
-\`${path.join(dataRoot, 'agent-brief.json')}\`
-
-Current baseline:
-
-\`${path.join(dataRoot, BASELINE_PATH)}\`
-
-Version index:
-
-\`${path.join(dataRoot, VERSIONS_PATH)}\`
-
-Version records:
-
-\`${path.join(dataRoot, 'versions/Vxxx/')}\`
-
-The current version's exact task, question, risk, research, and work-log paths are listed in \`agent-brief.json.currentDataPaths\`.
-
-Shared knowledge root:
-
-\`${knowledgeRoot}\`
-
-Local skill:
-
-\`${path.join(dataRoot, SKILL_PATH)}\`
-
-Project constraints:
-
-\`${path.join(dataRoot, CONSTRAINTS_PATH)}\`
-
-## Agent Start
-
-1. Read the agent brief first.
-2. Read the local skill as the single complete source for task levels, merging, and log structure.
-3. Read the baseline only when a human-readable overview is needed.
-4. Work in the current active version by default.
-5. Read project constraints for project-wide rules.
-6. Read decisions, risks, research, knowledge, and historical versions only when relevant.
-`
-  await atomicWriteFile(path.join(projectRoot, COLLABORATION_ENTRY), content)
-}
-
-async function ensureCollaborationIgnored(projectRoot: string) {
-  const gitignorePath = path.join(projectRoot, '.gitignore')
-  let current = ''
-
-  try {
-    current = await readFile(gitignorePath, 'utf8')
-  } catch {
-    await atomicWriteFile(gitignorePath, `${COLLABORATION_ENTRY}\n`)
-    return
-  }
-
-  const alreadyIgnored = current
-    .split(/\r?\n/)
-    .some((line) => line.trim() === COLLABORATION_ENTRY)
-  if (alreadyIgnored) return
-
-  const separator = current.endsWith('\n') || current.length === 0 ? '' : '\n'
-  await atomicWriteFile(gitignorePath, `${current}${separator}${COLLABORATION_ENTRY}\n`)
 }
 
 async function upsertProjectIndex(managerDataRoot: string, config: ProjectConfig, recordOpen = true) {

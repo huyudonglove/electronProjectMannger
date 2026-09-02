@@ -5,10 +5,6 @@ import AppTopbar from './components/layout/AppTopbar.vue'
 import UiTag from './components/ui/UiTag.vue'
 import OverviewView from './components/views/OverviewView.vue'
 import TaskBoardView from './components/views/TaskBoardView.vue'
-import AgentChatView from './components/views/AgentChatView.vue'
-import AgentSettingsView from './components/views/AgentSettingsView.vue'
-import { inferAgentTaskIntent, routeAgentChatInput } from './chat-routing'
-import { loadAgentChatSelection, saveAgentChatSelection, type AgentChatSelection } from './agent-chat-state'
 
 type AnyRecord = Record<string, any>
 type UiTone = 'neutral' | 'complete' | 'warning' | 'danger'
@@ -30,7 +26,7 @@ declare global {
       addTask: (projectRoot: string, payload: AnyRecord) => Promise<any>
       updateTaskStatus: (projectRoot: string, taskId: string, status: string) => Promise<any>
       deleteTask: (projectRoot: string, taskId: string) => Promise<any>
-      addThought: (projectRoot: string, input: string | AnyRecord) => Promise<any>
+      addThought: (projectRoot: string, content: string) => Promise<any>
       deleteThought: (projectRoot: string, thoughtId: string) => Promise<any>
       addDialogue: (projectRoot: string, payload: AnyRecord) => Promise<any>
       deleteDialogue: (projectRoot: string, dialogueId: string) => Promise<any>
@@ -39,25 +35,7 @@ declare global {
       deleteDocument: (projectRoot: string, documentTarget: string) => Promise<any>
       deleteKnowledge: (projectRoot: string, knowledgeTarget: string) => Promise<any>
       replyOpenQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
-      getAgentSettings: (projectRoot?: string) => Promise<any>
-      getModelDiagnostics: (projectRoot?: string) => Promise<any[]>
-      getProjectMaps: (projectRoot: string) => Promise<any>
-      getDiagnosticReport: (input: AnyRecord) => Promise<any>
-      listAgentChats: (projectRoot: string) => Promise<any[]>
-      sendAgentChat: (payload: AnyRecord) => Promise<any>
-      deleteAgentChat: (projectRoot: string, conversationId: string) => Promise<boolean>
-      updateOpenAIModel: (payload: AnyRecord) => Promise<any>
-      updateProjectModelRoute: (payload: AnyRecord) => Promise<any>
-      listAgentRuns: (projectRoot: string) => Promise<any[]>
-      getAgentRun: (projectRoot: string, runId: string) => Promise<any>
-      startAgentTask: (payload: AnyRecord) => Promise<any>
-      advanceAgentRun: (payload: AnyRecord) => Promise<any>
-      resolveAgentApproval: (payload: AnyRecord) => Promise<any>
-      cancelAgentRun: (projectRoot: string, runId: string) => Promise<boolean>
-      readAgentOutput: (projectRoot: string, ref: string) => Promise<any>
       onProjectDataChanged?: (callback: (payload: AnyRecord) => void) => () => void
-      onAgentRunChanged?: (callback: (payload: AnyRecord) => void) => () => void
-      onAgentMapsChanged?: (callback: (payload: AnyRecord) => void) => () => void
     }
   }
 }
@@ -114,7 +92,6 @@ const icons: Record<string, string> = {
   rotateLeft: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
   scrollText: '<path d="M8 21h8" /><path d="M12 21V7" /><path d="M16 7h3a2 2 0 0 1 2 2v8" /><path d="M8 7H5a2 2 0 0 0-2 2v8" /><path d="M7 3h10" /><path d="M7 7h10" />',
   search: '<circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />',
-  settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.03-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.03h-.09v-3h.09A1.7 1.7 0 0 0 7 9.94a1.7 1.7 0 0 0-.34-1.88L6.6 8l2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.7 4.7V4.6h3v.09a1.7 1.7 0 0 0 1.03 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.03h.09v3h-.09A1.7 1.7 0 0 0 19.4 15Z" />',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="M9 12l2 2 4-5" />',
   slash: '<circle cx="12" cy="12" r="8" /><path d="M7 17 17 7" />',
   sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
@@ -128,7 +105,6 @@ const navigationGroups = [
     label: '工作区',
     items: [
       ['overview', '总览', 'layoutDashboard'],
-      ['agent-chat', 'Agent', 'messagesSquare'],
       ['capture', '想法', 'messageCircle'],
       ['board', '任务', 'listChecks'],
       ['dialogues', '研究', 'messagesSquare'],
@@ -145,16 +121,13 @@ const navigationGroups = [
     label: '管理',
     items: [
       ['versions', '版本', 'layers'],
-      ['agent-logs', '工作记录', 'scrollText'],
+      ['work-logs', '工作记录', 'scrollText'],
       ['constraints', '约束', 'shield'],
     ],
   },
 ] as const
 
-const footerNavItems = [
-  ['knowledge', '知识库', 'bookOpen'],
-  ['settings', '设置', 'settings'],
-] as const
+const knowledgeNavItem = ['knowledge', '知识库', 'bookOpen'] as const
 
 const state = reactive({
   projectRoot: '',
@@ -181,7 +154,6 @@ const state = reactive({
   replyItem: null as AnyRecord | null,
   markdownDocument: null as AnyRecord | null,
   selectedTask: null as AnyRecord | null,
-  taskDetailOpen: false,
   status: '等待选择项目',
   theme: 'dark',
   toasts: [] as Array<{ id: number; message: string; leaving: boolean }>,
@@ -189,33 +161,7 @@ const state = reactive({
   highlightedThought: '',
   highlightedDialogue: -1,
   highlightedLog: -1,
-  agentSettings: null as AnyRecord | null,
-  agentDiagnostics: [] as AnyRecord[],
-  agentProjectMaps: null as AnyRecord | null,
-  agentDiagnosticReportBusy: false,
-  agentRuns: [] as AnyRecord[],
-  agentRunsLoaded: false,
-  agentRunDetails: {} as Record<string, AnyRecord>,
-  agentRunBusy: false,
-  agentRunBusyId: '',
-  agentChatCreating: false,
-  agentChats: [] as AnyRecord[],
-  selectedAgentChatId: '',
-  agentOutput: null as null | {
-    ref: string
-    label: string
-    content: string
-    artifact: AnyRecord | null
-    loading: boolean
-    error: string
-  },
 })
-
-let agentProjectRevision = 0
-let agentOperationRevision = 0
-let agentOutputRevision = 0
-let agentSettingsRequestRevision = 0
-let pendingAgentChatSelection: AgentChatSelection | null = null
 
 const taskForm = reactive({ title: '', priority: 'medium', workLevel: 'light', depthReason: 'decision', detail: '', acceptance: '', constraints: '', planRollback: '', status: '' })
 const thoughtForm = reactive({ content: '', status: '' })
@@ -265,27 +211,6 @@ const allThoughts = computed(() => dashboard.value?.thoughts || [])
 const allDialogues = computed(() => dashboard.value?.dialogues || [])
 const allDocuments = computed(() => dashboard.value?.documents || [])
 const allLogs = computed(() => dashboard.value?.logs || [])
-const selectedTaskRun = computed(() => {
-  const task = state.selectedTask
-  if (!task) return null
-  return state.agentRuns.find((run: AnyRecord) => run.task?.id === task.id || run.task?.shortId === task.shortId) || null
-})
-const selectedTaskRunDetail = computed(() => {
-  const run = selectedTaskRun.value
-  return run ? state.agentRunDetails[run.runId] || { run, events: [] } : null
-})
-const selectedAgentChat = computed(() => state.agentChats.find((conversation: AnyRecord) => conversation.id === state.selectedAgentChatId) || null)
-const agentChatMessages = computed(() => selectedAgentChat.value?.messages || [])
-const agentCredentialConfigured = computed(() => Boolean(state.agentSettings?.effectiveModelRoute?.selections?.[0]?.desktopAvailable))
-const agentCredentialStatus = computed(() => {
-  if (!state.agentSettings) return 'loading' as const
-  return agentCredentialConfigured.value ? 'configured' as const : 'missing' as const
-})
-const agentCredentialLabel = computed(() => {
-  const model = state.agentSettings?.effectiveModelRoute?.selections?.[0]
-  const provider = state.agentSettings?.providerCatalog?.providers?.find((item: AnyRecord) => item.id === model?.providerId)
-  return model ? `${provider?.name || model.providerId || 'Provider'} · ${model.model}` : ''
-})
 const tasks = computed(() => allTasks.value.filter(recordMatchesSelectedVersion))
 const thoughts = computed(() => allThoughts.value.filter(recordMatchesSelectedVersion))
 const dialogues = computed(() => allDialogues.value.filter(recordMatchesSelectedVersion))
@@ -321,7 +246,7 @@ const visibleLog = computed(() => logs.value[clampLogIndex(state.selectedLogInde
 const generatedAtText = computed(() => {
   if (!state.projectRoot) return '尚未读取'
   if (!state.initialized || !dashboard.value) return '尚未初始化'
-  return `更新于 ${formatTime(dashboard.value.agentBrief?.generatedAt)}`
+  return `更新于 ${formatTime(dashboard.value.recordSummary?.generatedAt)}`
 })
 
 const statusTitle = computed(() => {
@@ -331,7 +256,7 @@ const statusTitle = computed(() => {
 })
 
 const statusDescription = computed(() => {
-  if (!state.projectRoot) return '选择项目文件夹后，会创建 Markdown 主数据、JSON 同步包和本地协作 skill。'
+  if (!state.projectRoot) return '选择项目文件夹后，会创建 Markdown 主数据和本地记录索引。'
   if (!state.initialized || !dashboard.value) return ''
   return ''
 })
@@ -350,8 +275,6 @@ watch(
 onMounted(() => {
   applyTheme(localStorage.getItem('electron-manager-theme') || 'dark')
   setupAutoRefresh()
-  setupAgentRunUpdates()
-  setupAgentMapUpdates()
   const initialSection = location.hash.replace('#', '') || 'overview'
   setActiveSection(initialSection)
   if (window.electronManager) {
@@ -366,17 +289,9 @@ function icon(name: string) {
 }
 
 function setActiveSection(section: string) {
-  const normalizedSection = section === 'agent-settings' ? 'settings' : section
-  const validSections = [...navigationGroups.flatMap((group) => group.items), ...footerNavItems]
-  state.section = validSections.some(([key]) => key === normalizedSection) ? normalizedSection : 'overview'
+  const validSections = [...navigationGroups.flatMap((group) => group.items), knowledgeNavItem]
+  state.section = validSections.some(([key]) => key === section) ? section : 'overview'
   history.replaceState(null, '', `#${state.section}`)
-  if (state.section === 'settings' || state.section === 'agent-chat') void loadAgentSettings()
-  if (state.section === 'agent-chat') {
-    void loadAgentChats()
-    void loadAgentProjectMaps()
-    state.taskDetailOpen = false
-    restoreAgentChatSelection()
-  }
 }
 
 function selectVersion(versionId: string) {
@@ -398,31 +313,6 @@ function setupAutoRefresh() {
   })
 }
 
-function setupAgentRunUpdates() {
-  if (!window.electronManager?.onAgentRunChanged) return
-  window.electronManager.onAgentRunChanged((payload) => {
-    if (!payload?.projectRoot || payload.projectRoot !== state.projectRoot || !payload.run) return
-    const existing = state.agentRunDetails[payload.run.runId]
-    const events = [...(existing?.events || []), ...(payload.events || [])]
-      .filter((event: AnyRecord, index: number, values: AnyRecord[]) =>
-        values.findIndex((candidate) => candidate.sequence === event.sequence) === index)
-      .sort((left: AnyRecord, right: AnyRecord) => left.sequence - right.sequence)
-    setAgentRunDetail({ run: payload.run, events })
-    if (['completed', 'blocked', 'failed', 'cancelled'].includes(payload.run.status)) {
-      void refreshDashboard({ quiet: true })
-      void loadAgentDiagnostics()
-      void loadAgentProjectMaps()
-    }
-  })
-}
-
-function setupAgentMapUpdates() {
-  if (!window.electronManager?.onAgentMapsChanged) return
-  window.electronManager.onAgentMapsChanged((payload) => {
-    if (payload?.projectRoot === state.projectRoot && state.initialized) void loadAgentProjectMaps()
-  })
-}
-
 async function runAction(message: string, action: () => Promise<void>) {
   try {
     state.busy = true
@@ -439,498 +329,6 @@ async function runAction(message: string, action: () => Promise<void>) {
 function ensureApi() {
   if (!window.electronManager) throw new Error('preload API 未注入，请重新启动 Electron。')
   return window.electronManager
-}
-
-async function loadAgentSettings() {
-  const requestRevision = ++agentSettingsRequestRevision
-  const projectRoot = state.initialized ? state.projectRoot : ''
-  try {
-    const [settings, diagnostics] = await Promise.all([
-      ensureApi().getAgentSettings(projectRoot || undefined),
-      ensureApi().getModelDiagnostics(projectRoot || undefined),
-    ])
-    if (requestRevision !== agentSettingsRequestRevision || projectRoot !== (state.initialized ? state.projectRoot : '')) return
-    state.agentSettings = settings
-    state.agentDiagnostics = diagnostics
-    state.status = ''
-  } catch (error: any) {
-    console.error(error)
-    if (requestRevision !== agentSettingsRequestRevision) return
-    state.status = error?.message || 'Agent 配置读取失败。'
-  }
-}
-
-async function loadAgentDiagnostics() {
-  try {
-    state.agentDiagnostics = await ensureApi().getModelDiagnostics(state.initialized ? state.projectRoot : undefined)
-  } catch (error) {
-    console.error(error)
-  }
-}
-
-async function loadAgentChats() {
-  if (!state.projectRoot || !state.initialized) {
-    state.agentChats = []
-    state.selectedAgentChatId = ''
-    return
-  }
-  const projectRoot = state.projectRoot
-  const projectRevision = agentProjectRevision
-  try {
-    const conversations = await ensureApi().listAgentChats(projectRoot)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    state.agentChats = conversations
-    if (state.selectedAgentChatId && !conversations.some((item: AnyRecord) => item.id === state.selectedAgentChatId)) {
-      state.selectedAgentChatId = ''
-    }
-    const restored = restoreAgentChatSelection()
-    if (!restored && pendingAgentChatSelection?.kind === 'chat') {
-      state.selectedTask = null
-      state.selectedAgentChatId = ''
-      persistAgentChatSelection({ kind: 'new' })
-    } else if (!restored && !pendingAgentChatSelection && conversations[0]) {
-      state.selectedTask = null
-      state.selectedAgentChatId = conversations[0].id
-      persistAgentChatSelection({ kind: 'chat', id: conversations[0].id })
-    }
-  } catch (error: any) {
-    console.error(error)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    state.status = error?.message || 'Agent 对话记录读取失败。'
-  }
-}
-
-async function loadAgentProjectMaps() {
-  if (!state.projectRoot || !state.initialized) {
-    state.agentProjectMaps = null
-    return
-  }
-  const projectRoot = state.projectRoot
-  const projectRevision = agentProjectRevision
-  try {
-    const maps = await ensureApi().getProjectMaps(projectRoot)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    state.agentProjectMaps = maps
-  } catch (error: any) {
-    console.error(error)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    state.status = error?.message || '项目地图读取失败。'
-  }
-}
-
-async function copyAgentDiagnosticReport() {
-  if (!state.projectRoot || state.agentDiagnosticReportBusy) return
-  state.agentDiagnosticReportBusy = true
-  try {
-    const result = await ensureApi().getDiagnosticReport({
-      projectRoot: state.projectRoot,
-      ...(selectedTaskRun.value?.runId ? { runId: selectedTaskRun.value.runId } : {}),
-    })
-    if (!result?.text) throw new Error('诊断报告内容为空。')
-    await navigator.clipboard.writeText(result.text)
-    showToast('脱敏诊断报告已复制')
-    state.status = ''
-  } catch (error: any) {
-    console.error(error)
-    state.status = error?.message || '复制诊断报告失败。'
-  } finally {
-    state.agentDiagnosticReportBusy = false
-  }
-}
-
-async function saveOpenAIProvider(payload: { settings: AnyRecord }) {
-  await runAction('正在保存模型服务配置…', async () => {
-    const projectMemory = state.agentSettings?.projectMemory
-    state.agentSettings = {
-      ...await ensureApi().updateOpenAIModel(payload.settings),
-      ...(projectMemory ? { projectMemory } : {}),
-    }
-    state.status = '模型选择已保存，连接与凭据继续由后台统一维护。'
-  })
-}
-
-async function saveProjectModelRoute(payload: { settings: AnyRecord }) {
-  await runAction('正在保存当前项目的模型链路…', async () => {
-    state.agentSettings = await ensureApi().updateProjectModelRoute({
-      ...payload.settings,
-      projectRoot: state.projectRoot,
-    })
-    state.status = '当前项目的主模型与 fallback 已保存。'
-  })
-}
-
-async function loadAgentRuns() {
-  if (!state.projectRoot || !state.initialized) {
-    state.agentRuns = []
-    state.agentRunsLoaded = true
-    state.agentRunDetails = {}
-    return
-  }
-  const projectRoot = state.projectRoot
-  const projectRevision = agentProjectRevision
-  try {
-    const runs = await ensureApi().listAgentRuns(projectRoot)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    state.agentRuns = runs
-    state.agentRunsLoaded = true
-    const task = state.selectedTask
-    const run = task && state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
-    if (run) void loadAgentRunDetail(run.runId)
-  } catch (error: any) {
-    console.error(error)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    state.agentRunsLoaded = true
-    state.status = error?.message || 'Agent 运行记录读取失败。'
-  }
-}
-
-function setAgentRunDetail(detail: AnyRecord) {
-  if (!detail?.run?.runId) return
-  state.agentRunDetails[detail.run.runId] = detail
-  state.agentRuns = [detail.run, ...state.agentRuns.filter((run: AnyRecord) => run.runId !== detail.run.runId)]
-}
-
-async function loadAgentRunDetail(runId: string) {
-  if (!state.projectRoot || !runId || state.agentRunDetails[runId]) return
-  const projectRoot = state.projectRoot
-  const projectRevision = agentProjectRevision
-  try {
-    const detail = await ensureApi().getAgentRun(projectRoot, runId)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    if (detail) setAgentRunDetail(detail)
-  } catch (error: any) {
-    console.error(error)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return
-    state.status = error?.message || 'Agent 运行详情读取失败。'
-  }
-}
-
-async function runAgentOperation(message: string, action: () => Promise<AnyRecord>, runId = '') {
-  const projectRoot = state.projectRoot
-  const projectRevision = agentProjectRevision
-  const operationRevision = ++agentOperationRevision
-  try {
-    state.agentRunBusy = true
-    state.agentRunBusyId = runId
-    state.status = message
-    const detail = await action()
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return null
-    setAgentRunDetail(detail)
-    await refreshDashboard({ quiet: true })
-    state.status = ''
-    return detail
-  } catch (error: any) {
-    console.error(error)
-    if (projectRoot !== state.projectRoot || projectRevision !== agentProjectRevision) return null
-    state.status = error?.message || 'Agent 操作失败。'
-    return null
-  } finally {
-    if (operationRevision === agentOperationRevision) {
-      state.agentRunBusy = false
-      state.agentRunBusyId = ''
-    }
-  }
-}
-
-async function startSelectedTaskRun(task = state.selectedTask, selectTask = true) {
-  if (!task) return
-  if (selectTask) state.selectedTask = task
-  const started = await runAgentOperation('正在创建 Agent 运行…', () => ensureApi().startAgentTask({
-    projectRoot: state.projectRoot,
-    taskId: task.id,
-    intent: inferAgentTaskIntent([
-      task.title,
-      task.detail,
-      task.executionDefinition,
-      task.userOriginal,
-    ].filter(Boolean).join('\n')),
-  }))
-  if (!started?.run || started.run.status !== 'running') return
-  if (started.warnings?.length) showToast(started.warnings[0].message || 'Agent 运行包含待确认项')
-  await advanceAgentRun(started.run.runId)
-}
-
-async function sendAgentChatMessage(message: string) {
-  const prompt = String(message || '').trim()
-  if (!prompt || state.agentChatCreating || state.agentRunBusy) return
-
-  const originTask = state.selectedAgentChatId ? null : state.selectedTask
-  const originConversationId = state.selectedAgentChatId
-  const originSelectionStillActive = () =>
-    state.selectedAgentChatId === originConversationId
-    && Boolean(originConversationId || (state.selectedTask?.id || '') === (originTask?.id || ''))
-  const currentRun = selectedTaskRun.value
-  const route = routeAgentChatInput(prompt, {
-    hasActiveTask: Boolean(originTask),
-    hasResumableRun: Boolean(
-      currentRun?.status === 'running'
-      || (!currentRun && originTask && ['todo', 'doing'].includes(originTask.status)),
-    ),
-  })
-  if (!agentCredentialConfigured.value) {
-    state.status = '请先在设置中配置模型凭据。'
-    setActiveSection('settings')
-    return
-  }
-  if (route.kind === 'chat') {
-    const api = ensureReady()
-    if (!api) return
-    state.agentChatCreating = true
-    state.status = '模型正在回复…'
-    try {
-      const result = await api.sendAgentChat({
-        projectRoot: state.projectRoot,
-        ...(originConversationId ? { conversationId: originConversationId } : {}),
-        message: prompt,
-      })
-      const conversation = result?.conversation
-      if (!conversation?.id) throw new Error('Agent 对话响应无效。')
-      state.agentChats = [conversation, ...state.agentChats.filter((item: AnyRecord) => item.id !== conversation.id)]
-      if (originSelectionStillActive()) {
-        state.selectedTask = null
-        state.selectedAgentChatId = conversation.id
-        persistAgentChatSelection({ kind: 'chat', id: conversation.id })
-      }
-      state.taskDetailOpen = false
-      state.status = ''
-      void loadAgentProjectMaps()
-    } catch (error: any) {
-      console.error(error)
-      await Promise.all([loadAgentChats(), loadAgentDiagnostics()])
-      state.status = error?.message || '模型回复失败。'
-    } finally {
-      state.agentChatCreating = false
-    }
-    return
-  }
-  if (route.kind === 'thought') {
-    const api = ensureReady()
-    if (!api) return
-    state.agentChatCreating = true
-    try {
-      state.status = '正在从对话保存想法…'
-      const captured = await api.sendAgentChat({
-        projectRoot: state.projectRoot,
-        ...(originConversationId ? { conversationId: originConversationId } : {}),
-        message: prompt,
-        executionOnly: true,
-      })
-      if (!captured?.conversation?.id || !captured?.message?.id) throw new Error('对话来源记录无效。')
-      state.agentChats = [captured.conversation, ...state.agentChats.filter((item: AnyRecord) => item.id !== captured.conversation.id)]
-      const existingIds = new Set(allThoughts.value.map((thought: AnyRecord) => thought.id || thought.shortId))
-      const nextDashboard = await api.addThought(state.projectRoot, {
-        content: prompt,
-        sourceRefs: [chatMessageSourceRef(captured.conversation.id, captured.message.id)],
-      })
-      updateDashboard(nextDashboard)
-      const createdThought = (nextDashboard.thoughts || []).find((thought: AnyRecord) => !existingIds.has(thought.id || thought.shortId))
-      if (originSelectionStillActive()) {
-        state.selectedTask = null
-        state.selectedAgentChatId = captured.conversation.id
-        persistAgentChatSelection({ kind: 'chat', id: captured.conversation.id })
-      }
-      state.status = ''
-      showToast(createdThought?.shortId ? `已保存为 ${createdThought.shortId}` : '想法已保存')
-      void loadAgentProjectMaps()
-    } catch (error: any) {
-      console.error(error)
-      await loadAgentChats()
-      state.status = error?.message || '想法保存失败。'
-    } finally {
-      state.agentChatCreating = false
-    }
-    return
-  }
-  if (route.kind === 'continue') {
-    if (currentRun) await advanceAgentRun(currentRun.runId)
-    else await startSelectedTaskRun()
-    return
-  }
-
-  const api = ensureReady()
-  if (!api || route.kind !== 'execute') return
-
-  const existingIds = new Set(allTasks.value.map((task: AnyRecord) => task.id || task.shortId))
-  const firstLine = prompt.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || '新对话'
-  const title = firstLine.length > 72 ? `${firstLine.slice(0, 72).trimEnd()}…` : firstLine
-  const taskIntent = inferAgentTaskIntent(prompt)
-  state.agentChatCreating = true
-  try {
-    state.status = '正在记录对话来源…'
-    const captured = await api.sendAgentChat({
-      projectRoot: state.projectRoot,
-      ...(originConversationId ? { conversationId: originConversationId } : {}),
-      message: prompt,
-      executionOnly: true,
-    })
-    const conversation = captured?.conversation
-    const sourceMessage = captured?.message
-    if (!conversation?.id || !sourceMessage?.id) throw new Error('Agent 对话来源记录无效。')
-    state.agentChats = [conversation, ...state.agentChats.filter((item: AnyRecord) => item.id !== conversation.id)]
-    state.status = '正在创建项目任务…'
-    const nextDashboard = await api.addTask(state.projectRoot, {
-      title,
-      status: 'todo',
-      priority: 'medium',
-      workLevel: route.workLevel,
-      depthReason: route.workLevel === 'deep' ? route.depthReason : undefined,
-      area: 'agent-chat',
-      userOriginal: prompt,
-      executionDefinition: prompt,
-      acceptance: taskIntent === 'analysis'
-        ? '- 完成项目检查并说明结论。\n- 结论引用实际检查结果。'
-        : '- 完成用户请求并说明结果。\n- 对实际改动执行合适的验证。',
-      sourceRefs: [chatMessageSourceRef(conversation.id, sourceMessage.id)],
-      constraints: route.workLevel === 'deep' ? '保留现有未提交改动；先确认影响范围和权限边界。' : undefined,
-      planRollback: route.workLevel === 'deep' ? '执行前给出方案；验证失败时停止后续操作并说明安全回退步骤。' : undefined,
-    })
-    updateDashboard(nextDashboard)
-    const createdTask = (nextDashboard.tasks || []).find((task: AnyRecord) => !existingIds.has(task.id || task.shortId))
-    if (!createdTask) throw new Error('Agent 对话任务创建后未能定位。')
-    const keepFocus = originSelectionStillActive()
-    if (keepFocus) {
-      state.selectedAgentChatId = conversation.id
-      state.selectedTask = createdTask
-      persistAgentChatSelection({ kind: 'chat', id: conversation.id })
-    }
-    state.taskDetailOpen = false
-    state.status = ''
-    await startSelectedTaskRun(createdTask, keepFocus)
-  } catch (error: any) {
-    console.error(error)
-    state.status = error?.message || 'Agent 对话创建失败。'
-  } finally {
-    state.agentChatCreating = false
-  }
-}
-
-async function advanceAgentRun(runId: string) {
-  const advanced = await runAgentOperation('Agent 正在处理任务…', () => ensureApi().advanceAgentRun({
-    projectRoot: state.projectRoot,
-    runId,
-    untilPause: true,
-  }), runId)
-  await restartRunAfterConfigurationChange(advanced)
-}
-
-async function resolveAgentApproval(decision: 'approved' | 'denied') {
-  const run = selectedTaskRun.value
-  if (!run) return
-  const resolved = await runAgentOperation(decision === 'approved' ? '正在执行已批准操作…' : '正在拒绝 Agent 操作…', () => ensureApi().resolveAgentApproval({
-    projectRoot: state.projectRoot,
-    runId: run.runId,
-    decision,
-    continueUntilPause: decision === 'approved',
-  }), run.runId)
-  await restartRunAfterConfigurationChange(resolved, decision === 'approved')
-}
-
-async function restartRunAfterConfigurationChange(detail: AnyRecord | null, restart = true) {
-  if (detail?.recovery?.kind !== 'configuration_changed') return
-  showToast(detail.recovery.message)
-  if (!restart) return
-  const task = state.selectedTask
-  if (!task) {
-    state.status = '旧运行已取消，但当前对话没有可重启的任务。'
-    return
-  }
-  await startSelectedTaskRun(task)
-}
-
-async function cancelAgentRun(runId: string) {
-  if (!runId) return
-  try {
-    const cancelled = await ensureApi().cancelAgentRun(state.projectRoot, runId)
-    state.status = cancelled ? '已发送停止请求，正在保存当前检查点…' : '当前 Run 已经结束，无需停止。'
-  } catch (error: any) {
-    console.error(error)
-    state.status = error?.message || '取消 Agent 运行失败。'
-  }
-}
-
-function agentRunStatusText(status: string) {
-  return ({ running: '运行中', completed: '已完成', blocked: '已阻塞', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] || status
-}
-
-function agentRunStatusTone(status: string): UiTone {
-  if (status === 'completed') return 'complete'
-  if (status === 'failed' || status === 'blocked') return 'danger'
-  if (status === 'running') return 'warning'
-  return 'neutral'
-}
-
-function agentPhaseText(phase: string) {
-  return ({
-    inspecting: '检查项目',
-    planning: '制定方案',
-    acting: '执行修改',
-    verifying: '验证结果',
-    finalizing: '整理结果',
-    awaiting_approval: '等待批准',
-    completed: '完成',
-    blocked: '阻塞',
-    failed: '失败',
-    cancelled: '已取消',
-  } as Record<string, string>)[phase] || phase
-}
-
-function agentOutputLabel(run: AnyRecord, ref: string, index: number) {
-  if (run?.diff?.outputRef === ref) return '完整代码差异'
-  const previousOutputs = (run?.outputRefs || []).slice(0, index)
-    .filter((candidate: string) => candidate !== run?.diff?.outputRef)
-  return `运行输出 ${previousOutputs.length + 1}`
-}
-
-function redactAgentOutput(content: string) {
-  const redacted = '[已隐藏敏感信息]'
-  return String(content || '')
-    .replace(/-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g, redacted)
-    .replace(/(["']?(?:api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|password|passwd|secret|client[_-]?secret|private[_-]?key)["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/gi, `$1${redacted}`)
-    .replace(/(authorization\s*:\s*)(?:basic|bearer)\s+[^\s]+/gi, `$1${redacted}`)
-    .replace(/\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|AIza[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|(?:sk|rk)_live_[A-Za-z0-9]{16,})\b/g, redacted)
-    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, redacted)
-    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, `$1${redacted}@`)
-}
-
-async function openAgentOutput(ref: string, label: string) {
-  if (!state.projectRoot || !ref) return
-  const projectRoot = state.projectRoot
-  const projectRevision = agentProjectRevision
-  const outputRevision = ++agentOutputRevision
-  state.agentOutput = { ref, label, content: '', artifact: null, loading: true, error: '' }
-  try {
-    const output = await ensureApi().readAgentOutput(projectRoot, ref)
-    if (
-      projectRoot !== state.projectRoot
-      || projectRevision !== agentProjectRevision
-      || outputRevision !== agentOutputRevision
-      || state.agentOutput?.ref !== ref
-    ) return
-    if (!output || typeof output.content !== 'string') throw new Error('Invalid Agent output response')
-    state.agentOutput = {
-      ref,
-      label,
-      content: redactAgentOutput(output.content),
-      artifact: output.artifact || null,
-      loading: false,
-      error: '',
-    }
-  } catch (error) {
-    console.error(error)
-    if (outputRevision !== agentOutputRevision || state.agentOutput?.ref !== ref) return
-    state.agentOutput.loading = false
-    state.agentOutput.error = '无法读取该输出。文件可能已被清理，或当前项目已不可用。'
-  }
-}
-
-function retryAgentOutput() {
-  const output = state.agentOutput
-  if (output) void openAgentOutput(output.ref, output.label)
-}
-
-function closeAgentOutput() {
-  agentOutputRevision += 1
-  state.agentOutput = null
 }
 
 function ensureReadyForInit() {
@@ -1048,7 +446,7 @@ async function refreshDashboard({ quiet = false } = {}) {
 async function openDataRoot() {
   await runAction('正在打开数据层...', async () => {
     const api = ensureReady()
-    const folderPath = dashboard.value?.agentBrief?.dataRoot
+    const folderPath = dashboard.value?.recordSummary?.dataRoot
     if (!api || !folderPath) throw new Error('数据层路径不存在')
     await api.openFolderPath(folderPath)
     state.status = ''
@@ -1058,22 +456,11 @@ async function openDataRoot() {
 async function openKnowledgeRoot() {
   await runAction('正在打开知识库...', async () => {
     const api = ensureReady()
-    const folderPath = dashboard.value?.agentBrief?.knowledgeRoot
+    const folderPath = dashboard.value?.recordSummary?.knowledgeRoot
     if (!api || !folderPath) throw new Error('知识库路径不存在')
     await api.openFolderPath(folderPath)
     state.status = ''
   })
-}
-
-async function copyBrief() {
-  const briefText = syncEntryText(dashboard.value?.agentBrief)
-  if (!state.initialized || !briefText.trim()) return
-  try {
-    await navigator.clipboard.writeText(briefText)
-    showToast('已复制')
-  } catch {
-    showToast('复制失败')
-  }
 }
 
 async function createTask(source: 'main' | 'quick') {
@@ -1344,37 +731,17 @@ async function submitReply() {
     updateDashboard(await api.replyOpenQuestion(state.projectRoot, payload))
     state.collabTab = 'decided'
     closeReplyDialog()
-    showToast('已发送，等待 Agent 跟进')
+    showToast('已发送，等待跟进')
     state.status = ''
   })
 }
 
 function updateState(result: AnyRecord) {
-  agentProjectRevision += 1
-  closeAgentOutput()
   state.projectRoot = result.projectRoot
   state.initialized = result.initialized
   state.dashboard = result.dashboard
-  pendingAgentChatSelection = result.initialized
-    ? loadAgentChatSelection(localStorage, result.dashboard?.config?.projectId || result.projectRoot)
-    : null
-  state.agentRuns = []
-  state.agentRunsLoaded = false
-  state.agentProjectMaps = null
-  state.agentRunDetails = {}
-  state.agentChats = []
-  state.selectedAgentChatId = ''
-  state.selectedTask = null
-  state.taskDetailOpen = false
-  restoreAgentChatSelection()
   syncSelectedVersion(result.dashboard)
   state.selectedLogIndex = clampLogIndex(state.selectedLogIndex, result.dashboard?.logs || [])
-  if (result.initialized) {
-    void loadAgentRuns()
-    void loadAgentChats()
-    void loadAgentSettings()
-    void loadAgentProjectMaps()
-  }
 }
 
 function updateDashboard(nextDashboard: AnyRecord) {
@@ -1464,7 +831,7 @@ async function saveQuestion() {
     }))
     state.collabTab = 'decided'
     closeQuestionDialog()
-    showToast('已提交，等待 Agent 跟进')
+    showToast('已提交，等待跟进')
     state.status = ''
   })
 }
@@ -1516,8 +883,11 @@ function questionThreadMessages(item: AnyRecord) {
 
 function questionMessageRole(role: string) {
   if (role === 'user') return '你'
-  if (role === 'agent') return 'Agent'
   return '历史记录'
+}
+
+function questionMessageClass(role: string) {
+  return role === 'user' ? 'is-user' : 'is-record'
 }
 
 function replyDialogTitle(item: AnyRecord) {
@@ -1603,129 +973,15 @@ function openBoardTask(taskId: string) {
 
 function openTaskDetail(task: AnyRecord) {
   state.selectedTask = task
-  state.taskDetailOpen = true
-  const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
-  if (run) void loadAgentRunDetail(run.runId)
 }
 
 function closeTaskDetail() {
-  closeAgentOutput()
-  state.taskDetailOpen = false
   state.selectedTask = null
-}
-
-function openTaskInAgent(task: AnyRecord) {
-  state.selectedAgentChatId = ''
-  state.selectedTask = task
-  persistAgentChatSelection({ kind: 'task', id: task.id || task.shortId })
-  state.taskDetailOpen = false
-  setActiveSection('agent-chat')
-  const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
-  if (run) void loadAgentRunDetail(run.runId)
-}
-
-function selectAgentChatConversation(conversationId: string) {
-  const conversation = state.agentChats.find((item: AnyRecord) => item.id === conversationId)
-  if (!conversation) return
-  state.selectedTask = null
-  state.selectedAgentChatId = conversationId
-  persistAgentChatSelection({ kind: 'chat', id: conversationId })
-  state.taskDetailOpen = false
-  closeAgentOutput()
-  state.status = ''
-}
-
-function startNewAgentChat() {
-  state.selectedTask = null
-  state.selectedAgentChatId = ''
-  persistAgentChatSelection({ kind: 'new' })
-  state.taskDetailOpen = false
-  closeAgentOutput()
-  state.status = ''
-}
-
-async function deleteAgentChatConversation(conversationId: string) {
-  const conversation = state.agentChats.find((item: AnyRecord) => item.id === conversationId)
-  if (!conversation) return
-  if (!confirm(`删除这段 Chat 对话？任务、Run 和工作日志不会受影响。\n\n${conversation.title || conversation.id}`)) return
-  const api = ensureReady()
-  if (!api) return
-  try {
-    state.status = '正在删除对话…'
-    await api.deleteAgentChat(state.projectRoot, conversationId)
-    state.agentChats = state.agentChats.filter((item: AnyRecord) => item.id !== conversationId)
-    if (state.selectedAgentChatId === conversationId) startNewAgentChat()
-    state.status = ''
-    void loadAgentProjectMaps()
-  } catch (error: any) {
-    console.error(error)
-    state.status = error?.message || '删除对话失败。'
-  }
-}
-
-function persistAgentChatSelection(selection: AgentChatSelection) {
-  const projectId = state.dashboard?.config?.projectId || state.projectRoot
-  if (!projectId) return
-  pendingAgentChatSelection = selection
-  saveAgentChatSelection(localStorage, projectId, selection)
-}
-
-function restoreAgentChatSelection() {
-  const selection = pendingAgentChatSelection
-  if (!selection) return false
-  if (selection.kind === 'new') {
-    state.selectedTask = null
-    state.selectedAgentChatId = ''
-    return true
-  }
-  if (selection.kind === 'task') {
-    const task = allTasks.value.find((item: AnyRecord) => item.id === selection.id || item.shortId === selection.id)
-    if (!task) return false
-    state.selectedAgentChatId = ''
-    state.selectedTask = task
-    const run = state.agentRuns.find((item: AnyRecord) => item.task?.id === task.id || item.task?.shortId === task.shortId)
-    if (run) void loadAgentRunDetail(run.runId)
-    return true
-  }
-  const conversation = state.agentChats.find((item: AnyRecord) => item.id === selection.id)
-  if (!conversation) return false
-  state.selectedTask = null
-  state.selectedAgentChatId = conversation.id
-  return true
-}
-
-function chatMessageSourceRef(conversationId: string, messageId: string) {
-  return `chat:${conversationId}#message:${messageId}`
-}
-
-function startAgentChatTask(taskId: string) {
-  const task = allTasks.value.find((item: AnyRecord) => item.id === taskId || item.shortId === taskId)
-  if (task) void startSelectedTaskRun(task)
 }
 
 function openThought(thoughtId: string) {
   setActiveSection('capture')
   scrollToRef(thoughtRefs, thoughtId, () => { state.highlightedThought = thoughtId }, () => { state.highlightedThought = '' })
-}
-
-function chatSourceLabel(sourceRef: string) {
-  const match = String(sourceRef || '').match(/^chat:([^#]+)#message:(.+)$/)
-  if (!match) return sourceRef
-  const chatId = match[1].replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase()
-  const messageId = match[2].replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase()
-  return `CHAT-${chatId} · MSG-${messageId}`
-}
-
-function openChatSource(sourceRef: string) {
-  const match = String(sourceRef || '').match(/^chat:([^#]+)#message:(.+)$/)
-  if (!match) return
-  const conversation = state.agentChats.find((item: AnyRecord) => item.id === match[1])
-  if (!conversation) {
-    showToast('来源对话已删除，引用记录仍保留')
-    return
-  }
-  selectAgentChatConversation(conversation.id)
-  setActiveSection('agent-chat')
 }
 
 function openDialogue(index: number) {
@@ -1740,7 +996,7 @@ function closeMarkdownDocument() {
   state.markdownDocument = null
 }
 
-function openAgentLog(index: number) {
+function openWorkLog(index: number) {
   state.selectedLogIndex = clampLogIndex(Number(index || 0), logs.value)
   scrollToRef(logRefs, state.selectedLogIndex, () => { state.highlightedLog = state.selectedLogIndex }, () => { state.highlightedLog = -1 }, 1800)
 }
@@ -1751,8 +1007,8 @@ function openQuestionTarget(item: AnyRecord) {
   if (/^L/i.test(relation)) {
     const index = logs.value.findIndex((log: AnyRecord) => log.shortId === relation)
     if (index >= 0) {
-      setActiveSection('agent-logs')
-      openAgentLog(index)
+      setActiveSection('work-logs')
+      openWorkLog(index)
     }
   } else if (/^I/i.test(relation)) {
     openThought(findThoughtIdByShortId(relation))
@@ -1823,7 +1079,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   const prompt = [
     `请${isActive ? '处理' : '继续'}当前项目研究 ${dialogue.shortId}。`,
     isActive
-      ? `先从 agent-brief.json.activeResearch 和当前版本研究.md 读取该记录，按 mode:: ${dialogue.mode || 'legacy'} 与验收标准执行。`
+      ? `先从 record-summary.json 的 activeResearch 和当前版本研究.md 读取该记录，按 mode:: ${dialogue.mode || 'legacy'} 与验收标准执行。`
       : `该记录已完成或归档，不在 activeResearch；请从对应版本研究.md 读取记录、已有回答和关联文档，再按 mode:: ${dialogue.mode || 'legacy'} 与验收标准继续。`,
     `${isActive ? '开始' : '继续'}前将 status 改为 doing；短结果直接写回 D 记录，长结果完成后再创建并关联 W 文档；完成后改为 done，并只为本次实际研究写一条 L 工作记录。`,
   ].join('\n')
@@ -2294,11 +1550,6 @@ function constraintSummary(constraint: AnyRecord) {
   return text.length > 120 ? `${text.slice(0, 120).trimEnd()}...` : text || '暂无摘要。'
 }
 
-function syncEntryText(brief: AnyRecord) {
-  if (!brief?.dataRoot) return ''
-  return '请读取当前项目的 .agent-collaboration.md，并按其中指向的 Electron Manager 文件建立上下文和协作规则。'
-}
-
 function sortRecentProjects(projects = [] as AnyRecord[]) {
   return projects.slice().sort((a, b) => String(b.lastOpenedAt || b.createdAt || '').localeCompare(String(a.lastOpenedAt || a.createdAt || '')))
 }
@@ -2340,7 +1591,7 @@ function escapeHtml(value: any) {
   <main class="page-shell">
     <AppSidebar
       :navigation-groups="navigationGroups"
-      :footer-items="footerNavItems"
+      :knowledge-item="knowledgeNavItem"
       :active-section="state.section"
       :collab-attention-count="collabAttentionCount"
       :theme="state.theme"
@@ -2384,13 +1635,12 @@ function escapeHtml(value: any) {
           logs: logs.length,
           constraints: constraints.length,
         }"
-        :data-root="dashboard?.agentBrief?.dataRoot || ''"
-        :knowledge-root="dashboard?.agentBrief?.knowledgeRoot || ''"
+        :data-root="dashboard?.recordSummary?.dataRoot || ''"
+        :knowledge-root="dashboard?.recordSummary?.knowledgeRoot || ''"
         :busy="state.busy"
         :icon="icon"
         @open-data-root="openDataRoot"
         @open-knowledge-root="openKnowledgeRoot"
-        @copy-brief="copyBrief"
       />
 
       <section v-if="state.section === 'capture'" id="capture" class="section view active-view">
@@ -2421,15 +1671,6 @@ function escapeHtml(value: any) {
             </div>
             <p>{{ thought.content }}</p>
             <div v-if="thought.answer" class="answer"><span>摘要</span><p>{{ thought.answer }}</p></div>
-            <div v-if="thought.sourceRefs?.length" class="task-detail-badges">
-              <button
-                v-for="sourceRef in thought.sourceRefs"
-                :key="sourceRef"
-                class="btn btn-outline-secondary btn-sm"
-                type="button"
-                @click="openChatSource(sourceRef)"
-              >来源 {{ chatSourceLabel(sourceRef) }}</button>
-            </div>
             <small>{{ formatTime(thought.created) || '未标注日期' }}</small>
           </article>
         </div>
@@ -2449,47 +1690,6 @@ function escapeHtml(value: any) {
         @open-task="openTaskDetail"
         @delete-task="deleteTask"
         @toggle-done="state.doneExpanded = !state.doneExpanded"
-      />
-
-      <AgentChatView
-        v-if="state.section === 'agent-chat'"
-        :project-id="state.dashboard?.config?.projectId || state.projectRoot"
-        :chats="state.agentChats"
-        :current-chat="selectedAgentChat"
-        :current-task="state.selectedTask"
-        :run-detail="selectedTaskRunDetail"
-        :runs="state.agentRuns"
-        :runs-loaded="state.agentRunsLoaded"
-        :busy="state.agentRunBusy || state.agentChatCreating"
-        :status="state.status"
-        :credential-status="agentCredentialStatus"
-        :credential-label="agentCredentialLabel"
-        :diagnostics="state.agentDiagnostics"
-        :local-messages="agentChatMessages"
-        :memory-status="state.agentSettings?.projectMemory"
-        :project-maps="state.agentProjectMaps"
-        :diagnostic-report-busy="state.agentDiagnosticReportBusy"
-        @select-chat="selectAgentChatConversation"
-        @delete-chat="deleteAgentChatConversation"
-        @start="startAgentChatTask"
-        @advance="advanceAgentRun"
-        @approve="resolveAgentApproval('approved')"
-        @deny="resolveAgentApproval('denied')"
-        @cancel="cancelAgentRun"
-        @open-output="openAgentOutput"
-        @new-chat="startNewAgentChat"
-        @send="sendAgentChatMessage"
-        @copy-diagnostics="copyAgentDiagnosticReport"
-      />
-
-      <AgentSettingsView
-        v-if="state.section === 'settings'"
-        :settings="state.agentSettings"
-        :busy="state.busy"
-        :diagnostics="state.agentDiagnostics"
-        @reload="loadAgentSettings"
-        @save-provider="saveOpenAIProvider"
-        @save-project-route="saveProjectModelRoute"
       />
 
       <section v-if="state.section === 'dialogues'" id="dialogues" class="section view active-view">
@@ -2536,7 +1736,7 @@ function escapeHtml(value: any) {
                   <section class="dialogue-block dialogue-answer">
                     <div class="dialogue-block-head"><strong>{{ dialogueHasResult(dialogue) ? '研究结果' : '研究状态' }}</strong><span v-if="dialogueDocument(dialogue)">{{ dialogueDocument(dialogue).shortId }}</span></div>
                     <div v-if="dialogueHasResult(dialogue)" class="rendered-markdown" v-html="renderReadableMarkdown(dialogue.answer)" />
-                    <p v-else>{{ dialogue.status === 'doing' ? 'Agent 正在研究。' : '等待 Agent 处理。' }}</p>
+                    <p v-else>{{ dialogue.status === 'doing' ? '正在研究。' : '等待处理。' }}</p>
                   </section>
                   <section class="dialogue-block dialogue-meta-block"><strong>验收标准</strong><p>{{ dialogue.acceptance || '无。' }}</p></section>
                   <div v-if="dialogueRefsList(dialogue).length" class="dialogue-relations"><UiTag v-for="ref in dialogueRefsList(dialogue)" :key="ref" :label="ref" :icon-svg="icon('link')" /></div>
@@ -2595,14 +1795,14 @@ function escapeHtml(value: any) {
 
       <section v-if="state.section === 'collaboration'" id="collaboration" class="section view active-view">
         <div class="section-head">
-          <div><h2>协作</h2><span>{{ selectedVersion?.shortId || '当前版本' }} · 需要你或 Agent 接续的线程</span></div>
+          <div><h2>协作</h2><span>{{ selectedVersion?.shortId || '当前版本' }} · 需要继续处理的记录</span></div>
           <button class="btn btn-primary btn-sm" type="button" @click="openQuestionDialog">
             <span class="button-icon" v-html="icon('plus')" />新问题
           </button>
         </div>
         <div class="segmented-control collab-tabs" role="tablist" aria-label="协作记录类型">
           <button type="button" :class="{ active: state.collabTab === 'open' }" @click="state.collabTab = 'open'">待我回复 <span>{{ openQuestions.length }}</span></button>
-          <button type="button" :class="{ active: state.collabTab === 'decided' }" @click="state.collabTab = 'decided'">待 Agent 跟进 <span>{{ pendingDecisions.length }}</span></button>
+          <button type="button" :class="{ active: state.collabTab === 'decided' }" @click="state.collabTab = 'decided'">待跟进 <span>{{ pendingDecisions.length }}</span></button>
           <button type="button" :class="{ active: state.collabTab === 'risks' }" @click="state.collabTab = 'risks'">风险与后续 <span>{{ activeRisks.length }}</span></button>
           <button type="button" :class="{ active: state.collabTab === 'history' }" @click="state.collabTab = 'history'">版本历史</button>
         </div>
@@ -2626,7 +1826,7 @@ function escapeHtml(value: any) {
             <div v-if="item.background && item.background !== '无。'" class="collab-context"><strong>背景</strong><span>{{ item.background }}</span></div>
             <div v-if="item.recommendation && item.recommendation !== '无。'" class="collab-recommendation"><strong>建议</strong><span>{{ item.recommendation }}</span></div>
             <div v-if="questionThreadMessages(item).length" class="collab-thread">
-              <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="`is-${message.role}`">
+              <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="questionMessageClass(message.role)">
                 <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
                 <p>{{ message.content }}</p>
               </div>
@@ -2636,10 +1836,10 @@ function escapeHtml(value: any) {
         </div>
 
         <div v-else-if="state.collabTab === 'decided'" class="collab-record-list">
-          <p v-if="!pendingDecisions.length" class="empty-panel">当前没有等待 Agent 跟进的协作线程。</p>
+          <p v-if="!pendingDecisions.length" class="empty-panel">当前没有等待跟进的记录。</p>
           <article v-for="item in pendingDecisions" :key="item.id" class="card collab-record decided-record">
             <div class="collab-record-head">
-              <div><span class="task-short-id">{{ item.shortId }}</span><UiTag label="待 Agent 跟进" tone="warning" variant="status" :icon-svg="icon('clock')" /></div>
+              <div><span class="task-short-id">{{ item.shortId }}</span><UiTag label="待跟进" tone="warning" variant="status" :icon-svg="icon('clock')" /></div>
               <div class="collab-record-actions">
                 <button class="btn btn-outline-secondary btn-sm" type="button" @click="openReplyDialog(item)">补充说明</button>
                 <button class="btn btn-primary btn-sm" type="button" @click="completeQuestion(item)">标记已完成</button>
@@ -2650,7 +1850,7 @@ function escapeHtml(value: any) {
             <div v-if="item.background && item.background !== '无。'" class="collab-context"><strong>背景</strong><span>{{ item.background }}</span></div>
             <div v-if="item.recommendation && item.recommendation !== '无。'" class="collab-recommendation"><strong>建议</strong><span>{{ item.recommendation }}</span></div>
             <div v-if="questionThreadMessages(item).length" class="collab-thread">
-              <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="`is-${message.role}`">
+              <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="questionMessageClass(message.role)">
                 <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
                 <p>{{ message.content }}</p>
               </div>
@@ -2690,7 +1890,7 @@ function escapeHtml(value: any) {
                   <strong>{{ item.title }}</strong>
                   <p>{{ item.question }}</p>
                   <div v-if="questionThreadMessages(item).length" class="collab-thread compact-thread">
-                    <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="`is-${message.role}`">
+                    <div v-for="message in questionThreadMessages(item)" :key="message.id" class="collab-message" :class="questionMessageClass(message.role)">
                       <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
                       <p>{{ message.content }}</p>
                     </div>
@@ -2711,38 +1911,38 @@ function escapeHtml(value: any) {
         </div>
       </section>
 
-      <section v-if="state.section === 'agent-logs'" id="agent-logs" class="section view active-view">
-        <div class="agent-log-layout">
-          <aside class="agent-log-index">
-            <div class="agent-log-index-head">
+      <section v-if="state.section === 'work-logs'" id="work-logs" class="section view active-view">
+        <div class="work-log-layout">
+          <aside class="work-log-index">
+            <div class="work-log-index-head">
               <div class="section-head compact-head"><h2>目录</h2><span>{{ logs.length }} 条</span></div>
-              <label class="agent-log-search">
+              <label class="work-log-search">
                 <span v-html="icon('search')" />
                 <input v-model="state.logQuery" type="search" placeholder="搜索记录、任务或内容" aria-label="搜索工作记录" />
               </label>
             </div>
-            <div class="agent-log-toc">
+            <div class="work-log-toc">
               <p v-if="!logs.length" class="empty-panel">{{ state.logQuery.trim() ? '没有匹配的工作记录。' : '暂无工作记录。' }}</p>
-              <button v-for="(log, index) in logs" :key="log.id || index" class="agent-log-toc-item" :class="{ active: index === state.selectedLogIndex }" type="button" @click="openAgentLog(index)">
-                <span class="agent-log-toc-meta">
+              <button v-for="(log, index) in logs" :key="log.id || index" class="work-log-toc-item" :class="{ active: index === state.selectedLogIndex }" type="button" @click="openWorkLog(index)">
+                <span class="work-log-toc-meta">
                   <span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span>
                   <UiTag v-if="log.status && log.status !== 'done'" :label="statusText(log.status)" :tone="statusTone(log.status)" variant="status" :icon-svg="icon(statusIcon(log.status))" />
                   <UiTag :label="logLevelText(log.recordLevel)" :icon-svg="icon(logLevelIcon(log.recordLevel))" />
                 </span>
-                <span class="agent-log-toc-relations"><UiTag v-if="!resolveLogTasks(log).length" label="general" :icon-svg="icon('tag')" /><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
+                <span class="work-log-toc-relations"><UiTag v-if="!resolveLogTasks(log).length" label="general" :icon-svg="icon('tag')" /><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
                 <strong>{{ primaryLogPrompt(log) }}</strong>
                 <small>{{ log.title }} · {{ formatTime(log.created) || '未标注日期' }}</small>
               </button>
             </div>
           </aside>
-          <div class="agent-log-list-wrap">
-            <div class="agent-log-list-spacer" aria-hidden="true"></div>
-            <div class="agent-log-list">
+          <div class="work-log-list-wrap">
+            <div class="work-log-list-spacer" aria-hidden="true"></div>
+            <div class="work-log-list">
               <article
                 v-for="(log, index) in logs"
                 :key="log.id || index"
                 :ref="(el) => setLogRef(index, el as Element | null)"
-                class="card collab-log agent-log-card"
+                class="card collab-log work-log-card"
                 :data-record-level="log.recordLevel || 'light'"
                 :class="{ active: index === state.selectedLogIndex, 'collab-log-highlight': state.highlightedLog === index }"
               >
@@ -2901,7 +2101,7 @@ function escapeHtml(value: any) {
     <form v-if="state.quickCreateMode === 'constraint'" class="card quick-task-panel" aria-label="快速保存约束" @submit.prevent="saveConstraint">
       <div class="quick-task-head"><strong>项目约束</strong><button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuickTask" v-html="icon('x')" /></div>
       <input v-model="quickConstraintForm.title" type="text" placeholder="约束标题" />
-      <textarea v-model="quickConstraintForm.content" rows="6" placeholder="写入当前项目所有 Agent 都要遵守的规则、边界或长期偏好。"></textarea>
+      <textarea v-model="quickConstraintForm.content" rows="6" placeholder="写入当前项目需要长期遵守的规则、边界或偏好。"></textarea>
       <div class="quick-task-actions"><span>{{ quickConstraintForm.status }}</span><button class="btn icon-button btn-primary" type="submit" title="保存约束" aria-label="保存约束" v-html="icon('check')" /></div>
     </form>
   </div>
@@ -2910,7 +2110,7 @@ function escapeHtml(value: any) {
     <div v-for="toast in state.toasts" :key="toast.id" class="toast-message" :class="{ 'is-leaving': toast.leaving }">{{ toast.message }}</div>
   </div>
 
-  <div v-if="state.selectedTask && state.taskDetailOpen" class="modal-overlay" @click.self="closeTaskDetail">
+  <div v-if="state.selectedTask" class="modal-overlay" @click.self="closeTaskDetail">
     <section class="card task-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="taskDetailTitle">
       <div class="project-dialog-head">
         <div>
@@ -2926,25 +2126,6 @@ function escapeHtml(value: any) {
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeTaskDetail" v-html="icon('x')" />
       </div>
       <div class="task-detail-body">
-        <section class="agent-run-panel task-agent-entry">
-          <div>
-            <strong>在 Agent 中继续</strong>
-            <p>{{ selectedTaskRun ? `已有一条${agentRunStatusText(selectedTaskRun.status)}的 Run。` : '启动、观察和控制这项任务的独立 Run。' }}</p>
-          </div>
-          <button class="btn btn-primary btn-sm" type="button" @click="openTaskInAgent(state.selectedTask)">打开任务运行</button>
-        </section>
-        <section v-if="state.selectedTask.sourceRefs?.length">
-          <strong>来源引用</strong>
-          <div class="task-detail-badges">
-            <button
-              v-for="sourceRef in state.selectedTask.sourceRefs"
-              :key="sourceRef"
-              class="btn btn-outline-secondary btn-sm"
-              type="button"
-              @click="openChatSource(sourceRef)"
-            >{{ chatSourceLabel(sourceRef) }}</button>
-          </div>
-        </section>
         <section>
           <strong>用户原话</strong>
           <div v-if="state.selectedTask.userOriginal" v-html="renderTextBlock(state.selectedTask.userOriginal)" />
@@ -2974,44 +2155,10 @@ function escapeHtml(value: any) {
     </section>
   </div>
 
-  <div v-if="state.agentOutput" class="modal-overlay agent-output-modal-overlay" @click.self="closeAgentOutput">
-    <section class="card agent-output-dialog" role="dialog" aria-modal="true" aria-labelledby="agentOutputDialogTitle">
-      <div class="project-dialog-head agent-output-dialog-head">
-        <div>
-          <h2 id="agentOutputDialogTitle">{{ state.agentOutput.label }}</h2>
-          <p v-if="state.agentOutput.artifact">
-            {{ state.agentOutput.artifact.characters?.toLocaleString() || 0 }} 字符 · {{ formatTime(state.agentOutput.artifact.createdAt) }}
-          </p>
-          <p v-else>Agent 运行的本地输出</p>
-        </div>
-        <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭输出" aria-label="关闭输出" @click="closeAgentOutput" v-html="icon('x')" />
-      </div>
-      <div v-if="state.agentOutput.loading" class="agent-output-state" role="status" aria-live="polite">
-        <span class="agent-output-spinner" aria-hidden="true" />
-        <strong>正在读取输出…</strong>
-        <small>内容保存在当前项目的本地检查点中</small>
-      </div>
-      <div v-else-if="state.agentOutput.error" class="agent-output-state is-error" role="alert">
-        <span class="agent-output-state-icon" v-html="icon('alertTriangle')" />
-        <strong>输出读取失败</strong>
-        <small>{{ state.agentOutput.error }}</small>
-        <button class="btn btn-outline-secondary btn-sm" type="button" @click="retryAgentOutput">重新读取</button>
-      </div>
-      <div v-else class="agent-output-body">
-        <pre v-if="state.agentOutput.content"><code>{{ state.agentOutput.content }}</code></pre>
-        <div v-else class="agent-output-state"><strong>该输出为空</strong><small>此次操作没有产生可显示的文本。</small></div>
-      </div>
-      <div class="agent-output-notice">
-        <span v-html="icon('shield')" />
-        <span>已隐藏常见 API Key、令牌、密码和带凭据的网址；分享前仍建议人工检查。</span>
-      </div>
-    </section>
-  </div>
-
   <div v-if="state.projectRoot && !state.initialized" class="modal-overlay">
     <section class="card init-dialog" role="dialog" aria-modal="true" aria-labelledby="initDialogTitle">
       <h2 id="initDialogTitle">初始化项目管理数据</h2>
-      <p>为当前项目创建本地管理数据和 Agent 协作入口。</p>
+      <p>为当前项目创建本地管理数据和记录目录。</p>
       <div class="init-dialog-actions">
         <button class="btn icon-button btn-primary" type="button" title="初始化" aria-label="初始化" :disabled="state.busy || !state.projectRoot || state.initialized" @click="initializeCurrentProject" v-html="icon('archive')" />
         <button class="btn icon-button btn-outline-secondary" type="button" title="重新选择项目" aria-label="重新选择项目" :disabled="state.busy" @click="openRecentProjects" v-html="icon('history')" />
@@ -3069,10 +2216,10 @@ function escapeHtml(value: any) {
   <div v-if="state.questionDialogOpen" class="modal-overlay" @click.self="closeQuestionDialog">
     <form class="card record-dialog" role="dialog" aria-modal="true" aria-labelledby="questionDialogTitle" @submit.prevent="saveQuestion">
       <div class="project-dialog-head">
-        <div><h2 id="questionDialogTitle">发起协作线程</h2><p>提交后会进入“待 Agent 跟进”。</p></div>
+        <div><h2 id="questionDialogTitle">发起协作记录</h2><p>提交后会进入“待跟进”。</p></div>
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeQuestionDialog" v-html="icon('x')" />
       </div>
-      <label><span>标题</span><input v-model="questionForm.title" type="text" placeholder="需要 Agent 跟进什么" /></label>
+      <label><span>标题</span><input v-model="questionForm.title" type="text" placeholder="需要继续跟进什么" /></label>
       <label><span>内容</span><textarea v-model="questionForm.question" rows="3" placeholder="写下问题、决定或需要落实的事项。"></textarea></label>
       <label><span>背景</span><textarea v-model="questionForm.background" rows="2" placeholder="补充必要的上下文。"></textarea></label>
       <label><span>建议</span><textarea v-model="questionForm.recommendation" rows="2" placeholder="可选：你倾向的处理方式。"></textarea></label>
@@ -3081,7 +2228,7 @@ function escapeHtml(value: any) {
         <label><span>范围</span><select v-model="questionForm.scope"><option value="version">当前版本</option><option value="project">整个项目</option></select></label>
       </div>
       <label class="checkbox-row"><input v-model="questionForm.blocking" type="checkbox" /><span>阻塞当前工作</span></label>
-      <div class="quick-task-actions"><span>{{ questionForm.status }}</span><button class="btn btn-primary" type="submit">提交给 Agent</button></div>
+      <div class="quick-task-actions"><span>{{ questionForm.status }}</span><button class="btn btn-primary" type="submit">提交记录</button></div>
     </form>
   </div>
 
