@@ -186,6 +186,7 @@ export type RecordSummary = {
   projectRoot: string
   dataRoot: string
   knowledgeRoot: string
+  recordSkillPath: string
   baselinePath: string
   currentVersionRoot: string
   currentDataPaths: {

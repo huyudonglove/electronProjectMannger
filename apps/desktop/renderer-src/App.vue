@@ -463,6 +463,21 @@ async function openKnowledgeRoot() {
   })
 }
 
+async function copyRecordSkill() {
+  const skillPath = String(dashboard.value?.recordSummary?.recordSkillPath || '').trim()
+  if (!state.initialized || !skillPath) return
+  const instruction = [
+    `请先完整读取本机项目记录 Skill：${skillPath}`,
+    '然后严格按照该 SKILL.md 中的规则，使用当前项目的 record-summary.json 读取和维护项目记录。',
+  ].join('\n')
+  try {
+    await navigator.clipboard.writeText(instruction)
+    showToast('项目记录 Skill 使用指令已复制')
+  } catch {
+    showToast('复制失败')
+  }
+}
+
 async function createTask(source: 'main' | 'quick') {
   const form = source === 'main' ? taskForm : quickTaskForm
   await runAction('正在新增任务...', async () => {
@@ -1637,10 +1652,12 @@ function escapeHtml(value: any) {
         }"
         :data-root="dashboard?.recordSummary?.dataRoot || ''"
         :knowledge-root="dashboard?.recordSummary?.knowledgeRoot || ''"
+        :record-skill-path="dashboard?.recordSummary?.recordSkillPath || ''"
         :busy="state.busy"
         :icon="icon"
         @open-data-root="openDataRoot"
         @open-knowledge-root="openKnowledgeRoot"
+        @copy-record-skill="copyRecordSkill"
       />
 
       <section v-if="state.section === 'capture'" id="capture" class="section view active-view">

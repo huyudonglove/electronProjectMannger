@@ -9,6 +9,7 @@ Electron Manager is a local-first desktop workspace for keeping durable project 
 - Separates records by project and version.
 - Provides task, idea, research, question, risk, constraint, document, knowledge, and work-log views.
 - Maintains a neutral `record-summary.json`, `index.json`, and human-readable project baseline.
+- Generates a project-specific `skills/project-records/SKILL.md` for external coding tools.
 - Keeps a shared global knowledge directory across managed projects.
 - Preserves stable short IDs and serializes record writes.
 
@@ -90,6 +91,9 @@ Electron Manager stores managed data under the application's data directory. On 
         数据层规范.md
         当前项目基线.md
         需求变更索引.md
+      skills/
+        project-records/
+          SKILL.md
       constraints/
         项目约束.md
       documents/
@@ -117,9 +121,16 @@ New projects are initialized directly with the current schema. Runtime reads do 
 - the project data root and shared knowledge root;
 - the current version;
 - exact paths for current task, idea, research, question, risk, and work-log records;
+- the generated project-record Skill path;
 - compact lists of active tasks, research, questions, risks, and recent logs.
 
 It contains no execution instructions, provider configuration, model history, task-tree context, delegation messages, run state, or approval state.
+
+## Project Record Skill
+
+Each initialized project gets a generated `skills/project-records/SKILL.md`. The overview can copy a short instruction containing its absolute path for a local external coding tool.
+
+The Skill explains how to locate `record-summary.json`, follow the current Markdown schemas, preserve historical records, and write neutral project records. It is an interoperability document only: Electron Manager still does not embed or run an Agent, model provider, tool runtime, approval flow, or delegated task tree. The source project receives no pointer file.
 
 ## Data Rules
 
@@ -144,6 +155,7 @@ Electron Manager 是一个本地优先的项目记录桌面工具。它用 Markd
 
 - 项目记录保存在 Electron Manager 数据目录，不写入源码项目。
 - `record-summary.json` 只提供记录位置和当前摘要，不包含执行指令。
+- 每个项目生成 `skills/project-records/SKILL.md`，可从总览复制本机外部代码工具的使用指令。
 - 当前版本的任务、想法、研究、问题、风险和工作记录保存在 `versions/Vxxx/`。
 - 项目文档使用 `Wxxx`，共享知识使用 `Kxxx`。
 - 聚合 Markdown 按短 ID 倒序维护，持久计数器确保删除后不复用编号。

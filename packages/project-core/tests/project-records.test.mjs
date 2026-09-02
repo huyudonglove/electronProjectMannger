@@ -20,6 +20,33 @@ test('project records initialize without Agent runtime artifacts', async (t) => 
   assert.equal(await exists(path.join(dashboard.config.dataRoot, 'agent-brief.json')), false)
   assert.equal(await exists(path.join(projectRoot, '.agent-collaboration.md')), false)
 
+  const skillPath = path.join(dashboard.config.dataRoot, 'skills/project-records/SKILL.md')
+  const persistedSummary = JSON.parse(await readFile(path.join(dashboard.config.dataRoot, 'record-summary.json'), 'utf8'))
+  const skill = await readFile(skillPath, 'utf8')
+  assert.equal(dashboard.recordSummary.recordSkillPath, skillPath)
+  assert.equal(persistedSummary.recordSkillPath, skillPath)
+  assert.match(skill, /^---\nname: project-records\ndescription: .+\n---\n/)
+  assert.match(skill, /record-summary\.json/)
+  assert.match(skill, /currentDataPaths/)
+  assert.match(skill, /type:: work-log/)
+  for (const prefix of ['T', 'I', 'D', 'Q', 'R', 'L', 'C', 'W', 'K', 'V']) {
+    assert.match(skill, new RegExp(`- ${prefix} records are`))
+  }
+  assert.match(skill, /Preserve completed-version and historical Markdown verbatim/)
+  assert.match(skill, /preserve unrelated records and user changes/)
+  assert.match(skill, /re-read the target Markdown and .+record-counters\.json/)
+  assert.match(skill, /set its T record to `doing`/)
+  assert.match(skill, /verification succeeds, set it to `done` and write one L work log/)
+  assert.match(skill, /task_short_id:: T000/)
+  assert.match(skill, /Do not write while Electron Manager or another agent is changing/)
+  assert.doesNotMatch(skill, /\b(?:Chat|model|Run|approval)\b|task[ -]tree|delegat/i)
+
+  await writeFile(skillPath, '# stale\n', 'utf8')
+  await updateProjectMetadata(managerRoot, projectRoot)
+  const refreshedSkill = await readFile(skillPath, 'utf8')
+  assert.match(refreshedSkill, /^---\nname: project-records\n/)
+  assert.notEqual(refreshedSkill, '# stale\n')
+
   const next = await appendTask(managerRoot, projectRoot, { title: 'Record task' })
   const task = next.tasks.find((item) => item.title === 'Record task')
   assert.ok(task)

@@ -18,6 +18,7 @@ const props = defineProps<{
   counts: Counts
   dataRoot: string
   knowledgeRoot: string
+  recordSkillPath: string
   busy: boolean
   icon: (name: string) => string
 }>()
@@ -25,6 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   openDataRoot: []
   openKnowledgeRoot: []
+  copyRecordSkill: []
 }>()
 </script>
 
@@ -72,6 +74,22 @@ const emit = defineEmits<{
           <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="打开知识库文件夹" aria-label="打开知识库文件夹" :disabled="props.busy || !props.initialized || !props.knowledgeRoot" @click="emit('openKnowledgeRoot')" v-html="props.icon('folderOpen')" />
         </div>
       </div>
+    </div>
+    <div class="card record-skill-card">
+      <div>
+        <strong>项目记录 Skill</strong>
+        <p>复制使用指令，供本机外部代码工具读取和维护项目记录。</p>
+      </div>
+      <button
+        class="btn icon-button btn-outline-primary btn-sm"
+        type="button"
+        title="复制项目记录 Skill 使用指令"
+        aria-label="复制项目记录 Skill 使用指令"
+        :disabled="props.busy || !props.initialized || !props.recordSkillPath"
+        @click="emit('copyRecordSkill')"
+        v-html="props.icon('copy')"
+      />
+      <code>{{ props.recordSkillPath || '初始化后显示' }}</code>
     </div>
   </section>
 </template>

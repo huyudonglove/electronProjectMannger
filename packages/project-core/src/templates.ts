@@ -1,9 +1,13 @@
+import path from 'node:path'
+
 import { localTime } from './utils.js'
 import {
   BASELINE_PATH,
   CONSTRAINTS_PATH,
+  DATA_SPEC_PATH,
   DOCUMENTS_DIR,
   GLOBAL_KNOWLEDGE_DIR,
+  RECORD_COUNTERS_PATH,
   RECORD_SUMMARY_PATH,
   VERSIONS_PATH,
 } from './paths.js'
@@ -250,5 +254,53 @@ export function changeIndexTemplate() {
   return `# 需求变更索引
 
 > 保存需求变化与相关记录编号；不保存执行状态或运行信息。
+`
+}
+
+export function recordSkillTemplate(dataRoot: string) {
+  return `---
+name: project-records
+description: Read and maintain Electron Manager project records when work requires reading or updating the project's durable task, idea, research, question, risk, constraint, document, knowledge, version, or work-log data.
+---
+
+# Electron Manager Project Records
+
+Use this skill only for the project's durable record layer.
+
+## Locate Records
+
+1. Read \`${path.join(dataRoot, RECORD_SUMMARY_PATH)}\`.
+2. Use \`currentDataPaths\` from that summary for current-version tasks, ideas, research, questions, risks, and work logs.
+3. Use \`${path.join(dataRoot, DATA_SPEC_PATH)}\` for the current Markdown schemas and ordering rules.
+4. Use \`dataRoot\` and \`knowledgeRoot\` from the summary to locate project-wide and shared records.
+
+## Write Records
+
+- T records are tasks in \`currentDataPaths.tasks\`.
+- I records are ideas in \`currentDataPaths.thoughts\`.
+- D records are research in \`currentDataPaths.research\`.
+- Q records are append-only questions and replies in \`currentDataPaths.questions\`.
+- R records are risks, verification gaps, and follow-ups in \`currentDataPaths.risks\`.
+- L records are monthly work logs under \`currentDataPaths.workLogs\`; new entries use \`type:: work-log\`.
+- C records are project constraints in \`${path.join(dataRoot, CONSTRAINTS_PATH)}\`.
+- W records are project documents under \`${path.join(dataRoot, DOCUMENTS_DIR)}\`.
+- K records are shared knowledge under \`knowledgeRoot\`.
+- V records are version metadata in \`${path.join(dataRoot, VERSIONS_PATH)}\`.
+
+Write new version-scoped records only to the active version. Keep aggregate Markdown records ordered by descending short ID, and never reuse a previously allocated ID.
+
+## Safe Direct Writes
+
+- Do not write while Electron Manager or another agent is changing the same project records.
+- Immediately before allocating an ID, re-read the target Markdown and \`${path.join(dataRoot, RECORD_COUNTERS_PATH)}\`. Choose the next unused ID above both the stored counter and every observed ID, then advance the matching counter when adding the record.
+- For tracked work, set its T record to \`doing\`; after the requested verification succeeds, set it to \`done\` and write one L work log for completed code, configuration, or documentation changes.
+- Use \`task_short_id:: T000\` only for immediate light work that does not need a task card.
+
+## Preserve Existing Data
+
+- Preserve completed-version and historical Markdown verbatim unless the user explicitly requests a migration.
+- Re-read a target before writing and preserve unrelated records and user changes.
+- Keep references non-owning: deleting one record does not delete referenced documents, knowledge, or other records.
+- Do not replace \`${RECORD_SUMMARY_PATH}\`, \`index.json\`, or the generated baseline with handwritten source data; refresh those derived files through Electron Manager.
 `
 }

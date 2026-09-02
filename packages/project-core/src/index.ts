@@ -71,6 +71,7 @@ import {
   VERSIONS_PATH,
   DOCUMENTS_DIR,
   GLOBAL_KNOWLEDGE_DIR,
+  RECORD_SKILL_PATH,
   RECORD_SUMMARY_PATH,
   RECORD_COUNTERS_PATH,
   VERSION_TASKS_FILE,
@@ -87,6 +88,7 @@ import {
   dataSpecTemplate,
   dialoguesTemplate,
   questionsTemplate,
+  recordSkillTemplate,
   risksTemplate,
   taskRecordsTemplate,
   tasksTemplate,
@@ -131,6 +133,7 @@ function requiredProjectFiles() {
     DATA_SPEC_PATH,
     CHANGE_INDEX_PATH,
     CONSTRAINTS_PATH,
+    RECORD_SKILL_PATH,
     VERSIONS_PATH,
   ]
 }
@@ -187,6 +190,7 @@ export async function initProject(managerDataRoot: string, projectRoot: string, 
   await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_QUESTIONS_FILE), questionsTemplate())
   await writeProjectFile(dataRoot, versionRecordPath('V001', VERSION_RISKS_FILE), risksTemplate())
   await writeProjectFile(dataRoot, versionLogPath('V001'), workLogTemplate())
+  await writeProjectFile(dataRoot, RECORD_SKILL_PATH, recordSkillTemplate(dataRoot))
   await ensureGlobalKnowledgeRoot(managerDataRoot)
   await upsertProjectIndex(managerDataRoot, config)
 
@@ -204,6 +208,7 @@ export async function updateProjectMetadata(managerDataRoot: string, projectRoot
   await migrateLegacyProjectMetadata(dataRoot)
   await removeLegacyAgentArtifacts(dataRoot, projectRoot)
   await writeProjectFile(dataRoot, DATA_SPEC_PATH, dataSpecTemplate())
+  await writeProjectFile(dataRoot, RECORD_SKILL_PATH, recordSkillTemplate(dataRoot))
   await refreshRecordSummary(managerDataRoot, projectRoot)
   await upsertProjectIndex(managerDataRoot, config, false)
   return getDashboard(managerDataRoot, projectRoot)
@@ -283,6 +288,7 @@ export async function getDashboard(managerDataRoot: string, projectRoot: string)
     projectRoot,
     dataRoot,
     knowledgeRoot: resolveGlobalKnowledgeRoot(managerDataRoot),
+    recordSkillPath: path.join(dataRoot, RECORD_SKILL_PATH),
     baselinePath: path.join(dataRoot, BASELINE_PATH),
     currentVersionRoot,
     currentDataPaths,
