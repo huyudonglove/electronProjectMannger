@@ -167,12 +167,14 @@ export type ProjectRiskSummary = Pick<
   'id' | 'shortId' | 'title' | 'kind' | 'status' | 'version' | 'updated' | 'relations'
 >
 
+export type ProjectVersionStatus = 'planned' | 'active' | 'paused' | 'completed'
+
 export type ProjectVersion = {
   id: string
   shortId: string
   label: string
   title: string
-  status: 'active' | 'completed'
+  status: ProjectVersionStatus
   created: string
   completed: string
   goal: string
@@ -244,6 +246,7 @@ export type ProjectMetadataSyncResult = {
 }
 
 export type NewTaskInput = {
+  versionId?: string
   title: string
   status?: string
   priority?: string
@@ -257,13 +260,20 @@ export type NewTaskInput = {
   planRollback?: string
 }
 
+export type NewThoughtInput = {
+  versionId?: string
+  content: string
+}
+
 export type NewDialogueInput = {
+  versionId?: string
   content: string
   acceptance?: string
   mode?: Exclude<ResearchMode, 'legacy'>
 }
 
 export type NewConstraintInput = {
+  versionId?: string
   title: string
   content: string
   status?: string
@@ -280,9 +290,11 @@ export type NewVersionInput = {
   title: string
   goal: string
   summary?: string
+  status?: ProjectVersionStatus
 }
 
 export type NewQuestionInput = {
+  versionId?: string
   title: string
   question: string
   background?: string

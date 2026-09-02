@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronManager', {
   getDashboard: (projectRoot) => ipcRenderer.invoke('project:get-dashboard', projectRoot),
   updateMetadata: (projectRoot) => ipcRenderer.invoke('project:update-metadata', projectRoot),
   createVersion: (projectRoot, payload) => ipcRenderer.invoke('project:create-version', projectRoot, payload),
+  updateVersionStatus: (projectRoot, versionId, status) =>
+    ipcRenderer.invoke('project:update-version-status', projectRoot, versionId, status),
   addQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:add-question', projectRoot, payload),
   updateQuestionStatus: (projectRoot, questionId, status) =>
     ipcRenderer.invoke('project:update-question-status', projectRoot, questionId, status),
@@ -20,7 +22,7 @@ contextBridge.exposeInMainWorld('electronManager', {
   updateTaskStatus: (projectRoot, taskId, status) =>
     ipcRenderer.invoke('project:update-task-status', projectRoot, taskId, status),
   deleteTask: (projectRoot, taskId) => ipcRenderer.invoke('project:delete-task', projectRoot, taskId),
-  addThought: (projectRoot, content) => ipcRenderer.invoke('project:add-thought', projectRoot, content),
+  addThought: (projectRoot, payload) => ipcRenderer.invoke('project:add-thought', projectRoot, payload),
   addDialogue: (projectRoot, payload) => ipcRenderer.invoke('project:add-dialogue', projectRoot, payload),
   deleteDialogue: (projectRoot, dialogueId) => ipcRenderer.invoke('project:delete-dialogue', projectRoot, dialogueId),
   addConstraint: (projectRoot, payload) => ipcRenderer.invoke('project:add-constraint', projectRoot, payload),

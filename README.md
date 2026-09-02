@@ -28,7 +28,7 @@ Telance Records records work; it does not execute tasks, call model providers, d
 | Documents | `Wxxx` | Project-local Markdown material. |
 | Knowledge | `Kxxx` | Stable reusable knowledge shared across projects. |
 | Work Logs | `Lxxx` | Results, changed files, verification, and key decisions. |
-| Versions | `Vxxx` | Historical boundaries for version-scoped records. |
+| Versions | `Vxxx` | Independently managed lifecycle and storage boundaries for version-scoped records. |
 
 References between records are non-owning. Deleting one record does not cascade into related records.
 
@@ -119,8 +119,8 @@ New projects are initialized directly with the current schema. Runtime reads do 
 `record-summary.json` is a data-only navigation summary. It exposes:
 
 - the project data root and shared knowledge root;
-- the current version;
-- exact paths for current task, idea, research, question, risk, and work-log records;
+- the compatibility default-version pointer;
+- exact paths for that default version's task, idea, research, question, risk, and work-log records;
 - the generated project-record Skill path;
 - compact lists of active tasks, research, questions, risks, and recent logs.
 
@@ -134,7 +134,12 @@ The Skill explains how to locate `record-summary.json`, follow the current Markd
 
 ## Data Rules
 
-- Version-scoped records live under `versions/Vxxx/`; completed versions are historical.
+- Version-scoped records live under `versions/Vxxx/` and always belong to an explicit version.
+- Version statuses are `planned`, `active`, `paused`, or `completed`; multiple unfinished versions may coexist.
+- Creating a version does not complete or otherwise change an existing version.
+- The version selected in the UI determines where new tasks, ideas, research, questions, risks, and work logs are written. Creating from an all-versions view requires an explicit target version.
+- Completed versions are historical and read-only by default.
+- `project.json.currentVersionId` is retained as a compatibility default-version pointer. It does not identify the newest version or the only active version.
 - Aggregate Markdown files keep records in descending short-ID order.
 - Documents and knowledge notes are independent Markdown files.
 - Persistent counters prevent a deleted short ID from being reused.
@@ -156,7 +161,10 @@ Telance Records 是一个本地优先的项目记录桌面工具。它用 Markdo
 - 项目记录保存在 Telance Records 数据目录，不写入源码项目；底层继续沿用原有 `electron-manager` 目录以兼容旧项目。
 - `record-summary.json` 只提供记录位置和当前摘要，不包含执行指令。
 - 每个项目生成 `skills/project-records/SKILL.md`，可从总览复制其路径。
-- 当前版本的任务、想法、研究、问题、风险和工作记录保存在 `versions/Vxxx/`。
+- 任务、想法、研究、问题、风险和工作记录必须归属明确的 `versions/Vxxx/`；界面当前所选版本决定新记录的写入位置。
+- 版本状态为 `planned | active | paused | completed`，允许多个未完成版本并存；新建版本不会自动完成或改变旧版本。
+- “全部版本”视图中新建版本级记录时必须明确选择目标版本；`completed` 版本默认只读。
+- `project.json.currentVersionId` 仅作为兼容默认版本指针，不表示最新版本、唯一活动版本或固定写入目标。
 - 项目文档使用 `Wxxx`，共享知识使用 `Kxxx`。
 - 聚合 Markdown 按短 ID 倒序维护，持久计数器确保删除后不复用编号。
 - 记录之间只建立引用关系，删除时不会级联。

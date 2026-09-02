@@ -2970,11 +2970,26 @@ code {
 
 .version-menu-current {
   border-radius: 4px;
-  background: var(--warning-soft);
-  color: var(--warning);
+  background: var(--hover);
+  color: var(--muted);
   padding: 2px 5px;
   font-size: 10px;
   font-weight: 700;
+}
+
+.version-menu-current.is-active {
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+.version-menu-current.is-paused {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.version-menu-current.is-completed {
+  background: var(--complete-soft);
+  color: var(--complete);
 }
 
 .version-menu-check {
@@ -3040,10 +3055,18 @@ code {
   padding: 14px 16px;
 }
 
-.version-card.is-current {
-  border-color: color-mix(in srgb, var(--warning) 38%, var(--border));
-  background: color-mix(in srgb, var(--surface) 94%, var(--warning-soft) 6%);
+.version-card.is-active {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  background: color-mix(in srgb, var(--surface) 94%, var(--primary-soft) 6%);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.version-card.is-paused {
   box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.version-card.is-completed {
+  box-shadow: inset 3px 0 0 var(--complete);
 }
 
 .version-card-head,
@@ -3059,26 +3082,19 @@ code {
   gap: 6px;
 }
 
-.version-state {
-  display: inline-flex;
+.version-status-control {
+  display: inline-grid;
+  grid-template-columns: auto minmax(104px, auto);
   align-items: center;
   gap: 6px;
   color: var(--muted);
   font-size: 12px;
-  overflow-wrap: anywhere;
 }
 
-.version-state.is-current {
-  color: var(--warning);
-  font-weight: 700;
-}
-
-.version-state.is-current::before {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  content: "";
+.version-status-control select {
+  min-height: 30px;
+  padding: 4px 26px 4px 8px;
+  font-size: 12px;
 }
 
 .version-metrics {

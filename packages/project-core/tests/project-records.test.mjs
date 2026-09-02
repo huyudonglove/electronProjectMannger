@@ -4,7 +4,18 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { appendTask, initProject, isInitialized, updateProjectMetadata } from '../dist/index.js'
+import {
+  appendConstraint,
+  appendDialogue,
+  appendProjectQuestion,
+  appendTask,
+  appendThought,
+  createProjectVersion,
+  initProject,
+  isInitialized,
+  updateProjectMetadata,
+  updateProjectVersionStatus,
+} from '../dist/index.js'
 
 test('project records initialize without Agent runtime artifacts', async (t) => {
   const managerRoot = await mkdtemp(path.join(os.tmpdir(), 'project-records-data-'))
@@ -28,6 +39,8 @@ test('project records initialize without Agent runtime artifacts', async (t) => 
   assert.match(skill, /^---\nname: project-records\ndescription: .+\n---\n/)
   assert.match(skill, /record-summary\.json/)
   assert.match(skill, /currentDataPaths/)
+  assert.match(skill, /choose and verify an explicit `versionId`/)
+  assert.match(skill, /do not infer it from the newest version/)
   assert.match(skill, /type:: work-log/)
   for (const prefix of ['T', 'I', 'D', 'Q', 'R', 'L', 'C', 'W', 'K', 'V']) {
     assert.match(skill, new RegExp(`- ${prefix} records are`))
@@ -53,6 +66,71 @@ test('project records initialize without Agent runtime artifacts', async (t) => 
   assert.equal('parentId' in task, false)
   assert.equal('contextId' in task, false)
   assert.equal('messages' in task, false)
+})
+
+test('versions have independent states and explicit record targets', async (t) => {
+  const managerRoot = await mkdtemp(path.join(os.tmpdir(), 'project-records-data-'))
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'project-records-project-'))
+  t.after(async () => {
+    await rm(managerRoot, { recursive: true, force: true })
+    await rm(projectRoot, { recursive: true, force: true })
+  })
+
+  const initial = await initProject(managerRoot, projectRoot, 'Versioned Records')
+  const created = await createProjectVersion(managerRoot, projectRoot, {
+    label: 'Next',
+    title: 'Next version',
+    goal: 'Keep versions independent',
+  })
+
+  assert.equal(created.config.currentVersionId, 'V002')
+  assert.equal(created.versions.find((item) => item.shortId === 'V001')?.status, 'active')
+  assert.equal(created.versions.find((item) => item.shortId === 'V002')?.status, 'planned')
+
+  await appendTask(managerRoot, projectRoot, { versionId: 'V001', title: 'Task in V001' })
+  await appendThought(managerRoot, projectRoot, { versionId: 'V001', content: 'Idea in V001' })
+  await appendDialogue(managerRoot, projectRoot, { versionId: 'V001', content: 'Research in V001' })
+  await appendConstraint(managerRoot, projectRoot, {
+    versionId: 'V001',
+    title: 'Constraint in V001',
+    content: 'Keep this version association.',
+  })
+  const records = await appendProjectQuestion(managerRoot, projectRoot, {
+    versionId: 'V001',
+    title: 'Question in V001',
+    question: 'Which version owns this?',
+  })
+
+  assert.equal(records.tasks.find((item) => item.title === 'Task in V001')?.version, 'V001')
+  assert.equal(records.thoughts.find((item) => item.content === 'Idea in V001')?.version, 'V001')
+  assert.equal(records.dialogues.find((item) => item.recordContent === 'Research in V001')?.version, 'V001')
+  assert.equal(records.constraints.find((item) => item.title === 'Constraint in V001')?.version, 'V001')
+  assert.equal(records.questions.find((item) => item.title === 'Question in V001')?.version, 'V001')
+
+  const v001Tasks = await readFile(path.join(initial.config.dataRoot, 'versions/V001/工程任务.md'), 'utf8')
+  const v002Tasks = await readFile(path.join(initial.config.dataRoot, 'versions/V002/工程任务.md'), 'utf8')
+  assert.match(v001Tasks, /Task in V001/)
+  assert.doesNotMatch(v002Tasks, /Task in V001/)
+
+  const paused = await updateProjectVersionStatus(managerRoot, projectRoot, 'V001', 'paused')
+  assert.equal(paused.versions.find((item) => item.shortId === 'V001')?.status, 'paused')
+  const completed = await updateProjectVersionStatus(managerRoot, projectRoot, 'V001', 'completed')
+  assert.equal(completed.versions.find((item) => item.shortId === 'V001')?.status, 'completed')
+  assert.notEqual(completed.versions.find((item) => item.shortId === 'V001')?.completed, '无')
+
+  await assert.rejects(
+    appendTask(managerRoot, projectRoot, { versionId: 'V001', title: 'Blocked task' }),
+    /已完成，默认禁止新增记录/,
+  )
+  await assert.rejects(
+    appendTask(managerRoot, projectRoot, { versionId: 'V999', title: 'Missing version' }),
+    /未找到版本：V999/,
+  )
+
+  const reopened = await updateProjectVersionStatus(managerRoot, projectRoot, 'V001', 'active')
+  const reopenedVersion = reopened.versions.find((item) => item.shortId === 'V001')
+  assert.equal(reopenedVersion?.status, 'active')
+  assert.equal(reopenedVersion?.completed, '无')
 })
 
 test('legacy change index migrates without losing content', async (t) => {

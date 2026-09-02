@@ -9,6 +9,12 @@ import {
   GLOBAL_KNOWLEDGE_DIR,
   RECORD_COUNTERS_PATH,
   RECORD_SUMMARY_PATH,
+  VERSION_DIALOGUES_FILE,
+  VERSION_LOGS_DIR,
+  VERSION_QUESTIONS_FILE,
+  VERSION_RISKS_FILE,
+  VERSION_TASKS_FILE,
+  VERSION_THOUGHTS_FILE,
   VERSIONS_PATH,
 } from './paths.js'
 
@@ -59,7 +65,9 @@ export function dataSpecTemplate() {
 
 - Markdown 是记录的主数据源；JSON 仅保存配置、索引和可再生成摘要。
 - 版本是记录的物理边界：任务、想法、研究、问题和风险保存在 \`versions/Vxxx/\`，工作记录保存在 \`versions/Vxxx/工作记录/YYYY-MM.md\`。
-- 已完成版本默认只读；新记录写入 \`${RECORD_SUMMARY_PATH}\` 的 \`currentDataPaths\` 所指向的当前版本文件。
+- 版本状态使用 \`planned | active | paused | completed\`；多个未完成版本可以并行存在，创建版本不会改变其他版本的状态。
+- 新建版本级记录前必须明确目标 \`versionId\`，并写入对应的 \`versions/Vxxx/\`；已完成版本默认只读。
+- \`${RECORD_SUMMARY_PATH}\` 的 \`currentVersion\` 和 \`currentDataPaths\` 仅是兼容旧调用的默认版本指针，不代表最新版本或唯一活动版本。
 - 项目文档保存在 \`${DOCUMENTS_DIR}/\`，项目约束保存在 \`${CONSTRAINTS_PATH}\`，全局知识保存在 \`${GLOBAL_KNOWLEDGE_DIR}/\`。
 - 聚合 Markdown 内的 Txxx、Ixxx、Dxxx、Qxxx、Rxxx、Lxxx、Cxxx、Vxxx 按编号倒序维护；Wxxx 和 Kxxx 使用独立文件。
 - 记录间的引用只表达来源或关联，不级联删除。
@@ -185,6 +193,7 @@ export function versionsTemplate(projectName: string) {
   return `# 版本索引
 
 > 每个版本使用 Vxxx，并按编号倒序维护。
+> 状态使用 planned、active、paused 或 completed；版本状态彼此独立。
 
 ## ${projectName} 初始版本
 
@@ -270,24 +279,24 @@ Use this skill only for the project's durable record layer.
 ## Locate Records
 
 1. Read \`${path.join(dataRoot, RECORD_SUMMARY_PATH)}\`.
-2. Use \`currentDataPaths\` from that summary for current-version tasks, ideas, research, questions, risks, and work logs.
+2. Read \`${path.join(dataRoot, VERSIONS_PATH)}\`, determine the explicit target \`versionId\`, and use its \`versions/Vxxx/\` directory for version-scoped records.
 3. Use \`${path.join(dataRoot, DATA_SPEC_PATH)}\` for the current Markdown schemas and ordering rules.
 4. Use \`dataRoot\` and \`knowledgeRoot\` from the summary to locate project-wide and shared records.
 
 ## Write Records
 
-- T records are tasks in \`currentDataPaths.tasks\`.
-- I records are ideas in \`currentDataPaths.thoughts\`.
-- D records are research in \`currentDataPaths.research\`.
-- Q records are append-only questions and replies in \`currentDataPaths.questions\`.
-- R records are risks, verification gaps, and follow-ups in \`currentDataPaths.risks\`.
-- L records are monthly work logs under \`currentDataPaths.workLogs\`; new entries use \`type:: work-log\`.
+- T records are tasks in \`versions/<versionId>/${VERSION_TASKS_FILE}\`.
+- I records are ideas in \`versions/<versionId>/${VERSION_THOUGHTS_FILE}\`.
+- D records are research in \`versions/<versionId>/${VERSION_DIALOGUES_FILE}\`.
+- Q records are append-only questions and replies in \`versions/<versionId>/${VERSION_QUESTIONS_FILE}\`.
+- R records are risks, verification gaps, and follow-ups in \`versions/<versionId>/${VERSION_RISKS_FILE}\`.
+- L records are monthly work logs under \`versions/<versionId>/${VERSION_LOGS_DIR}/\`; new entries use \`type:: work-log\`.
 - C records are project constraints in \`${path.join(dataRoot, CONSTRAINTS_PATH)}\`.
 - W records are project documents under \`${path.join(dataRoot, DOCUMENTS_DIR)}\`.
 - K records are shared knowledge under \`knowledgeRoot\`.
 - V records are version metadata in \`${path.join(dataRoot, VERSIONS_PATH)}\`.
 
-Write new version-scoped records only to the active version. Keep aggregate Markdown records ordered by descending short ID, and never reuse a previously allocated ID.
+Before writing a version-scoped record, choose and verify an explicit \`versionId\`; do not infer it from the newest version. \`currentVersionId\` and \`currentDataPaths\` are compatibility defaults only, not proof that a version is the newest or uniquely active. Versions may independently be \`planned\`, \`active\`, \`paused\`, or \`completed\`; completed versions are read-only by default. Keep aggregate Markdown records ordered by descending short ID, and never reuse a previously allocated ID.
 
 ## Safe Direct Writes
 

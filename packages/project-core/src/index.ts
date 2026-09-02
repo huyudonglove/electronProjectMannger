@@ -9,6 +9,7 @@ import type {
   NewDialogueInput,
   NewQuestionInput,
   NewTaskInput,
+  NewThoughtInput,
   NewVersionInput,
   OpenQuestionReplyInput,
   ProjectConfig,
@@ -26,6 +27,7 @@ import type {
   ProjectTask,
   ProjectThought,
   ProjectVersion,
+  ProjectVersionStatus,
   ProjectMetadataSyncResult,
   RecordSummary,
   ProjectWorkLevel,
@@ -39,6 +41,7 @@ export type {
   NewDialogueInput,
   NewQuestionInput,
   NewTaskInput,
+  NewThoughtInput,
   NewVersionInput,
   OpenQuestionReplyInput,
   ProjectConfig,
@@ -56,6 +59,7 @@ export type {
   ProjectTask,
   ProjectThought,
   ProjectVersion,
+  ProjectVersionStatus,
   ProjectMetadataSyncResult,
   RecordSummary,
   ProjectWorkLevel,
@@ -389,7 +393,8 @@ export async function appendTask(managerDataRoot: string, projectRoot: string, i
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
-  const taskPath = versionRecordPath(config.currentVersionId, VERSION_TASKS_FILE)
+  const versionId = await resolveWritableVersionId(dataRoot, input.versionId, config.currentVersionId)
+  const taskPath = versionRecordPath(versionId, VERSION_TASKS_FILE)
   await mutateProjectFile(dataRoot, taskPath, async (current) => {
     const tasks = parseProjectTasks(current)
     const now = localTime()
@@ -403,7 +408,7 @@ export async function appendTask(managerDataRoot: string, projectRoot: string, i
       depthReason,
       area: input.area || 'tool',
       updated: now,
-      version: config.currentVersionId,
+      version: versionId,
       userOriginal: input.userOriginal || title,
       detail: input.executionDefinition || '待补充。',
       acceptance: input.acceptance || '待补充。',
@@ -473,13 +478,22 @@ export async function deleteTask(managerDataRoot: string, projectRoot: string, t
   return getDashboard(managerDataRoot, projectRoot)
 }
 
-export async function appendThought(managerDataRoot: string, projectRoot: string, content: string) {
-  const normalized = String(content || '').trim()
+export async function appendThought(
+  managerDataRoot: string,
+  projectRoot: string,
+  input: string | NewThoughtInput,
+) {
+  const normalized = String(typeof input === 'string' ? input : input?.content || '').trim()
   if (!normalized) throw new Error('输入内容不能为空')
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
-  const thoughtPath = versionRecordPath(config.currentVersionId, VERSION_THOUGHTS_FILE)
+  const versionId = await resolveWritableVersionId(
+    dataRoot,
+    typeof input === 'string' ? undefined : input.versionId,
+    config.currentVersionId,
+  )
+  const thoughtPath = versionRecordPath(versionId, VERSION_THOUGHTS_FILE)
   await mutateProjectFile(dataRoot, thoughtPath, async (current) => {
     const thoughts = parseThoughts(current)
     const now = localTime()
@@ -487,7 +501,7 @@ export async function appendThought(managerDataRoot: string, projectRoot: string
       id: createId('thought', normalized.slice(0, 24)),
       shortId: await allocateShortId(dataRoot, 'I', thoughts.map((item) => item.shortId)),
       created: now,
-      version: config.currentVersionId,
+      version: versionId,
       content: normalized,
     })
     return { content: insertMarkdownEntry(current, entry), value: undefined }
@@ -505,7 +519,8 @@ export async function appendDialogue(managerDataRoot: string, projectRoot: strin
   const acceptance = String(input.acceptance || '').trim() || researchModeReference(mode)
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
-  const dialoguePath = versionRecordPath(config.currentVersionId, VERSION_DIALOGUES_FILE)
+  const versionId = await resolveWritableVersionId(dataRoot, input.versionId, config.currentVersionId)
+  const dialoguePath = versionRecordPath(versionId, VERSION_DIALOGUES_FILE)
   const dialogues = parseDialogues(await readVersionRecordFamily(dataRoot, VERSION_DIALOGUES_FILE))
   const now = localTime()
   const shortId = await allocateShortId(dataRoot, 'D', dialogues.map((item) => item.shortId))
@@ -513,7 +528,7 @@ export async function appendDialogue(managerDataRoot: string, projectRoot: strin
     id: createId('dialogue', normalized.slice(0, 24)),
     shortId,
     created: now,
-    version: config.currentVersionId,
+    version: versionId,
     mode,
     content: normalized,
     acceptance,
@@ -535,6 +550,7 @@ export async function appendConstraint(managerDataRoot: string, projectRoot: str
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
+  const versionId = await resolveWritableVersionId(dataRoot, input.versionId, config.currentVersionId)
   await mutateProjectFile(dataRoot, CONSTRAINTS_PATH, async (current) => {
     const source = current || constraintsTemplate()
     const constraints = parseUserConstraints(source)
@@ -546,7 +562,7 @@ export async function appendConstraint(managerDataRoot: string, projectRoot: str
       status: normalizeConstraintStatus(input.status || 'active'),
       scope: String(input.scope || '').trim() || 'project',
       created: now,
-      version: config.currentVersionId,
+      version: versionId,
       content,
     })
     return { content: insertMarkdownEntry(source, entry), value: undefined }
@@ -679,13 +695,6 @@ export async function createProjectVersion(managerDataRoot: string, projectRoot:
     const versions = parseProjectVersions(current)
     const nextVersionId = await allocateShortId(dataRoot, 'V', versions.map((version) => version.shortId))
     const now = localTime()
-    const closed = updateMarkdownBlocks(current, (block) => {
-      const fields = parseFields(block)
-      if (fields.status !== 'active') return block
-      return block
-        .replace(/^status::\s*.+$/m, 'status:: completed')
-        .replace(/^completed::\s*.+$/m, `completed:: ${now}`)
-    })
     const entry = versionRecordTemplate({
       title,
       id: createId('version', `${label}-${title}`),
@@ -693,12 +702,41 @@ export async function createProjectVersion(managerDataRoot: string, projectRoot:
       label,
       created: now,
       goal,
-      summary: String(input.summary || '').trim() || '当前版本进行中。',
+      summary: String(input.summary || '').trim() || '版本内容待维护。',
+      status: normalizeProjectVersionStatus(input.status, 'planned'),
     })
-    return { content: insertMarkdownEntry(closed, entry), value: nextVersionId }
+    return { content: insertMarkdownEntry(current, entry), value: nextVersionId }
   })
   await ensureVersionRecordFiles(dataRoot, shortId)
   await writeProjectFile(dataRoot, 'project.json', `${JSON.stringify({ ...config, currentVersionId: shortId }, null, 2)}\n`)
+  await refreshRecordSummary(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function updateProjectVersionStatus(
+  managerDataRoot: string,
+  projectRoot: string,
+  versionId: string,
+  status: ProjectVersionStatus,
+) {
+  const normalizedVersionId = normalizeVersionId(versionId)
+  if (!normalizedVersionId) throw new Error('版本 ID 不合法')
+  const nextStatus = normalizeProjectVersionStatus(status)
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  await mutateProjectFile(dataRoot, VERSIONS_PATH, (current) => {
+    let updated = false
+    const next = updateMarkdownBlocks(current, (block) => {
+      const fields = parseFields(block)
+      if (normalizeVersionId(fields.short_id) !== normalizedVersionId) return block
+      updated = true
+      const completed = nextStatus === 'completed' ? localTime() : '无'
+      return block
+        .replace(/^status::\s*.+$/m, `status:: ${nextStatus}`)
+        .replace(/^completed::\s*.+$/m, `completed:: ${completed}`)
+    })
+    if (!updated) throw new Error(`未找到版本：${normalizedVersionId}`)
+    return { content: next, value: undefined }
+  })
   await refreshRecordSummary(managerDataRoot, projectRoot)
   return getDashboard(managerDataRoot, projectRoot)
 }
@@ -711,7 +749,8 @@ export async function appendProjectQuestion(managerDataRoot: string, projectRoot
 
   const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
   const config = await readProjectConfig(managerDataRoot, projectRoot)
-  const questionPath = versionRecordPath(config.currentVersionId, VERSION_QUESTIONS_FILE)
+  const versionId = await resolveWritableVersionId(dataRoot, input.versionId, config.currentVersionId)
+  const questionPath = versionRecordPath(versionId, VERSION_QUESTIONS_FILE)
   await mutateProjectFile(dataRoot, questionPath, async (current) => {
     const questions = parseProjectQuestions(current)
     const now = localTime()
@@ -726,7 +765,7 @@ export async function appendProjectQuestion(managerDataRoot: string, projectRoot
       status,
       kind: normalizeQuestionKind(input.kind),
       scope: input.scope === 'project' ? 'project' : 'version',
-      version: config.currentVersionId,
+      version: versionId,
       blocking: input.blocking ? 'yes' : 'no',
       created: now,
       relations: (input.relations || []).join(', ') || '无',
@@ -931,6 +970,21 @@ function versionRecordPath(versionId: string, fileName: string) {
   const normalized = normalizeVersionId(versionId)
   if (!normalized) throw new Error(`版本 ID 不合法：${versionId}`)
   return path.join('versions', normalized, fileName)
+}
+
+async function resolveWritableVersionId(
+  dataRoot: string,
+  requestedVersionId: string | undefined,
+  defaultVersionId: string,
+) {
+  const candidate = requestedVersionId === undefined ? defaultVersionId : requestedVersionId
+  const versionId = normalizeVersionId(candidate)
+  if (!versionId) throw new Error(`版本 ID 不合法：${candidate || '空'}`)
+  const versions = parseProjectVersions(await readProjectFile(dataRoot, VERSIONS_PATH))
+  const version = versions.find((item) => item.shortId === versionId)
+  if (!version) throw new Error(`未找到版本：${versionId}`)
+  if (version.status === 'completed') throw new Error(`版本 ${versionId} 已完成，默认禁止新增记录`)
+  return versionId
 }
 
 function versionLogPath(versionId: string, created = localTime()) {
@@ -1138,6 +1192,17 @@ function parseDisplayTimeKey(value: string) {
 
 function normalizeStatus(value: string) {
   return ['backlog', 'todo', 'doing', 'done', 'abandoned'].includes(value) ? value : 'todo'
+}
+
+function normalizeProjectVersionStatus(
+  value: string | undefined,
+  fallback?: ProjectVersionStatus,
+): ProjectVersionStatus {
+  if (['planned', 'active', 'paused', 'completed'].includes(String(value))) {
+    return value as ProjectVersionStatus
+  }
+  if (fallback) return fallback
+  throw new Error(`版本状态不合法：${value || '空'}`)
 }
 
 function normalizeConstraintStatus(value: string) {

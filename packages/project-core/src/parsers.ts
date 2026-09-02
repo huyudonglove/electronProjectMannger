@@ -175,7 +175,7 @@ export function parseProjectVersions(content: string): ProjectVersion[] {
         shortId,
         label: fields.label || shortId,
         title: block.match(/^##\s+(.+)$/m)?.[1]?.trim() || fields.label || shortId || '未命名版本',
-        status: fields.status === 'completed' ? 'completed' as const : 'active' as const,
+        status: normalizeProjectVersionStatus(fields.status),
         created: fields.created || '',
         completed: fields.completed || '',
         goal: readSection(block, ['版本目标']),
@@ -185,6 +185,12 @@ export function parseProjectVersions(content: string): ProjectVersion[] {
       }
     })
     .sort((a, b) => compareShortIdDesc(a.shortId, b.shortId, 'V'))
+}
+
+function normalizeProjectVersionStatus(value: string | undefined): ProjectVersion['status'] {
+  return ['planned', 'active', 'paused', 'completed'].includes(String(value))
+    ? value as ProjectVersion['status']
+    : 'active'
 }
 
 export function parseProjectQuestions(content: string): ProjectOpenQuestion[] {

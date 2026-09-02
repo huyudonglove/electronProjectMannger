@@ -144,13 +144,14 @@ export function versionRecordTemplate(input: {
   created: string
   goal: string
   summary: string
+  status: string
 }) {
   return `## ${input.title}
 
 id:: ${input.id}
 short_id:: ${input.shortId}
 label:: ${input.label}
-status:: active
+status:: ${input.status}
 created:: ${input.created}
 completed:: 无
 

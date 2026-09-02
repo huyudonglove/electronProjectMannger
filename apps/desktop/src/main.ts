@@ -26,6 +26,7 @@ import {
   updateQuestionStatus,
   updateRiskStatus,
   updateProjectMetadata,
+  updateProjectVersionStatus,
   updateAllProjectMetadata,
   updateTaskStatus,
 } from '@telance-records/project-core'
@@ -145,6 +146,15 @@ function registerIpc() {
     return createProjectVersion(managerDataRoot, projectRoot, payload)
   })
 
+  ipcMain.handle('project:update-version-status', async (
+    _event,
+    projectRoot: string,
+    versionId: string,
+    status: string,
+  ) => {
+    return updateProjectVersionStatus(managerDataRoot, projectRoot, versionId, status as 'planned' | 'active' | 'paused' | 'completed')
+  })
+
   ipcMain.handle('project:add-question', async (_event, projectRoot: string, payload) => {
     return appendProjectQuestion(managerDataRoot, projectRoot, payload)
   })
@@ -175,8 +185,8 @@ function registerIpc() {
     return deleteTask(managerDataRoot, projectRoot, taskId)
   })
 
-  ipcMain.handle('project:add-thought', async (_event, projectRoot: string, content: string) => {
-    return appendThought(managerDataRoot, projectRoot, content)
+  ipcMain.handle('project:add-thought', async (_event, projectRoot: string, payload) => {
+    return appendThought(managerDataRoot, projectRoot, payload)
   })
 
   ipcMain.handle('project:add-dialogue', async (_event, projectRoot: string, payload) => {

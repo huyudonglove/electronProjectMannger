@@ -19,6 +19,10 @@ const emit = defineEmits<{
   openProjects: []
   refresh: []
 }>()
+
+function versionStatusText(status: string) {
+  return ({ planned: '规划中', active: '进行中', paused: '已暂停', completed: '已完成' } as Record<string, string>)[status] || status
+}
 </script>
 
 <template>
@@ -54,7 +58,7 @@ const emit = defineEmits<{
             @click="emit('selectVersion', version.shortId)"
           >
             <span class="version-menu-copy"><strong>{{ version.shortId }} · {{ version.label }}</strong><small>{{ version.title }}</small></span>
-            <span v-if="version.status === 'active'" class="version-menu-current">当前</span>
+            <span class="version-menu-current" :class="`is-${version.status || 'planned'}`">{{ versionStatusText(version.status || 'planned') }}</span>
             <span v-if="props.selectedVersionId === version.shortId" class="version-menu-check" v-html="props.icon('check')" />
           </button>
           <button
@@ -65,7 +69,7 @@ const emit = defineEmits<{
             :aria-selected="props.selectedVersionId === 'all'"
             @click="emit('selectVersion', 'all')"
           >
-            <span class="version-menu-copy"><strong>全部版本</strong><small>查看当前与历史记录</small></span>
+            <span class="version-menu-copy"><strong>全部版本</strong><small>仅查看，不作为新记录目标</small></span>
             <span v-if="props.selectedVersionId === 'all'" class="version-menu-check" v-html="props.icon('check')" />
           </button>
         </div>

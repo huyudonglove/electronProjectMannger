@@ -20,13 +20,14 @@ declare global {
       initProject: (projectRoot: string) => Promise<any>
       getDashboard: (projectRoot: string) => Promise<any>
       createVersion: (projectRoot: string, payload: AnyRecord) => Promise<any>
+      updateVersionStatus: (projectRoot: string, versionId: string, status: string) => Promise<any>
       addQuestion: (projectRoot: string, payload: AnyRecord) => Promise<any>
       updateQuestionStatus: (projectRoot: string, questionId: string, status: string) => Promise<any>
       updateRiskStatus: (projectRoot: string, riskId: string, status: string) => Promise<any>
       addTask: (projectRoot: string, payload: AnyRecord) => Promise<any>
       updateTaskStatus: (projectRoot: string, taskId: string, status: string) => Promise<any>
       deleteTask: (projectRoot: string, taskId: string) => Promise<any>
-      addThought: (projectRoot: string, content: string) => Promise<any>
+      addThought: (projectRoot: string, payload: AnyRecord) => Promise<any>
       deleteThought: (projectRoot: string, thoughtId: string) => Promise<any>
       addDialogue: (projectRoot: string, payload: AnyRecord) => Promise<any>
       deleteDialogue: (projectRoot: string, dialogueId: string) => Promise<any>
@@ -175,7 +176,7 @@ const quickDialogueForm = reactive({
 })
 const quickConstraintForm = reactive({ title: '', content: '', status: '' })
 const replyForm = reactive({ answer: '', status: '' })
-const versionForm = reactive({ label: '', title: '', goal: '', summary: '', status: '' })
+const versionForm = reactive({ label: '', title: '', goal: '', summary: '', versionStatus: 'planned', feedback: '' })
 const questionForm = reactive({
   title: '',
   question: '',
@@ -201,10 +202,16 @@ const selectedVersion = computed(() => {
       shortId: '全部版本',
       label: '全部',
       title: '版本历史总览',
-      goal: '包含当前版本和已归档版本的协作记录。',
+      goal: '包含所有版本的协作记录。',
     }
   }
   return versions.value.find((version: AnyRecord) => version.shortId === state.selectedVersionId) || currentVersion.value
+})
+const creationVersionId = computed(() => state.selectedVersionId === 'all' ? '' : state.selectedVersionId)
+const creationDisabledReason = computed(() => {
+  if (!creationVersionId.value) return '请先从顶部选择一个具体版本'
+  if (selectedVersion.value?.status === 'completed') return '已完成版本不接收新记录，请先调整版本状态'
+  return ''
 })
 const allTasks = computed(() => dashboard.value?.tasks || [])
 const allThoughts = computed(() => dashboard.value?.thoughts || [])
@@ -297,6 +304,11 @@ function setActiveSection(section: string) {
 function selectVersion(versionId: string) {
   state.selectedVersionId = versionId
   state.versionMenuOpen = false
+  const targetVersion = versions.value.find((version: AnyRecord) => version.shortId === versionId)
+  if (versionId === 'all' || targetVersion?.status === 'completed') {
+    closeQuickTask()
+    closeQuestionDialog()
+  }
 }
 
 function closeVersionMenu(event: FocusEvent) {
@@ -354,6 +366,14 @@ function recordMatchesSelectedVersion(item: AnyRecord) {
 function questionMatchesSelectedVersion(item: AnyRecord) {
   if (state.selectedVersionId === 'all') return true
   return item?.scope === 'project' || String(item?.version || '') === state.selectedVersionId
+}
+
+function requireCreationVersion(form?: { status: string }) {
+  if (!creationDisabledReason.value) return creationVersionId.value
+  if (form) form.status = creationDisabledReason.value
+  state.status = creationDisabledReason.value
+  showToast(creationDisabledReason.value)
+  return ''
 }
 
 async function restoreLastProject() {
@@ -480,6 +500,8 @@ async function createTask(source: 'main' | 'quick') {
   await runAction('正在新增任务...', async () => {
     const api = ensureReady()
     if (!api) return
+    const versionId = requireCreationVersion(form)
+    if (!versionId) return
     const normalizedTitle = form.title.trim()
     if (!normalizedTitle) {
       form.status = '先写任务标题'
@@ -502,6 +524,7 @@ async function createTask(source: 'main' | 'quick') {
       acceptance: form.acceptance.trim() || '待补充。',
       constraints: form.workLevel === 'deep' ? form.constraints.trim() : undefined,
       planRollback: form.workLevel === 'deep' ? form.planRollback.trim() : undefined,
+      versionId,
     }))
     form.title = ''
     form.detail = ''
@@ -523,13 +546,15 @@ async function saveThought(source: 'main' | 'quick') {
   await runAction('正在保存输入...', async () => {
     const api = ensureReady()
     if (!api) return
+    const versionId = requireCreationVersion(form)
+    if (!versionId) return
     const content = form.content.trim()
     if (!content) {
       form.status = '先写一点内容'
       return
     }
     form.status = '保存中...'
-    updateDashboard(await api.addThought(state.projectRoot, content))
+    updateDashboard(await api.addThought(state.projectRoot, { content, versionId }))
     form.content = ''
     form.status = ''
     if (source === 'quick') closeQuickTask()
@@ -542,6 +567,8 @@ async function saveDialogue() {
   await runAction('正在记录研究...', async () => {
     const api = ensureReady()
     if (!api) return
+    const versionId = requireCreationVersion(quickDialogueForm)
+    if (!versionId) return
     const content = quickDialogueForm.content.trim()
     if (!content) {
       quickDialogueForm.status = '先写一点内容'
@@ -552,6 +579,7 @@ async function saveDialogue() {
       content,
       acceptance: quickDialogueForm.acceptance,
       mode: quickDialogueForm.mode,
+      versionId,
     }))
     quickDialogueForm.content = ''
     quickDialogueForm.acceptance = ''
@@ -567,6 +595,8 @@ async function saveConstraint() {
   await runAction('正在保存约束...', async () => {
     const api = ensureReady()
     if (!api) return
+    const versionId = requireCreationVersion(quickConstraintForm)
+    if (!versionId) return
     const title = quickConstraintForm.title.trim()
     const content = quickConstraintForm.content.trim()
     if (!title) {
@@ -583,6 +613,7 @@ async function saveConstraint() {
       content,
       scope: 'project',
       status: 'active',
+      versionId,
     }))
     quickConstraintForm.title = ''
     quickConstraintForm.content = ''
@@ -778,7 +809,8 @@ function openVersionDialog() {
   versionForm.title = ''
   versionForm.goal = ''
   versionForm.summary = ''
-  versionForm.status = ''
+  versionForm.versionStatus = 'planned'
+  versionForm.feedback = ''
   state.versionDialogOpen = true
 }
 
@@ -791,22 +823,39 @@ async function saveVersion() {
     const api = ensureReady()
     if (!api) return
     if (!versionForm.label.trim() || !versionForm.title.trim() || !versionForm.goal.trim()) {
-      versionForm.status = '请填写版本名称、标题和目标'
+      versionForm.feedback = '请填写版本名称、标题和目标'
       return
     }
-    versionForm.status = '保存中...'
+    versionForm.feedback = '保存中...'
     updateDashboard(await api.createVersion(state.projectRoot, {
       label: versionForm.label,
       title: versionForm.title,
       goal: versionForm.goal,
       summary: versionForm.summary,
+      status: versionForm.versionStatus,
     }))
     closeVersionDialog()
     showToast('版本已创建')
   })
 }
 
+async function changeVersionStatus(version: AnyRecord, status: string) {
+  if (!version?.shortId || version.status === status) return
+  await runAction('正在更新版本状态...', async () => {
+    const api = ensureReady()
+    if (!api) return
+    updateDashboard(await api.updateVersionStatus(state.projectRoot, version.shortId, status))
+    if (version.shortId === state.selectedVersionId && status === 'completed') {
+      closeQuickTask()
+      closeQuestionDialog()
+    }
+    showToast(`版本已设为${versionStatusText(status)}`)
+    state.status = ''
+  })
+}
+
 function openQuestionDialog() {
+  if (!requireCreationVersion()) return
   questionForm.title = ''
   questionForm.question = ''
   questionForm.background = ''
@@ -826,6 +875,8 @@ async function saveQuestion() {
   await runAction('正在保存问题...', async () => {
     const api = ensureReady()
     if (!api) return
+    const versionId = requireCreationVersion(questionForm)
+    if (!versionId) return
     if (!questionForm.title.trim() || !questionForm.question.trim()) {
       questionForm.status = '请填写标题和问题'
       return
@@ -840,6 +891,7 @@ async function saveQuestion() {
       scope: questionForm.scope,
       blocking: questionForm.blocking,
       origin: 'user',
+      versionId,
     }))
     state.collabTab = 'decided'
     closeQuestionDialog()
@@ -912,6 +964,10 @@ function questionKindText(kind: string) {
   return ({ decision: '决策', clarification: '澄清', blocker: '阻塞' } as Record<string, string>)[kind] || kind
 }
 
+function versionStatusText(status: string) {
+  return ({ planned: '规划中', active: '进行中', paused: '已暂停', completed: '已完成' } as Record<string, string>)[status] || status
+}
+
 function riskKindText(kind: string) {
   return ({ risk: '风险', verification: '验证限制', 'follow-up': '后续事项' } as Record<string, string>)[kind] || kind
 }
@@ -927,6 +983,7 @@ function applyTheme(theme: string) {
 }
 
 function openQuickMenu() {
+  if (!state.quickOpen && !requireCreationVersion()) return
   state.quickOpen = !state.quickOpen
   if (!state.quickOpen) state.quickCreateMode = ''
 }
@@ -1091,7 +1148,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   const prompt = [
     `请${isActive ? '处理' : '继续'}当前项目研究 ${dialogue.shortId}。`,
     isActive
-      ? `先从 record-summary.json 的 activeResearch 和当前版本研究.md 读取该记录，按 mode:: ${dialogue.mode || 'legacy'} 与验收标准执行。`
+      ? `先从 versions/${dialogue.version || '对应版本'}/研究.md 读取该记录，按 mode:: ${dialogue.mode || 'legacy'} 与验收标准执行。`
       : `该记录已完成或归档，不在 activeResearch；请从对应版本研究.md 读取记录、已有回答和关联文档，再按 mode:: ${dialogue.mode || 'legacy'} 与验收标准继续。`,
     `${isActive ? '开始' : '继续'}前将 status 改为 doing；短结果直接写回 D 记录，长结果完成后再创建并关联 W 文档；完成后改为 done，并只为本次实际研究写一条 L 工作记录。`,
   ].join('\n')
@@ -1786,13 +1843,21 @@ function escapeHtml(value: any) {
           </button>
         </div>
         <div class="version-list">
-          <article v-for="version in versions" :key="version.shortId" class="card version-card" :class="{ 'is-current': version.status === 'active' }">
+          <article v-for="version in versions" :key="version.shortId" class="card version-card" :class="`is-${version.status || 'planned'}`">
             <div class="version-card-head">
               <div>
                 <span class="task-short-id">{{ version.shortId }}</span>
                 <UiTag :label="version.label" :icon-svg="icon('tag')" />
               </div>
-              <span class="version-state" :class="{ 'is-current': version.status === 'active' }">{{ version.status === 'active' ? '当前版本' : `完成于 ${formatTime(version.completed)}` }}</span>
+              <label class="version-status-control">
+                <span>状态</span>
+                <select :value="version.status || 'planned'" :disabled="state.busy" :aria-label="`${version.label} 状态`" @change="changeVersionStatus(version, ($event.target as HTMLSelectElement).value)">
+                  <option value="planned">规划中</option>
+                  <option value="active">进行中</option>
+                  <option value="paused">已暂停</option>
+                  <option value="completed">已完成</option>
+                </select>
+              </label>
             </div>
             <h3>{{ version.title }}</h3>
             <p>{{ version.goal }}</p>
@@ -1809,8 +1874,8 @@ function escapeHtml(value: any) {
 
       <section v-if="state.section === 'collaboration'" id="collaboration" class="section view active-view">
         <div class="section-head">
-          <div><h2>协作</h2><span>{{ selectedVersion?.shortId || '当前版本' }} · 需要继续处理的记录</span></div>
-          <button class="btn btn-primary btn-sm" type="button" @click="openQuestionDialog">
+          <div><h2>协作</h2><span>{{ selectedVersion?.shortId || '所选版本' }} · 需要继续处理的记录</span></div>
+          <button class="btn btn-primary btn-sm" type="button" :disabled="Boolean(creationDisabledReason)" :title="creationDisabledReason || '新建问题'" @click="openQuestionDialog">
             <span class="button-icon" v-html="icon('plus')" />新问题
           </button>
         </div>
@@ -1875,7 +1940,7 @@ function escapeHtml(value: any) {
         </div>
 
         <div v-else-if="state.collabTab === 'risks'" class="collab-record-list">
-          <p v-if="!activeRisks.length" class="empty-panel">当前版本没有未处理的风险或后续事项。</p>
+          <p v-if="!activeRisks.length" class="empty-panel">所选范围没有未处理的风险或后续事项。</p>
           <article v-for="item in activeRisks" :key="item.id" class="card collab-record risk-record">
             <div class="collab-record-head">
               <div><span class="task-short-id">{{ item.shortId }}</span><UiTag :label="riskKindText(item.kind)" tone="warning" :icon-svg="icon('alertTriangle')" /></div>
@@ -2072,7 +2137,7 @@ function escapeHtml(value: any) {
   </main>
 
   <div class="quick-task" :class="{ 'is-open': state.quickOpen }" :data-mode="state.quickCreateMode">
-    <button class="btn btn-primary icon-button quick-task-button" type="button" title="新建" aria-label="新建" :aria-expanded="state.quickOpen" @click="openQuickMenu" v-html="icon('plus')" />
+    <button class="btn btn-primary icon-button quick-task-button" type="button" :title="creationDisabledReason || '新建'" :aria-label="creationDisabledReason || '新建'" :disabled="Boolean(creationDisabledReason)" :aria-expanded="state.quickOpen" @click="openQuickMenu" v-html="icon('plus')" />
     <div v-if="state.quickOpen && !state.quickCreateMode" class="card quick-create-menu" aria-label="新建类型">
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="selectQuickCreate('task')"><span class="quick-create-icon" v-html="icon('listChecks')" /><span>任务</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="selectQuickCreate('thought')"><span class="quick-create-icon" v-html="icon('messageCircle')" /><span>想法</span></button>
@@ -2214,16 +2279,17 @@ function escapeHtml(value: any) {
   <div v-if="state.versionDialogOpen" class="modal-overlay" @click.self="closeVersionDialog">
     <form class="card record-dialog" role="dialog" aria-modal="true" aria-labelledby="versionDialogTitle" @submit.prevent="saveVersion">
       <div class="project-dialog-head">
-        <div><h2 id="versionDialogTitle">创建新版本</h2><p>当前版本会进入历史，新记录自动归入新版本。</p></div>
+        <div><h2 id="versionDialogTitle">创建新版本</h2><p>版本独立管理；创建后可从顶部选择它来记录内容。</p></div>
         <button class="btn icon-button btn-outline-secondary btn-sm" type="button" title="关闭" aria-label="关闭" @click="closeVersionDialog" v-html="icon('x')" />
       </div>
       <div class="record-dialog-grid">
         <label><span>版本名称</span><input v-model="versionForm.label" type="text" placeholder="v0.2" /></label>
         <label><span>版本标题</span><input v-model="versionForm.title" type="text" placeholder="真实数据联调" /></label>
       </div>
+      <label><span>初始状态</span><select v-model="versionForm.versionStatus"><option value="planned">规划中</option><option value="active">进行中</option><option value="paused">已暂停</option><option value="completed">已完成</option></select></label>
       <label><span>版本目标</span><textarea v-model="versionForm.goal" rows="3" placeholder="这一阶段完成后，项目应达到什么状态。"></textarea></label>
       <label><span>内容描述</span><textarea v-model="versionForm.summary" rows="3" placeholder="大致包含哪些工作。"></textarea></label>
-      <div class="quick-task-actions"><span>{{ versionForm.status }}</span><button class="btn btn-primary" type="submit">创建版本</button></div>
+      <div class="quick-task-actions"><span>{{ versionForm.feedback }}</span><button class="btn btn-primary" type="submit">创建版本</button></div>
     </form>
   </div>
 
@@ -2239,7 +2305,7 @@ function escapeHtml(value: any) {
       <label><span>建议</span><textarea v-model="questionForm.recommendation" rows="2" placeholder="可选：你倾向的处理方式。"></textarea></label>
       <div class="record-dialog-grid">
         <label><span>类型</span><select v-model="questionForm.kind"><option value="decision">决策</option><option value="clarification">澄清</option><option value="blocker">阻塞</option></select></label>
-        <label><span>范围</span><select v-model="questionForm.scope"><option value="version">当前版本</option><option value="project">整个项目</option></select></label>
+        <label><span>范围</span><select v-model="questionForm.scope"><option value="version">所选版本</option><option value="project">整个项目</option></select></label>
       </div>
       <label class="checkbox-row"><input v-model="questionForm.blocking" type="checkbox" /><span>阻塞当前工作</span></label>
       <div class="quick-task-actions"><span>{{ questionForm.status }}</span><button class="btn btn-primary" type="submit">提交记录</button></div>
