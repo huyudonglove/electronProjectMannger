@@ -3,6 +3,10 @@
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
+  background:
+    linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
 }
 
 .sidebar {
@@ -13,8 +17,8 @@
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   height: 100vh;
-  border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 78%, var(--bg) 22%);
+  border-right: 1px solid #000;
+  background: var(--brand-dark);
   padding: 16px 12px 12px;
 }
 
@@ -26,23 +30,11 @@
   padding: 0 6px;
 }
 
-.mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--border);
-  background: var(--surface-soft);
-  color: var(--text);
-  font-weight: 800;
-}
-
 .brand strong {
   overflow: hidden;
+  color: #ffffff;
   font-size: var(--font-size-md);
   letter-spacing: -0.015em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-

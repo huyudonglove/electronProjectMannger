@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BrandMark from '../ui/BrandMark.vue'
 import UiIcon from '../ui/UiIcon.vue'
 
 type NavItem = readonly [string, string, string]
@@ -30,7 +31,7 @@ const emit = defineEmits<{
 <template>
   <aside class="sidebar">
     <div class="brand">
-      <span class="mark">T</span>
+      <BrandMark />
       <strong>Telance Records</strong>
     </div>
 

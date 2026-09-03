@@ -16,6 +16,10 @@ Telance Records is a local-first desktop workspace for keeping durable project r
 
 Telance Records records work; it does not execute tasks, call model providers, delegate task trees, or manage run checkpoints.
 
+## Visual System
+
+Telance Records is a derivative product in the Telance family. Its desktop and companion interfaces share the same ink, paper, acid-green, and purple palette; square editorial surfaces; offset solid shadows; outlined icons; and layered-paper `T` identity. The Records variant adds two document lines to the family mark so it stays related without duplicating the Chrome product icon.
+
 ## Record Types
 
 | Record | ID | Purpose |
@@ -159,6 +163,7 @@ Telance Records 是一个本地优先的项目记录桌面工具。它用 Markdo
 
 ### 核心特点
 
+- 作为 Telance 衍生产品，完整界面和陪伴模式统一使用墨黑、米白、荧光黄绿和紫色视觉体系，并以带记录线的叠纸 `T` 标记区别于 Chrome 产品。
 - 项目记录保存在 Telance Records 数据目录，不写入源码项目；底层继续沿用原有 `electron-manager` 目录以兼容旧项目。
 - `record-summary.json` 只提供记录位置和当前摘要，不包含执行指令。
 - 每个项目生成 `skills/project-records/SKILL.md`，可从总览复制其路径。

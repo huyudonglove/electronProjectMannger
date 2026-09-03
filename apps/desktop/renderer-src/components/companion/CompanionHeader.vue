@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BrandMark from '../ui/BrandMark.vue'
 import UiIconButton from '../ui/UiIconButton.vue'
 
 const props = defineProps<{
@@ -23,7 +24,7 @@ const emit = defineEmits<{
   <header class="companion-header">
     <div class="companion-identity">
       <UiIconButton v-if="props.canGoBack" icon="cornerUpLeft" label="返回" variant="ghost" size="sm" @click="emit('back')" />
-      <span v-else class="companion-mark">T</span>
+      <BrandMark v-else :size="32" />
       <span>
         <strong>{{ props.title }}</strong>
         <small>{{ props.subtitle }}</small>

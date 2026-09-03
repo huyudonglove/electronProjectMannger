@@ -6,11 +6,11 @@
 @keyframes surface-enter {
   from {
     opacity: 0;
-    transform: translateY(4px) scale(0.99);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 

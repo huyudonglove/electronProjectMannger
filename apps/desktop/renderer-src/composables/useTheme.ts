@@ -5,7 +5,7 @@ export type AppTheme = 'dark' | 'light'
 const THEME_STORAGE_KEY = 'electron-manager-theme'
 
 export function useTheme() {
-  const theme = ref<AppTheme>('dark')
+  const theme = ref<AppTheme>('light')
   const activeThemeIcon = computed(() => theme.value === 'dark' ? 'moon' : 'sun')
 
   function applyTheme(value: string | null | undefined) {
@@ -19,7 +19,7 @@ export function useTheme() {
   }
 
   onMounted(() => {
-    applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || 'dark')
+    applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || 'light')
   })
 
   return {

@@ -5,10 +5,10 @@ export const naiveThemeOverrides: GlobalThemeOverrides = {
     // Naive derives translucent variants with JS color utilities, which cannot
     // resolve CSS custom properties. Keep these source colors parseable and let
     // the component-level CSS tokens continue to control the surrounding UI.
-    primaryColor: '#a45f2a',
-    primaryColorHover: '#d08a50',
-    primaryColorPressed: '#874b23',
-    primaryColorSuppl: '#a45f2a',
+    primaryColor: '#6f4cff',
+    primaryColorHover: '#8062ff',
+    primaryColorPressed: '#5938db',
+    primaryColorSuppl: '#6f4cff',
     borderRadius: 'var(--radius-control)',
     borderRadiusSmall: 'var(--radius-control)',
     fontSize: 'var(--font-size-md)',

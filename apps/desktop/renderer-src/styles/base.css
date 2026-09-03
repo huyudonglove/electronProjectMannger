@@ -10,7 +10,10 @@ html {
 
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
   color: var(--text);
   overflow: hidden;
 }
@@ -20,7 +23,8 @@ body.modal-open {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--primary) 28%, transparent);
+  background: color-mix(in srgb, var(--brand-acid) 66%, transparent);
+  color: var(--brand-ink);
 }
 
 * {
@@ -76,7 +80,7 @@ select,
 textarea {
   width: 100%;
   min-height: var(--control-height-lg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   background: var(--field-bg);
   color: var(--text);
@@ -87,13 +91,13 @@ textarea {
 input:hover,
 select:hover,
 textarea:hover {
-  border-color: var(--border-strong);
+  border-color: var(--primary);
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  border-color: var(--primary);
   outline: none;
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
@@ -155,4 +159,3 @@ code {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-

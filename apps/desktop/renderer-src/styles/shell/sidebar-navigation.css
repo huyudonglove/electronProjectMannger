@@ -15,7 +15,7 @@
 
 .navigation-group-label {
   padding: 0 10px 4px;
-  color: var(--muted);
+  color: var(--brand-dark-muted);
   font-size: var(--font-size-xs);
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -30,7 +30,7 @@
   gap: 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
-  color: var(--text);
+  color: var(--brand-dark-text);
   font-weight: 500;
   padding: 8px 10px;
   white-space: nowrap;
@@ -42,7 +42,7 @@
   width: 18px;
   height: 18px;
   place-items: center;
-  color: var(--muted);
+  color: var(--brand-dark-muted);
 }
 
 .nav-icon svg {
@@ -57,21 +57,23 @@
 
 .navigation-group a.active .nav-icon,
 .sidebar-knowledge-link.active .nav-icon {
-  color: var(--primary-text);
+  color: var(--brand-acid);
 }
 
 .navigation-group a:hover,
 .sidebar-knowledge-link:hover {
-  background: var(--hover);
+  border-color: var(--brand-dark-line);
+  background: rgba(223, 255, 84, 0.06);
+  color: #ffffff;
 }
 
 .navigation-group a.active,
 .sidebar-knowledge-link.active {
-  background: var(--active);
+  background: #2a2925;
   border-color: transparent;
-  color: var(--text);
+  color: #ffffff;
   font-weight: 700;
-  box-shadow: inset 3px 0 0 var(--primary-text);
+  box-shadow: inset 3px 0 0 var(--brand-acid);
 }
 
 .nav-count {
@@ -80,8 +82,9 @@
   height: 18px;
   place-items: center;
   border-radius: var(--radius-round);
-  background: var(--warning-soft);
-  color: var(--warning);
+  border-radius: var(--radius-xs);
+  background: var(--brand-acid);
+  color: var(--brand-ink);
   font-size: var(--font-size-xs);
   font-weight: 800;
   line-height: 1;
@@ -103,10 +106,10 @@
   align-items: center;
   width: 100%;
   min-height: 32px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--brand-dark-line);
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--text);
+  color: var(--brand-dark-text);
   gap: 8px;
   padding: 5px 9px;
   text-align: left;
@@ -118,9 +121,9 @@
 }
 
 .theme-toggle:hover {
-  border-color: color-mix(in srgb, var(--primary) 36%, var(--border));
-  background: var(--hover);
-  color: var(--text);
+  border-color: #555248;
+  background: rgba(223, 255, 84, 0.06);
+  color: var(--brand-acid);
 }
 
 .theme-toggle-icon {
@@ -128,10 +131,10 @@
   width: 20px;
   height: 20px;
   place-items: center;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--border);
-  background: var(--surface-soft);
-  color: var(--icon-accent);
+  border-radius: 0;
+  border: 1px solid var(--brand-dark-line);
+  background: #242420;
+  color: var(--brand-acid);
 }
 
 .theme-toggle-icon svg {

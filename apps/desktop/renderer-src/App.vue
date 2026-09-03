@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, toRef } from 'vue'
 import { darkTheme, NConfigProvider } from 'naive-ui'
+import BrandMark from './components/ui/BrandMark.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AppTopbar from './components/layout/AppTopbar.vue'
 import MarkdownDialog from './components/overlays/MarkdownDialog.vue'
@@ -520,7 +521,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     preflight-style-disabled
   >
   <main v-if="!companionStateReady || !workspaceReady" class="companion-boot-shell" aria-label="正在准备窗口" aria-busy="true">
-    <span class="companion-mark">T</span>
+    <BrandMark :size="32" />
     <span class="companion-boot-copy">
       <strong>Telance Records</strong>
       <small>正在准备窗口…</small>

@@ -39,7 +39,7 @@
     "bottom-left bottom-right";
   gap: 8px 10px;
   align-items: start;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: inherit;
@@ -149,7 +149,7 @@
     "bottom-left .";
   gap: 10px 12px;
   align-items: start;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   background: var(--surface);
   padding: 13px;
@@ -214,4 +214,3 @@
 .collab-rule li {
   margin: 4px 0;
 }
-

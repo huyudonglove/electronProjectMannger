@@ -4,10 +4,10 @@
   align-items: center;
   width: 100%;
   min-height: 48px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--brand-dark-line);
   border-radius: var(--radius-card);
-  background: var(--surface);
-  color: var(--text);
+  background: #242420;
+  color: var(--brand-dark-text);
   gap: 9px;
   margin-bottom: 20px;
   padding: 7px 9px;
@@ -16,8 +16,8 @@
 }
 
 .project-switcher:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-raised);
+  border-color: #555248;
+  background: #2a2925;
 }
 
 .project-switcher-mark {
@@ -26,8 +26,8 @@
   height: 28px;
   place-items: center;
   border-radius: var(--radius-control);
-  background: var(--primary-soft);
-  color: var(--primary-text);
+  background: var(--brand-purple);
+  color: #ffffff;
 }
 
 .project-switcher-mark svg,
@@ -43,7 +43,7 @@
 }
 
 .project-switcher-copy small {
-  color: var(--muted);
+  color: var(--brand-dark-muted);
   font-size: var(--font-size-xs);
 }
 
@@ -58,11 +58,12 @@
   width: 7px;
   height: 7px;
   border-radius: var(--radius-round);
-  background: #5da66f;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #5da66f 14%, transparent);
+  border: 1px solid var(--brand-ink);
+  border-radius: 0;
+  background: var(--brand-acid);
+  box-shadow: none;
 }
 
 .project-switcher-chevron {
-  color: var(--muted);
+  color: var(--brand-dark-muted);
 }
-

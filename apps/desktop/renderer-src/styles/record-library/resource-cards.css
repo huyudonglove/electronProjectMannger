@@ -42,7 +42,7 @@
   width: 100%;
   min-width: 0;
   min-height: 196px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-card);
   background: var(--surface);
   color: var(--text);
@@ -65,10 +65,10 @@
 }
 
 .library-card-frame:hover {
-  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
-  background: var(--hover);
-  box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: 3px 3px 0 var(--primary);
+  transform: none;
 }
 
 .library-card-icon {
@@ -76,10 +76,10 @@
   width: 36px;
   height: 36px;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
-  background: var(--surface-soft);
-  color: var(--icon-accent);
+  background: var(--primary-soft);
+  color: var(--primary-text);
 }
 
 .library-card-kicker {

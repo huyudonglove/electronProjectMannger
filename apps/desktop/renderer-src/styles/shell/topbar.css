@@ -10,13 +10,13 @@
 
 .topbar {
   display: flex;
-  min-height: 72px;
+  min-height: 64px;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 88%, var(--surface) 12%);
-  padding: 11px 28px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--bg) 6%);
+  padding: 9px 28px;
 }
 
 .topbar-context {
@@ -61,18 +61,19 @@
 }
 
 .sync-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-round);
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
   background: var(--muted);
 }
 
 .sync-status-dot.ready {
-  background: #5da66f;
+  border: 1px solid var(--brand-ink);
+  background: var(--brand-acid);
 }
 
 .sync-status-dot.busy {
-  background: var(--warning);
+  background: var(--brand-purple);
   animation: sync-pulse 1s ease-in-out infinite alternate;
 }
 
@@ -130,4 +131,3 @@
 .eyebrow:empty {
   display: none;
 }
-
