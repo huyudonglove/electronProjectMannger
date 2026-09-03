@@ -10,12 +10,14 @@ export type ProjectConfig = {
 
 export type ProjectWorkLevel = 'light' | 'standard' | 'deep'
 export type ProjectDepthReason = 'architecture' | 'migration' | 'cross_system' | 'security' | 'irreversible' | 'decision'
+export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done' | 'abandoned'
+export type ProjectThoughtStatus = 'inbox' | 'handled'
 
 export type ProjectTask = {
   id: string
   shortId: string
   title: string
-  status: string
+  status: TaskStatus
   priority: string
   workLevel: ProjectWorkLevel
   depthReason: ProjectDepthReason | ''
@@ -33,7 +35,7 @@ export type ProjectThought = {
   id: string
   shortId: string
   title: string
-  status: string
+  status: ProjectThoughtStatus
   created: string
   version: string
   content: string
@@ -248,7 +250,7 @@ export type ProjectMetadataSyncResult = {
 export type NewTaskInput = {
   versionId?: string
   title: string
-  status?: string
+  status?: TaskStatus
   priority?: string
   workLevel?: ProjectWorkLevel
   depthReason?: ProjectDepthReason

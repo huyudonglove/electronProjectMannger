@@ -11,6 +11,7 @@ import {
   normalizeDepthReason,
   normalizeDialogueShortId,
   normalizeResearchMode,
+  normalizeThoughtShortId,
   normalizeWorkLevel,
   parseDialogues,
   parseFields,
@@ -40,6 +41,7 @@ import {
   normalizeStatus,
   normalizeTitle,
   researchModeReference,
+  replaceSection,
 } from './internal/markdown.js'
 import {
   listGlobalKnowledgeDocuments,
@@ -237,6 +239,92 @@ export async function deleteThought(managerDataRoot: string, projectRoot: string
   return deleteVersionRecord(managerDataRoot, projectRoot, thoughtId, VERSION_THOUGHTS_FILE, '输入 ID 不能为空', '未找到输入记录')
 }
 
+export async function updateThoughtStatus(
+  managerDataRoot: string,
+  projectRoot: string,
+  thoughtId: string,
+  status: string,
+  answer?: string,
+) {
+  const target = String(thoughtId || '').trim()
+  const nextStatus = String(status || '').trim().toLowerCase()
+  if (!target) throw new Error('想法 ID 不能为空')
+  if (nextStatus !== 'inbox' && nextStatus !== 'handled') throw new Error('想法状态不合法')
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const thoughtPath = await findVersionRecordPath(dataRoot, VERSION_THOUGHTS_FILE, target, normalizeThoughtShortId)
+  if (!thoughtPath) throw new Error('未找到想法记录')
+  await mutateProjectFile(dataRoot, thoughtPath, (current) => {
+    let updated = false
+    const next = splitMarkdownBlocks(current)
+      .map((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return block
+        const fields = parseFields(block)
+        const matches = fields.id === target
+          || (normalizeThoughtShortId(target) !== ''
+            && normalizeThoughtShortId(fields.short_id) === normalizeThoughtShortId(target))
+        if (!matches) return block
+
+        const currentAnswer = readThoughtAnswer(block)
+        const suppliedAnswer = answer === undefined ? undefined : String(answer).trim()
+        const effectiveAnswer = suppliedAnswer === undefined ? currentAnswer : suppliedAnswer
+        if (nextStatus === 'handled' && !isMeaningfulThoughtAnswer(effectiveAnswer)) {
+          throw new Error('处理想法前必须填写有效回答')
+        }
+        updated = true
+        let updatedBlock = replaceRecordField(block, 'status', nextStatus)
+        if (suppliedAnswer !== undefined) {
+          updatedBlock = replaceSection(updatedBlock, ['回答'], '回答', suppliedAnswer)
+        }
+        return updatedBlock
+      })
+      .join('\n')
+    if (!updated) throw new Error('未找到想法记录')
+    return { content: next.endsWith('\n') ? next : `${next}\n`, value: undefined }
+  })
+  await refreshRecordSummary(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
+export async function updateDialogueStatus(
+  managerDataRoot: string,
+  projectRoot: string,
+  dialogueId: string,
+  status: string,
+) {
+  const target = String(dialogueId || '').trim()
+  const nextStatus = String(status || '').trim().toLowerCase()
+  if (!target) throw new Error('研究 ID 不能为空')
+  if (!['pending', 'doing', 'done', 'archived'].includes(nextStatus)) throw new Error('研究状态不合法')
+
+  const dataRoot = await resolveExistingDataRoot(managerDataRoot, projectRoot)
+  const dialoguePath = await findVersionRecordPath(dataRoot, VERSION_DIALOGUES_FILE, target, normalizeDialogueShortId)
+  if (!dialoguePath) throw new Error('未找到研究记录')
+  await mutateProjectFile(dataRoot, dialoguePath, (current) => {
+    let updated = false
+    const next = splitMarkdownBlocks(current)
+      .map((block, index) => {
+        if (index === 0 && !block.trim().startsWith('## ')) return block
+        const fields = parseFields(block)
+        const matches = fields.id === target
+          || (normalizeDialogueShortId(target) !== ''
+            && normalizeDialogueShortId(fields.short_id) === normalizeDialogueShortId(target))
+        if (!matches) return block
+        updated = true
+        return replaceRecordField(
+          replaceRecordField(block, 'status', nextStatus),
+          'updated',
+          localTime(),
+        )
+      })
+      .join('\n')
+    if (!updated) throw new Error('未找到研究记录')
+    return { content: next.endsWith('\n') ? next : `${next}\n`, value: undefined }
+  })
+  await refreshRecordSummary(managerDataRoot, projectRoot)
+  return getDashboard(managerDataRoot, projectRoot)
+}
+
 export async function deleteDialogue(managerDataRoot: string, projectRoot: string, dialogueId: string) {
   const id = String(dialogueId || '').trim()
   if (!id) throw new Error('研究 ID 不能为空')
@@ -302,6 +390,36 @@ async function deleteVersionRecord(
   const recordPath = await findVersionRecordPath(dataRoot, fileName, id)
   if (!recordPath) throw new Error(missingMessage)
   return deleteRecordFromPath(managerDataRoot, projectRoot, id, recordPath, emptyMessage, missingMessage, dataRoot)
+}
+
+function readThoughtAnswer(block: string) {
+  const match = block.match(/###\s+回答\s+([\s\S]*?)(?=\n### |$)/)
+  return match?.[1]?.trim() || ''
+}
+
+function isMeaningfulThoughtAnswer(answer: string) {
+  const normalized = String(answer || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[。.!！?？\s]+$/g, '')
+  return Boolean(normalized) && ![
+    '无',
+    '暂无',
+    '暂无回答',
+    '待回答',
+    '待处理',
+    '待补充',
+    'none',
+    'n/a',
+  ].includes(normalized)
+}
+
+function replaceRecordField(block: string, field: string, value: string) {
+  const pattern = new RegExp(`^${field}::\\s*.*$`, 'm')
+  if (pattern.test(block)) return block.replace(pattern, `${field}:: ${value}`)
+  const headingEnd = block.indexOf('\n')
+  if (headingEnd < 0) return `${block}\n\n${field}:: ${value}`
+  return `${block.slice(0, headingEnd + 1)}\n${field}:: ${value}${block.slice(headingEnd + 1)}`
 }
 
 async function deleteRecordFromPath(

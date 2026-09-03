@@ -2,7 +2,7 @@ import type {
   ProjectVersionStatus,
   ResearchMode,
 } from '../types.js'
-import { splitMarkdownBlocks } from '../parsers.js'
+import { normalizeTaskStatus, splitMarkdownBlocks } from '../parsers.js'
 
 export function insertMarkdownEntry(current: string, entry: string) {
   const blocks = splitMarkdownBlocks(current)
@@ -33,7 +33,7 @@ export function normalizeTitle(value: string) {
 }
 
 export function normalizeStatus(value: string) {
-  return ['backlog', 'todo', 'doing', 'done', 'abandoned'].includes(value) ? value : 'todo'
+  return normalizeTaskStatus(value)
 }
 
 export function normalizeProjectVersionStatus(

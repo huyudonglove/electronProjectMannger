@@ -114,7 +114,7 @@ function updateConstraintForm(patch: Partial<QuickConstraintForm>) {
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'thought')"><UiIcon class="quick-create-icon" name="messageCircle" /><span>想法</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'dialogue')"><UiIcon class="quick-create-icon" name="messagesSquare" /><span>研究</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('createCollaboration')"><UiIcon class="quick-create-icon" name="gitPullRequest" /><span>协作</span></button>
-      <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'constraint')"><UiIcon class="quick-create-icon" name="shield" /><span>约束</span></button>
+      <button v-if="!compact" class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'constraint')"><UiIcon class="quick-create-icon" name="shield" /><span>约束</span></button>
     </div>
 
     <QuickCreateFormShell

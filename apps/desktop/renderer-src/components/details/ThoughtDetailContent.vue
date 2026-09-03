@@ -14,7 +14,7 @@ defineProps<{
       <div v-html="renderTextBlock(thought.content)" />
     </section>
     <section v-if="hasThoughtAnswer(thought.answer)">
-      <strong>摘要</strong>
+      <strong>处理说明</strong>
       <div v-html="renderTextBlock(thought.answer)" />
     </section>
   </div>

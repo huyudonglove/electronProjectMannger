@@ -54,7 +54,7 @@ export function taskRecordsTemplate() {
   return `# 工程任务
 
 > 当前版本的任务记录。每个带任务元数据的二级标题是一张独立任务卡。
-> 写入时按 short_id 倒序维护；状态使用 todo、doing、done 或 abandoned。
+> 写入时按 short_id 倒序维护；状态使用 backlog、todo、doing、done 或 abandoned。
 `
 }
 
@@ -72,6 +72,8 @@ export function dataSpecTemplate() {
 - 聚合 Markdown 内的 Txxx、Ixxx、Dxxx、Qxxx、Rxxx、Lxxx、Cxxx、Vxxx 按编号倒序维护；Wxxx 和 Kxxx 使用独立文件。
 - 记录间的引用只表达来源或关联，不级联删除。
 - 工作记录使用 \`record_level:: light | standard | deep\`，记录结果、修改文件、验证和必要的关键判断。
+- 任务使用 \`status:: backlog | todo | doing | done | abandoned\`。
+- 想法使用 \`status:: inbox | handled\`；标记为 handled 前必须填写有效回答。
 - 研究使用 \`status:: pending | doing | done | archived\` 与 \`mode:: breadth | depth\`；长结果可关联 Wxxx 文档。
 - 问题状态使用 \`open | decided | resolved | expired\`，回复只追加到对话记录。
 - 风险状态使用 \`open | resolved | expired\`，类型使用 \`risk | verification | follow-up\`。
@@ -85,7 +87,7 @@ export function dataSpecTemplate() {
 id:: task-...
 short_id:: T001
 type:: task
-status:: todo | doing | done | abandoned
+status:: backlog | todo | doing | done | abandoned
 priority:: low | medium | high
 work_level:: light | standard | deep
 depth_reason:: architecture | migration | cross_system | security | irreversible | decision
@@ -102,6 +104,24 @@ version:: V001
 \`\`\`
 
 只有 deep 任务包含 depth_reason、关键约束和方案与回退。
+
+## 想法格式
+
+\`\`\`markdown
+## YYYY-MM-DD HH:mm 想法
+
+id:: thought-...
+short_id:: I001
+type:: thought
+status:: inbox | handled
+created:: YYYY-MM-DD HH:mm
+version:: V001
+
+### 内容
+### 回答
+\`\`\`
+
+handled 想法必须包含有效回答；切回 inbox 时保留已有回答。
 
 ## 工作记录格式
 
@@ -156,6 +176,7 @@ export function thoughtsTemplate() {
   return `# 想法与问题
 
 > 当前版本的输入记录。每条记录使用 Ixxx，并按编号倒序维护。
+> 状态使用 inbox 或 handled；handled 必须包含有效回答。
 `
 }
 
@@ -297,6 +318,8 @@ Use this skill only for the project's durable record layer.
 - V records are version metadata in \`${path.join(dataRoot, VERSIONS_PATH)}\`.
 
 Before writing a version-scoped record, choose and verify an explicit \`versionId\`; do not infer it from the newest version. \`currentVersionId\` and \`currentDataPaths\` are compatibility defaults only, not proof that a version is the newest or uniquely active. Versions may independently be \`planned\`, \`active\`, \`paused\`, or \`completed\`; completed versions are read-only by default. Keep aggregate Markdown records ordered by descending short ID, and never reuse a previously allocated ID.
+
+Use \`inbox | handled\` for I record status, and only mark an idea \`handled\` when its Answer section contains a real answer. Use \`pending | doing | done | archived\` for D record status.
 
 ## Safe Direct Writes
 

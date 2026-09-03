@@ -15,6 +15,8 @@ defineProps<{
 
 const emit = defineEmits<{
   deleteThought: [thoughtId: string]
+  resolveThought: [thought: ThoughtItem]
+  reopenThought: [thought: ThoughtItem]
 }>()
 
 </script>
@@ -38,10 +40,27 @@ const emit = defineEmits<{
               <UiStatusTag :status="thought.status" />
             </div>
           </div>
-          <UiIconButton class="delete-action" icon="trash" label="删除输入" size="sm" @click="emit('deleteThought', thought.id)" />
+          <div class="thought-actions">
+            <UiIconButton
+              v-if="thought.status === 'handled'"
+              icon="rotateLeft"
+              label="重新打开想法"
+              size="sm"
+              @click="emit('reopenThought', thought)"
+            />
+            <UiIconButton
+              v-else
+              icon="circleCheck"
+              label="标记已处理"
+              variant="primary"
+              size="sm"
+              @click="emit('resolveThought', thought)"
+            />
+            <UiIconButton class="delete-action" icon="trash" label="删除输入" size="sm" @click="emit('deleteThought', thought.id)" />
+          </div>
         </div>
         <p>{{ thought.content }}</p>
-        <div v-if="thought.answer" class="answer"><span>摘要</span><p>{{ thought.answer }}</p></div>
+        <div v-if="thought.answer" class="answer"><span>处理说明</span><p>{{ thought.answer }}</p></div>
         <small v-if="formatTime(thought.created)">{{ formatTime(thought.created) }}</small>
       </article>
     </div>

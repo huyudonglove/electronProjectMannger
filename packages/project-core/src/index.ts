@@ -22,6 +22,7 @@ export type {
   ProjectRiskSummary,
   ProjectTask,
   ProjectThought,
+  ProjectThoughtStatus,
   ProjectVersion,
   ProjectVersionStatus,
   ProjectMetadataSyncResult,
@@ -29,6 +30,7 @@ export type {
   ProjectWorkLevel,
   ResearchMode,
   ResearchStatus,
+  TaskStatus,
 } from './types.js'
 
 export { createProjectId, resolveDataRoot } from './internal/project-context.js'
@@ -56,6 +58,8 @@ export {
   deleteTask,
   deleteThought,
   updateTaskStatus,
+  updateDialogueStatus,
+  updateThoughtStatus,
 } from './record-commands.js'
 export {
   appendProjectQuestion,

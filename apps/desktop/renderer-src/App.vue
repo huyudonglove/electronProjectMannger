@@ -11,6 +11,7 @@ import QuickCreatePanel from './components/overlays/QuickCreatePanel.vue'
 import QuestionDialog from './components/overlays/QuestionDialog.vue'
 import ReplyDialog from './components/overlays/ReplyDialog.vue'
 import TaskDetailModal from './components/overlays/TaskDetailModal.vue'
+import ThoughtResolveDialog from './components/overlays/ThoughtResolveDialog.vue'
 import VersionDialog from './components/overlays/VersionDialog.vue'
 import CollaborationView from './components/views/CollaborationView.vue'
 import CompanionView from './components/views/CompanionView.vue'
@@ -61,6 +62,8 @@ import {
 const { theme, activeThemeIcon, toggleTheme } = useTheme()
 const { toasts, showToast } = useToasts()
 const workspaceReady = ref(false)
+const thoughtResolveTarget = ref<AnyRecord | null>(null)
+const thoughtResolveForm = reactive({ answer: '', status: '' })
 
 const state = reactive({
   projectRoot: '',
@@ -137,6 +140,8 @@ const {
   activeTasks: companionActiveTasks,
   versionThoughts: companionVersionThoughts,
   latestThoughts: companionLatestThoughts,
+  versionDialogues: companionVersionDialogues,
+  latestDialogues: companionLatestDialogues,
   attentionItems: companionAttentionItems,
   allAttentionItems: companionAllAttentionItems,
   attentionCount: companionAttentionCount,
@@ -270,6 +275,8 @@ const {
   deleteDocumentNote,
   deleteKnowledgeNote,
   updateTaskStatus,
+  updateThoughtStatus,
+  updateDialogueStatus,
 } = useRecordCommands({
   state,
   quickCreateVersionId,
@@ -381,6 +388,7 @@ const { activeModal } = useModalCoordinator({
   versionDialogOpen,
   questionDialogOpen,
   markdownDocument: toRef(state, 'markdownDocument'),
+  thoughtResolveItem: thoughtResolveTarget,
   projectRoot: toRef(state, 'projectRoot'),
   initialized: toRef(state, 'initialized'),
   closeQuickCreate: () => closeQuickTask({ restoreFocus: false }),
@@ -418,6 +426,7 @@ const {
   currentVersion: companionCurrentVersion,
   tasks: companionVersionTasks,
   thoughts: companionVersionThoughts,
+  dialogues: companionVersionDialogues,
   collaborationItems: companionAllAttentionItems,
   logs: companionVersionLogs,
   showToast,
@@ -471,6 +480,36 @@ function openTaskDetail(task: AnyRecord) {
 
 function closeTaskDetail() {
   state.selectedTask = null
+}
+
+function openThoughtResolveDialog(thought: AnyRecord) {
+  thoughtResolveTarget.value = thought
+  thoughtResolveForm.answer = String(thought.answer || '').trim()
+  thoughtResolveForm.status = ''
+}
+
+function closeThoughtResolveDialog() {
+  if (state.busy) return
+  thoughtResolveTarget.value = null
+  thoughtResolveForm.answer = ''
+  thoughtResolveForm.status = ''
+}
+
+async function submitThoughtResolution() {
+  const thought = thoughtResolveTarget.value
+  const answer = thoughtResolveForm.answer.trim()
+  if (!thought || !answer) {
+    thoughtResolveForm.status = '请填写处理说明。'
+    return
+  }
+  thoughtResolveForm.status = ''
+  await updateThoughtStatus(thought.id || thought.shortId, 'handled', answer)
+  if (!state.status) closeThoughtResolveDialog()
+  else thoughtResolveForm.status = state.status
+}
+
+async function reopenThought(thought: AnyRecord) {
+  await updateThoughtStatus(thought.id || thought.shortId, 'inbox')
 }
 
 function prepareCompanionMode() {
@@ -566,6 +605,8 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     :tasks="companionVersionTasks"
     :latest-thoughts="companionLatestThoughts"
     :thoughts="companionVersionThoughts"
+    :latest-dialogues="companionLatestDialogues"
+    :dialogues="companionVersionDialogues"
     :attention-items="companionAttentionItems"
     :all-attention-items="companionAllAttentionItems"
     :attention-count="companionAttentionCount"
@@ -588,6 +629,9 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     @open-record="openCompanionRecord"
     @back="backInCompanion"
     @update-task-status="(task, status) => updateTaskStatus(task.id, status)"
+    @resolve-thought="openThoughtResolveDialog"
+    @reopen-thought="reopenThought"
+    @update-dialogue-status="(dialogue, status) => updateDialogueStatus(dialogue.id || dialogue.shortId, status)"
     @open-question-target="openCompanionQuestionTarget"
     @reply="openReplyDialog"
     @complete-question="completeQuestion"
@@ -664,6 +708,8 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
         :highlighted-thought="state.highlightedThought"
         :set-thought-ref="setThoughtRef"
         @delete-thought="deleteThought"
+        @resolve-thought="openThoughtResolveDialog"
+        @reopen-thought="reopenThought"
       />
 
       <TaskBoardView
@@ -813,6 +859,17 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   </div>
 
   <TaskDetailModal v-if="companionStateReady && !companionMode" :task="state.selectedTask" @close="closeTaskDetail" />
+
+  <ThoughtResolveDialog
+    v-if="companionStateReady"
+    :open="Boolean(thoughtResolveTarget)"
+    :busy="state.busy"
+    :thought="thoughtResolveTarget"
+    :form="thoughtResolveForm"
+    @close="closeThoughtResolveDialog"
+    @submit="submitThoughtResolution"
+    @update:form="Object.assign(thoughtResolveForm, $event)"
+  />
 
   <ProjectInitDialog
     v-if="companionStateReady && !companionMode"

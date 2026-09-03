@@ -32,5 +32,7 @@ export function useRecordCommands(options: RecordCommandsOptions) {
     deleteDocumentNote: guard(mutations.deleteDocumentNote),
     deleteKnowledgeNote: guard(mutations.deleteKnowledgeNote),
     updateTaskStatus: guard(mutations.updateTaskStatus),
+    updateThoughtStatus: guard(mutations.updateThoughtStatus),
+    updateDialogueStatus: guard(mutations.updateDialogueStatus),
   }
 }

@@ -7,6 +7,7 @@ export type ActiveModal =
   | 'version'
   | 'question'
   | 'markdown'
+  | 'thoughtResolve'
   | 'initialize'
   | ''
 
@@ -19,6 +20,7 @@ export type ModalCoordinatorOptions = {
   versionDialogOpen: ModalState
   questionDialogOpen: ModalState
   markdownDocument: ModalState
+  thoughtResolveItem: ModalState
   projectRoot: ModalState
   initialized: ModalState
   closeQuickCreate: () => void
@@ -33,6 +35,7 @@ export function useModalCoordinator(options: ModalCoordinatorOptions) {
     if (toValue(options.versionDialogOpen)) return 'version'
     if (toValue(options.questionDialogOpen)) return 'question'
     if (toValue(options.markdownDocument)) return 'markdown'
+    if (toValue(options.thoughtResolveItem)) return 'thoughtResolve'
     if (toValue(options.projectRoot) && !toValue(options.initialized)) return 'initialize'
     return ''
   })

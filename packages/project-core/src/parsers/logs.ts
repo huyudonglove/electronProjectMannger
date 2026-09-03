@@ -32,7 +32,7 @@ export function parseProjectLogs(content: string, tasks: ProjectTask[] = []): Pr
         shortId: normalizeLogShortId(fields.log_short_id),
         title: block.match(/^##\s+(.+)$/m)?.[1]?.trim() || '工作记录',
         created: fields.created || '',
-        status: fields.status || relatedTasks[0]?.status || 'done',
+        status: fields.status || 'done',
         source: fields.source || '',
         recordLevel: normalizeLogLevel(fields.record_level),
         version: normalizeVersionId(fields.version),

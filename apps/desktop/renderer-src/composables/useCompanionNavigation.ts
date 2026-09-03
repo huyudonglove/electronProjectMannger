@@ -1,13 +1,14 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import type { AnyRecord } from '../utils/record-formatters'
 
-export type CompanionPage = 'home' | 'tasks' | 'thoughts' | 'collaboration' | 'logs'
-export type CompanionRecordKind = 'task' | 'thought' | 'question' | 'decision' | 'risk' | 'log'
+export type CompanionPage = 'home' | 'tasks' | 'thoughts' | 'research' | 'collaboration' | 'logs'
+export type CompanionRecordKind = 'task' | 'thought' | 'research' | 'question' | 'decision' | 'risk' | 'log'
 
 export function useCompanionNavigation(options: {
   currentVersion: Readonly<Ref<AnyRecord | null>>
   tasks: Readonly<Ref<AnyRecord[]>>
   thoughts: Readonly<Ref<AnyRecord[]>>
+  dialogues: Readonly<Ref<AnyRecord[]>>
   collaborationItems: Readonly<Ref<AnyRecord[]>>
   logs: Readonly<Ref<AnyRecord[]>>
   showToast: (message: string) => void
@@ -21,6 +22,7 @@ export function useCompanionNavigation(options: {
     let source = options.collaborationItems.value
     if (detailKind.value === 'task') source = options.tasks.value
     if (detailKind.value === 'thought') source = options.thoughts.value
+    if (detailKind.value === 'research') source = options.dialogues.value
     if (detailKind.value === 'log') source = options.logs.value
     return source.find((record) => recordKey(record) === detailRecordKey.value) || null
   })

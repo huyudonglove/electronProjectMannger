@@ -25,8 +25,10 @@ export interface ElectronManagerApi {
   updateTaskStatus: (projectRoot: string, taskId: string, status: string) => Promise<any>
   deleteTask: (projectRoot: string, taskId: string) => Promise<any>
   addThought: (projectRoot: string, payload: ElectronRecord) => Promise<any>
+  updateThoughtStatus: (projectRoot: string, thoughtId: string, status: string, answer?: string) => Promise<any>
   deleteThought: (projectRoot: string, thoughtId: string) => Promise<any>
   addDialogue: (projectRoot: string, payload: ElectronRecord) => Promise<any>
+  updateDialogueStatus: (projectRoot: string, dialogueId: string, status: string) => Promise<any>
   deleteDialogue: (projectRoot: string, dialogueId: string) => Promise<any>
   addConstraint: (projectRoot: string, payload: ElectronRecord) => Promise<any>
   deleteConstraint: (projectRoot: string, constraintId: string) => Promise<any>

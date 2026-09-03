@@ -23,6 +23,8 @@ const props = defineProps<{
   tasks: AnyRecord[]
   latestThoughts: AnyRecord[]
   thoughts: AnyRecord[]
+  latestDialogues: AnyRecord[]
+  dialogues: AnyRecord[]
   attentionItems: AnyRecord[]
   allAttentionItems: AnyRecord[]
   attentionCount: number
@@ -46,7 +48,10 @@ const emit = defineEmits<{
   openPage: [page: CompanionPage]
   openRecord: [kind: CompanionRecordKind, record: AnyRecord]
   back: []
-  updateTaskStatus: [task: AnyRecord, status: 'doing' | 'done']
+  updateTaskStatus: [task: AnyRecord, status: 'todo' | 'doing' | 'done']
+  resolveThought: [thought: AnyRecord]
+  reopenThought: [thought: AnyRecord]
+  updateDialogueStatus: [dialogue: AnyRecord, status: 'pending' | 'doing' | 'done' | 'archived']
   openQuestionTarget: [item: AnyRecord]
   reply: [item: AnyRecord]
   completeQuestion: [item: AnyRecord]
@@ -56,7 +61,7 @@ const emit = defineEmits<{
 
 const pageTitle = computed(() => {
   if (props.showingDetail) return props.detailRecord?.shortId || '记录详情'
-  return ({ home: props.projectName || 'Telance Records', tasks: '当前任务', thoughts: '想法', collaboration: '待处理', logs: '工作记录' })[props.page]
+  return ({ home: props.projectName || 'Telance Records', tasks: '当前任务', thoughts: '想法', research: '研究', collaboration: '待处理', logs: '工作记录' })[props.page]
 })
 
 const pageSubtitle = computed(() => {
@@ -65,6 +70,7 @@ const pageSubtitle = computed(() => {
   const count = {
     tasks: props.tasks.length,
     thoughts: props.thoughts.length,
+    research: props.dialogues.length,
     collaboration: props.allAttentionItems.length,
     logs: props.logs.length,
   }[props.page]
@@ -101,6 +107,9 @@ const pageSubtitle = computed(() => {
       :tasks="props.tasks"
       :busy="props.busy"
       @update-task-status="(task, status) => emit('updateTaskStatus', task, status)"
+      @resolve-thought="emit('resolveThought', $event)"
+      @reopen-thought="emit('reopenThought', $event)"
+      @update-dialogue-status="(dialogue, status) => emit('updateDialogueStatus', dialogue, status)"
       @open-question-target="emit('openQuestionTarget', $event)"
       @reply="emit('reply', $event)"
       @complete-question="emit('completeQuestion', $event)"
@@ -112,6 +121,7 @@ const pageSubtitle = computed(() => {
       :page="props.page"
       :tasks="props.tasks"
       :thoughts="props.thoughts"
+      :dialogues="props.dialogues"
       :attention-items="props.allAttentionItems"
       :logs="props.logs"
       @open-record="(kind, record) => emit('openRecord', kind, record)"
@@ -127,6 +137,7 @@ const pageSubtitle = computed(() => {
       :task-progress="props.taskProgress"
       :active-tasks="props.activeTasks"
       :latest-thoughts="props.latestThoughts"
+      :latest-dialogues="props.latestDialogues"
       :attention-items="props.attentionItems"
       :attention-count="props.attentionCount"
       :latest-logs="props.latestLogs"

@@ -27,7 +27,11 @@ contextBridge.exposeInMainWorld('electronManager', {
     ipcRenderer.invoke('project:update-task-status', projectRoot, taskId, status),
   deleteTask: (projectRoot, taskId) => ipcRenderer.invoke('project:delete-task', projectRoot, taskId),
   addThought: (projectRoot, payload) => ipcRenderer.invoke('project:add-thought', projectRoot, payload),
+  updateThoughtStatus: (projectRoot, thoughtId, status, answer) =>
+    ipcRenderer.invoke('project:update-thought-status', projectRoot, thoughtId, status, answer),
   addDialogue: (projectRoot, payload) => ipcRenderer.invoke('project:add-dialogue', projectRoot, payload),
+  updateDialogueStatus: (projectRoot, dialogueId, status) =>
+    ipcRenderer.invoke('project:update-dialogue-status', projectRoot, dialogueId, status),
   deleteDialogue: (projectRoot, dialogueId) => ipcRenderer.invoke('project:delete-dialogue', projectRoot, dialogueId),
   addConstraint: (projectRoot, payload) => ipcRenderer.invoke('project:add-constraint', projectRoot, payload),
   deleteConstraint: (projectRoot, constraintId) => ipcRenderer.invoke('project:delete-constraint', projectRoot, constraintId),

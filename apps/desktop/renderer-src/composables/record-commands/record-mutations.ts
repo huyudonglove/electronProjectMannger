@@ -61,6 +61,22 @@ export function createRecordMutationCommands(runtime: RecordCommandRuntime) {
     await runtime.mutate('正在更新任务状态...', (api) => api.updateTaskStatus(state.projectRoot, taskId, status))
   }
 
+  async function updateThoughtStatus(thoughtId: string, status: 'inbox' | 'handled', answer?: string) {
+    if (!String(thoughtId || '').trim()) return runtime.setStatus('想法 ID 不能为空。')
+    if (status === 'handled' && !String(answer || '').trim()) return runtime.setStatus('请填写处理说明。')
+    await runtime.mutate('正在更新想法状态...', (api) => api.updateThoughtStatus(
+      state.projectRoot,
+      thoughtId,
+      status,
+      answer,
+    ))
+  }
+
+  async function updateDialogueStatus(dialogueId: string, status: 'pending' | 'doing' | 'done' | 'archived') {
+    if (!String(dialogueId || '').trim()) return runtime.setStatus('研究 ID 不能为空。')
+    await runtime.mutate('正在更新研究状态...', (api) => api.updateDialogueStatus(state.projectRoot, dialogueId, status))
+  }
+
   return {
     deleteConstraintRecord,
     deleteThought,
@@ -69,5 +85,7 @@ export function createRecordMutationCommands(runtime: RecordCommandRuntime) {
     deleteDocumentNote,
     deleteKnowledgeNote,
     updateTaskStatus,
+    updateThoughtStatus,
+    updateDialogueStatus,
   }
 }

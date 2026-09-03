@@ -3,9 +3,11 @@ import type {
   ProjectLogLevel,
   ProjectOpenQuestion,
   ProjectRisk,
+  ProjectThoughtStatus,
   ProjectWorkLevel,
   ResearchMode,
   ResearchStatus,
+  TaskStatus,
 } from '../types.js'
 
 export function normalizeResearchMode(value?: string, fallback: ResearchMode = 'legacy'): ResearchMode {
@@ -18,6 +20,19 @@ export function normalizeResearchStatus(value?: string): ResearchStatus {
   return ['pending', 'doing', 'done', 'archived'].includes(String(value))
     ? value as ResearchStatus
     : 'pending'
+}
+
+export function normalizeThoughtStatus(value?: string): ProjectThoughtStatus {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'done' || normalized === 'handled') return 'handled'
+  return 'inbox'
+}
+
+export function normalizeTaskStatus(value?: string): TaskStatus {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['backlog', 'todo', 'doing', 'done', 'abandoned'].includes(normalized)
+    ? normalized as TaskStatus
+    : 'todo'
 }
 
 export function normalizeWorkLevel(value: string | undefined, fallback: ProjectWorkLevel = 'standard'): ProjectWorkLevel {
@@ -97,6 +112,11 @@ export function shortIdNumber(value: string | undefined, prefix: string) {
 export function normalizeTaskShortId(value: string) {
   const match = String(value || '').trim().match(/^T(\d{1,4})$/i)
   return match ? `T${match[1].padStart(3, '0')}` : ''
+}
+
+export function normalizeThoughtShortId(value: string) {
+  const match = String(value || '').trim().match(/^I(\d{1,4})$/i)
+  return match ? `I${match[1].padStart(3, '0')}` : ''
 }
 
 export function normalizeLogShortId(value: string) {

@@ -11,10 +11,14 @@ import {
   appendTask,
   appendThought,
   createProjectVersion,
+  getDashboard,
   initProject,
   isInitialized,
+  updateDialogueStatus,
   updateProjectMetadata,
   updateProjectVersionStatus,
+  updateTaskStatus,
+  updateThoughtStatus,
 } from '../dist/index.js'
 
 test('project records initialize without Agent runtime artifacts', async (t) => {
@@ -156,6 +160,93 @@ test('legacy change index migrates without losing content', async (t) => {
   assert.equal(await isInitialized(managerRoot, projectRoot), true)
   assert.equal(await readFile(currentPath, 'utf8'), legacyContent)
   assert.equal(await exists(legacyPath), false)
+})
+
+test('thought and research statuses update within their owning version', async (t) => {
+  const managerRoot = await mkdtemp(path.join(os.tmpdir(), 'project-records-data-'))
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'project-records-project-'))
+  t.after(async () => {
+    await rm(managerRoot, { recursive: true, force: true })
+    await rm(projectRoot, { recursive: true, force: true })
+  })
+
+  const initial = await initProject(managerRoot, projectRoot, 'Status Records')
+  await appendThought(managerRoot, projectRoot, { versionId: 'V001', content: 'First version idea' })
+  await appendDialogue(managerRoot, projectRoot, { versionId: 'V001', content: 'First version research' })
+  await createProjectVersion(managerRoot, projectRoot, {
+    label: 'Second',
+    title: 'Second version',
+    goal: 'Verify version isolation',
+  })
+  let dashboard = await appendThought(managerRoot, projectRoot, { versionId: 'V002', content: 'Second version idea' })
+  dashboard = await appendDialogue(managerRoot, projectRoot, { versionId: 'V002', content: 'Second version research' })
+
+  const firstThought = dashboard.thoughts.find((item) => item.content === 'First version idea')
+  const secondThought = dashboard.thoughts.find((item) => item.content === 'Second version idea')
+  const firstDialogue = dashboard.dialogues.find((item) => item.recordContent === 'First version research')
+  const secondDialogue = dashboard.dialogues.find((item) => item.recordContent === 'Second version research')
+  assert.ok(firstThought)
+  assert.ok(secondThought)
+  assert.ok(firstDialogue)
+  assert.ok(secondDialogue)
+
+  await assert.rejects(
+    updateThoughtStatus(managerRoot, projectRoot, firstThought.id, 'handled'),
+    /必须填写有效回答/,
+  )
+  await assert.rejects(
+    updateThoughtStatus(managerRoot, projectRoot, firstThought.id, 'handled', '暂无。'),
+    /必须填写有效回答/,
+  )
+
+  dashboard = await updateThoughtStatus(
+    managerRoot,
+    projectRoot,
+    firstThought.shortId,
+    'handled',
+    '采用第一个版本的方案。',
+  )
+  assert.equal(dashboard.thoughts.find((item) => item.id === firstThought.id)?.status, 'handled')
+  assert.equal(dashboard.thoughts.find((item) => item.id === firstThought.id)?.answer, '采用第一个版本的方案。')
+  assert.equal(dashboard.thoughts.find((item) => item.id === secondThought.id)?.status, 'inbox')
+
+  dashboard = await updateThoughtStatus(managerRoot, projectRoot, firstThought.id, 'inbox')
+  assert.equal(dashboard.thoughts.find((item) => item.id === firstThought.id)?.status, 'inbox')
+  assert.equal(dashboard.thoughts.find((item) => item.id === firstThought.id)?.answer, '采用第一个版本的方案。')
+
+  dashboard = await updateDialogueStatus(managerRoot, projectRoot, firstDialogue.shortId, 'doing')
+  assert.equal(dashboard.dialogues.find((item) => item.id === firstDialogue.id)?.status, 'doing')
+  assert.equal(dashboard.dialogues.find((item) => item.id === secondDialogue.id)?.status, 'pending')
+  await assert.rejects(
+    updateDialogueStatus(managerRoot, projectRoot, secondDialogue.id, 'unknown'),
+    /研究状态不合法/,
+  )
+
+  const secondThoughtPath = path.join(initial.config.dataRoot, 'versions/V002/想法与问题.md')
+  const secondThoughtMarkdown = await readFile(secondThoughtPath, 'utf8')
+  await writeFile(secondThoughtPath, secondThoughtMarkdown.replace('status:: inbox', 'status:: done'), 'utf8')
+  dashboard = await getDashboard(managerRoot, projectRoot)
+  assert.equal(dashboard.thoughts.find((item) => item.id === secondThought.id)?.status, 'handled')
+
+  await writeFile(secondThoughtPath, secondThoughtMarkdown.replace('status:: inbox', 'status:: invalid'), 'utf8')
+  dashboard = await getDashboard(managerRoot, projectRoot)
+  assert.equal(dashboard.thoughts.find((item) => item.id === secondThought.id)?.status, 'inbox')
+})
+
+test('work logs without status remain done when their task status changes', async (t) => {
+  const managerRoot = await mkdtemp(path.join(os.tmpdir(), 'project-records-data-'))
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'project-records-project-'))
+  t.after(async () => {
+    await rm(managerRoot, { recursive: true, force: true })
+    await rm(projectRoot, { recursive: true, force: true })
+  })
+
+  let dashboard = await initProject(managerRoot, projectRoot, 'Log Status Records')
+  const initialTask = dashboard.tasks.find((item) => item.shortId === 'T001')
+  assert.ok(initialTask)
+  dashboard = await updateTaskStatus(managerRoot, projectRoot, initialTask.id, 'doing')
+  assert.equal(dashboard.tasks.find((item) => item.id === initialTask.id)?.status, 'doing')
+  assert.equal(dashboard.logs.find((item) => item.shortId === 'L001')?.status, 'done')
 })
 
 async function exists(filePath) {

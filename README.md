@@ -149,7 +149,8 @@ The Skill explains how to locate `record-summary.json`, follow the current Markd
 - Documents and knowledge notes are independent Markdown files.
 - Persistent counters prevent a deleted short ID from being reused.
 - Writes to aggregate files are serialized and atomically replaced.
-- Task statuses are `todo`, `doing`, `done`, or `abandoned`.
+- Task statuses are `backlog`, `todo`, `doing`, `done`, or `abandoned`.
+- Idea statuses are `inbox` or `handled`. A handled idea must keep a meaningful answer; reopening it preserves that answer.
 - Research statuses are `pending`, `doing`, `done`, or `archived`.
 - Question statuses are `open`, `decided`, `resolved`, or `expired`; replies append to history.
 - Risk statuses are `open`, `resolved`, or `expired`.
@@ -169,7 +170,7 @@ Telance Records 是一个本地优先的项目记录桌面工具。它用 Markdo
 - 每个项目生成 `skills/project-records/SKILL.md`，可从总览复制其路径。
 - 任务、想法、研究、问题、风险和工作记录必须归属明确的 `versions/Vxxx/`；界面当前所选版本决定新记录的写入位置。
 - 版本状态为 `planned | active | paused | completed`，允许多个未完成版本并存；新建版本不会自动完成或改变旧版本。
-- 可切换为 360 × 720 竖向陪伴窗口，在其他 Agent 工作时直接查看和处理任务、协作事项及最新记录。
+- 可切换为 360 × 720 竖向陪伴窗口，在其他 Agent 工作时查看并推进任务、想法、研究与协作事项。
 - “全部版本”视图中新建版本级记录时必须明确选择目标版本；`completed` 版本默认只读。
 - `project.json.currentVersionId` 仅作为兼容默认版本指针，不表示最新版本、唯一活动版本或固定写入目标。
 - 项目文档使用 `Wxxx`，共享知识使用 `Kxxx`。
@@ -182,6 +183,8 @@ Telance Records 是一个本地优先的项目记录桌面工具。它用 Markdo
 任务是独立记录，不包含父子节点、上下文 ID、委派、节点消息、完成汇报或父级验收字段。工作记录使用中性的 `type:: work-log`，只保存结果、修改文件、验证和必要的关键判断。
 
 问题记录保留追加式回复历史。`open` 表示待答复，`decided` 表示待跟进，`resolved` 表示已完成，`expired` 表示不再适用。
+
+想法使用 `inbox | handled` 状态。标记已处理时必须填写有效的处理说明；重新打开想法只恢复为未处理，不删除原有说明。
 
 研究记录可以使用广度或深度模式；保存研究请求本身不会自动创建项目文档或工作记录。需要长期保存的详细结果可以手动写入 W 文档，再通过引用关联。
 

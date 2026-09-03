@@ -4,7 +4,7 @@ import UiIcon from '../ui/UiIcon.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
 import UiTag from '../ui/UiTag.vue'
 import type { CompanionPage, CompanionRecordKind } from '../../composables/useCompanionNavigation'
-import { thoughtPreview } from '../../utils/record-formatters'
+import { dialogueDisplayTitle, thoughtPreview } from '../../utils/record-formatters'
 import type { AnyRecord, TaskCounts } from './types'
 import CompanionVersionPicker from './CompanionVersionPicker.vue'
 
@@ -17,6 +17,7 @@ const props = defineProps<{
   taskProgress: number
   activeTasks: AnyRecord[]
   latestThoughts: AnyRecord[]
+  latestDialogues: AnyRecord[]
   attentionItems: AnyRecord[]
   attentionCount: number
   latestLogs: AnyRecord[]
@@ -60,9 +61,17 @@ function attentionKind(item: AnyRecord): CompanionRecordKind {
     <section class="companion-section">
       <button class="companion-section-head" type="button" @click="emit('openPage', 'thoughts')"><span><UiIcon name="messageCircle" />想法</span></button>
       <div v-if="props.latestThoughts.length" class="companion-list">
-        <button v-for="thought in props.latestThoughts" :key="thought.id || thought.shortId" class="companion-row" type="button" @click="emit('openRecord', 'thought', thought)"><span class="companion-row-main"><small>{{ thought.shortId }}</small><strong>{{ thoughtPreview(thought) }}</strong></span><UiIcon name="chevronRight" /></button>
+        <button v-for="thought in props.latestThoughts" :key="thought.id || thought.shortId" class="companion-row" type="button" @click="emit('openRecord', 'thought', thought)"><span class="companion-row-main"><small>{{ thought.shortId }}</small><strong>{{ thoughtPreview(thought) }}</strong></span><UiStatusTag :status="thought.status" /></button>
       </div>
-      <UiEmptyState v-else message="暂无想法" compact />
+      <UiEmptyState v-else message="暂无未处理想法" compact />
+    </section>
+
+    <section class="companion-section">
+      <button class="companion-section-head" type="button" @click="emit('openPage', 'research')"><span><UiIcon name="messagesSquare" />研究</span></button>
+      <div v-if="props.latestDialogues.length" class="companion-list">
+        <button v-for="dialogue in props.latestDialogues" :key="dialogue.id || dialogue.shortId" class="companion-row" type="button" @click="emit('openRecord', 'research', dialogue)"><span class="companion-row-main"><small>{{ dialogue.shortId }}</small><strong>{{ dialogueDisplayTitle(dialogue) }}</strong></span><UiStatusTag :status="dialogue.status" domain="research" /></button>
+      </div>
+      <UiEmptyState v-else message="暂无待研究项" compact />
     </section>
 
     <section class="companion-section">

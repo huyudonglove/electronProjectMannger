@@ -66,7 +66,7 @@ export async function ensureVersionRecordFiles(dataRoot: string, versionId: stri
 export async function readVersionRecordFamily(dataRoot: string, fileName: string) {
   const files = await listVersionRecordFiles(dataRoot, fileName)
   const contents = await Promise.all(files.map((relativePath) => readProjectFile(dataRoot, relativePath)))
-  return contents.join('\n\n')
+  return contents.flatMap(recordBlocksOnly).join('\n\n')
 }
 
 export async function listVersionRecordFiles(dataRoot: string, fileName: string) {
@@ -97,7 +97,11 @@ export async function readVersionLogs(dataRoot: string) {
     .filter((relativePath) => /^versions\/V\d+\/工作记录\/\d{4}-\d{2}\.md$/.test(relativePath.replaceAll('\\', '/')))
     .sort()
   const contents = await Promise.all(files.map((relativePath) => readProjectFile(dataRoot, relativePath)))
-  return contents.join('\n\n')
+  return contents.flatMap(recordBlocksOnly).join('\n\n')
+}
+
+function recordBlocksOnly(content: string) {
+  return splitMarkdownBlocks(content).filter((block) => block.trim().startsWith('## '))
 }
 
 function escapeRegExp(value: string) {

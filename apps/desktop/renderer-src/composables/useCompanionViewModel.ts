@@ -53,7 +53,20 @@ export function useCompanionViewModel(options: {
       .sort((left: AnyRecord, right: AnyRecord) => displayTime(right.created) - displayTime(left.created)
         || recordSequence(right.shortId) - recordSequence(left.shortId))
     : [])
-  const latestThoughts = computed(() => versionThoughts.value.slice(0, 3))
+  const latestThoughts = computed(() => versionThoughts.value
+    .filter((thought: AnyRecord) => thought.status !== 'handled')
+    .slice(0, 3))
+  const versionDialogues = computed(() => currentVersionId.value
+    ? (dashboard.value?.dialogues || [])
+      .filter((dialogue: AnyRecord) => dialogue.version === currentVersionId.value)
+      .slice()
+      .sort((left: AnyRecord, right: AnyRecord) => dialogueRank(left.status) - dialogueRank(right.status)
+        || displayTime(right.updated || right.created) - displayTime(left.updated || left.created)
+        || recordSequence(right.shortId) - recordSequence(left.shortId))
+    : [])
+  const activeDialogues = computed(() => versionDialogues.value
+    .filter((dialogue: AnyRecord) => ['pending', 'doing'].includes(dialogue.status)))
+  const latestDialogues = computed(() => activeDialogues.value.slice(0, 3))
   const allAttentionItems = computed(() => {
     const questions = (dashboard.value?.questions || [])
       .filter((item: AnyRecord) => ['open', 'decided'].includes(item.status))
@@ -65,7 +78,15 @@ export function useCompanionViewModel(options: {
       }))
     const risks = (dashboard.value?.risks || [])
       .filter((item: AnyRecord) => item.status === 'open' && item.version === currentVersionId.value)
-      .map((item: AnyRecord) => ({ ...item, companionKind: '风险', companionTargetKind: 'risk' }))
+      .map((item: AnyRecord) => ({
+        ...item,
+        companionKind: ({
+          risk: '风险',
+          verification: '验证限制',
+          'follow-up': '后续事项',
+        } as Record<string, string>)[item.kind] || '风险',
+        companionTargetKind: 'risk',
+      }))
     return [...questions, ...risks]
       .sort((left, right) => displayTime(right.updated || right.created) - displayTime(left.updated || left.created))
   })
@@ -88,6 +109,9 @@ export function useCompanionViewModel(options: {
     activeTasks,
     versionThoughts,
     latestThoughts,
+    versionDialogues,
+    activeDialogues,
+    latestDialogues,
     attentionItems,
     allAttentionItems,
     attentionCount,
@@ -98,6 +122,10 @@ export function useCompanionViewModel(options: {
 
 function taskRank(status: string) {
   return ({ doing: 0, todo: 1, backlog: 2, done: 3, abandoned: 4 } as Record<string, number>)[status] ?? 5
+}
+
+function dialogueRank(status: string) {
+  return ({ doing: 0, pending: 1, done: 2, archived: 3 } as Record<string, number>)[status] ?? 4
 }
 
 function displayTime(value: string) {

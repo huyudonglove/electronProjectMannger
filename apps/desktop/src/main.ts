@@ -28,7 +28,9 @@ import {
   updateProjectMetadata,
   updateProjectVersionStatus,
   updateAllProjectMetadata,
+  updateDialogueStatus,
   updateTaskStatus,
+  updateThoughtStatus,
 } from '@telance-records/project-core'
 import { WindowController } from './window-controller.js'
 
@@ -231,8 +233,27 @@ function registerIpc() {
     return appendThought(managerDataRoot, projectRoot, payload)
   })
 
+  ipcMain.handle('project:update-thought-status', async (
+    _event,
+    projectRoot: string,
+    thoughtId: string,
+    status: string,
+    answer?: string,
+  ) => {
+    return updateThoughtStatus(managerDataRoot, projectRoot, thoughtId, status, answer)
+  })
+
   ipcMain.handle('project:add-dialogue', async (_event, projectRoot: string, payload) => {
     return appendDialogue(managerDataRoot, projectRoot, payload)
+  })
+
+  ipcMain.handle('project:update-dialogue-status', async (
+    _event,
+    projectRoot: string,
+    dialogueId: string,
+    status: string,
+  ) => {
+    return updateDialogueStatus(managerDataRoot, projectRoot, dialogueId, status)
   })
 
   ipcMain.handle('project:delete-dialogue', async (_event, projectRoot: string, dialogueId: string) => {

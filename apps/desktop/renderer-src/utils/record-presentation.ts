@@ -42,8 +42,8 @@ const recordStatusLabels: Readonly<Record<string, string>> = {
   doing: 'Doing',
   done: 'Done',
   abandoned: '已放弃',
-  inbox: 'Inbox',
-  handled: 'Done',
+  inbox: '未处理',
+  handled: '已处理',
   pending: '待研究',
   archived: '已归档',
 }

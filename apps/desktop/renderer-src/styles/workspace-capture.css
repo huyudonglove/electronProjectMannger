@@ -55,6 +55,12 @@
   align-items: center;
 }
 
+.thought-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .thought-title {
   min-width: 0;
 }
@@ -131,4 +137,3 @@
   color: var(--muted);
   font-size: var(--font-size-sm);
 }
-
