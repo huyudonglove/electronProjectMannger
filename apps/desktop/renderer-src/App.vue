@@ -828,6 +828,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     :open="state.projectOverlayOpen"
     :busy="state.busy"
     :projects="state.recentProjects"
+    :current-project-root="state.projectRoot"
     @close="closeRecentProjects"
     @open-project="openProjectPath"
     @remove-project="removeRecentProject"

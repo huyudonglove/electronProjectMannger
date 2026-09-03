@@ -64,8 +64,8 @@ export function useProjectUiActions(options: ProjectUiActionsOptions) {
 
   async function openProjectPath(nextProjectRoot: string) {
     await runAction('正在打开项目...', async () => {
-      projectOverlayOpen.value = false
       await openProject(nextProjectRoot)
+      projectOverlayOpen.value = false
       setStatus(initialized.value ? '' : '项目尚未初始化。')
     })
   }
@@ -75,7 +75,6 @@ export function useProjectUiActions(options: ProjectUiActionsOptions) {
       setStatus('项目 ID 不能为空。')
       return
     }
-    if (!confirm('移除这条最近项目记录？项目文件和管理数据不会被删除。')) return
     await runAction('正在移除历史记录...', async () => {
       await removeRecentProjectRecord(projectId)
       setStatus('')
