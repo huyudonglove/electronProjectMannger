@@ -33,6 +33,7 @@ import {
 import { WindowController } from './window-controller.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const appIconPath = path.join(__dirname, '..', 'assets', 'icon.png')
 
 let mainWindow: BrowserWindow | null = null
 let managerDataRoot = ''
@@ -51,7 +52,7 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     ...windowOptions,
     title: 'Telance Records',
-    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    icon: appIconPath,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.cjs'),
       contextIsolation: true,
@@ -70,6 +71,7 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
   managerDataRoot = app.getPath('userData')
   const metadataResults = await updateAllProjectMetadata(managerDataRoot)
   for (const result of metadataResults) {

@@ -2,10 +2,13 @@
 import { computed } from 'vue'
 import CollaborationRecordDetail, { type CollaborationRecordMode } from '../details/CollaborationRecordDetail.vue'
 import TaskDetailContent from '../details/TaskDetailContent.vue'
+import ThoughtDetailContent from '../details/ThoughtDetailContent.vue'
 import WorkLogDetail from '../details/WorkLogDetail.vue'
 import UiIcon from '../ui/UiIcon.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
 import type { CompanionRecordKind } from '../../composables/useCompanionNavigation'
+import { thoughtDisplayTitle } from '../../utils/record-formatters'
+import { formatTime } from '../../utils/record-presentation'
 import type { AnyRecord } from './types'
 
 const props = defineProps<{
@@ -48,6 +51,15 @@ function nextTaskStatus(task: AnyRecord): 'doing' | 'done' | null {
         </button>
       </section>
       <TaskDetailContent :task="props.record" />
+    </template>
+
+    <template v-else-if="props.kind === 'thought'">
+      <section class="companion-detail-heading">
+        <div><span class="task-short-id">{{ props.record.shortId }}</span></div>
+        <h2 v-if="thoughtDisplayTitle(props.record)">{{ thoughtDisplayTitle(props.record) }}</h2>
+        <small v-if="props.record.created">{{ formatTime(props.record.created) }}</small>
+      </section>
+      <ThoughtDetailContent :thought="props.record" />
     </template>
 
     <CollaborationRecordDetail

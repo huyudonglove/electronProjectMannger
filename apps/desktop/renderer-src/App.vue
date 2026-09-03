@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, toRef } from 'vue'
+import { computed, onMounted, reactive, ref, toRef, watch } from 'vue'
 import { darkTheme, NConfigProvider } from 'naive-ui'
 import BrandMark from './components/ui/BrandMark.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
@@ -114,18 +114,6 @@ const {
 
 const dashboard = computed(() => state.dashboard)
 const {
-  currentVersion: companionCurrentVersion,
-  versionTasks: companionVersionTasks,
-  taskCounts: companionTaskCounts,
-  taskProgress: companionTaskProgress,
-  activeTasks: companionActiveTasks,
-  attentionItems: companionAttentionItems,
-  allAttentionItems: companionAllAttentionItems,
-  attentionCount: companionAttentionCount,
-  latestLogs: companionLatestLogs,
-  versionLogs: companionVersionLogs,
-} = useCompanionViewModel(dashboard)
-const {
   versions,
   selectedVersion,
   creationVersionId,
@@ -139,6 +127,24 @@ const {
   projectRoot: toRef(state, 'projectRoot'),
   selectedVersionId: toRef(state, 'selectedVersionId'),
   selectedVersionByProject: state.selectedVersionByProject,
+})
+const {
+  currentVersion: companionCurrentVersion,
+  currentVersionId: companionVersionId,
+  versionTasks: companionVersionTasks,
+  taskCounts: companionTaskCounts,
+  taskProgress: companionTaskProgress,
+  activeTasks: companionActiveTasks,
+  versionThoughts: companionVersionThoughts,
+  latestThoughts: companionLatestThoughts,
+  attentionItems: companionAttentionItems,
+  allAttentionItems: companionAllAttentionItems,
+  attentionCount: companionAttentionCount,
+  latestLogs: companionLatestLogs,
+  versionLogs: companionVersionLogs,
+} = useCompanionViewModel({
+  dashboard,
+  selectedVersionId: toRef(state, 'selectedVersionId'),
 })
 const { applyProjectResult, replaceDashboard } = useDashboardReconciliation({
   projectRoot: toRef(state, 'projectRoot'),
@@ -190,7 +196,7 @@ const {
 } = useQuickCreateController({
   section: toRef(state, 'section'),
   versions,
-  requireCreationVersion: () => requireCreationVersion(),
+  requireCreationVersion: (form, requestedVersionId) => requireCreationVersion(form, requestedVersionId),
   openCollaborationCreate: () => openQuestionDialog(),
   hasActiveModal: () => Boolean(activeModal.value),
 })
@@ -411,10 +417,18 @@ const {
 } = useCompanionNavigation({
   currentVersion: companionCurrentVersion,
   tasks: companionVersionTasks,
+  thoughts: companionVersionThoughts,
   collaborationItems: companionAllAttentionItems,
   logs: companionVersionLogs,
   showToast,
 })
+watch(() => state.projectRoot, resetCompanionNavigation)
+watch(
+  [companionMode, () => state.selectedVersionId, companionVersionId],
+  ([enabled]) => {
+    if (enabled) ensureCompanionVersionSelection()
+  },
+)
 const projectName = computed(() => dashboard.value?.config?.name || projectDisplayName(state.projectRoot) || '')
 const pageMeta = computed(() => pageMetaBySection[state.section] || defaultPageMeta)
 const showVersionSwitcher = computed(() => versionScopedSections.has(state.section))
@@ -468,7 +482,17 @@ function prepareCompanionMode() {
   closeMarkdownDocument()
   state.projectOverlayOpen = false
   state.versionMenuOpen = false
+  ensureCompanionVersionSelection()
   resetCompanionNavigation()
+}
+
+function ensureCompanionVersionSelection() {
+  const hasConcreteSelection = versions.value.some(
+    (version: AnyRecord) => version.shortId === state.selectedVersionId,
+  )
+  if (!hasConcreteSelection && companionVersionId.value) {
+    setSelectedVersion(companionVersionId.value)
+  }
 }
 
 async function leaveCompanionMode() {
@@ -480,12 +504,16 @@ async function leaveCompanionMode() {
 }
 
 function openCompanionCreateMenu() {
-  openCompanionCreate(String(companionCurrentVersion.value?.shortId || ''))
+  openCompanionCreate(companionVersionId.value)
 }
 
 function openCompanionCollaborationCreate() {
   closeQuickTask({ restoreFocus: false })
-  openQuestionDialog(String(companionCurrentVersion.value?.shortId || ''))
+  openQuestionDialog(companionVersionId.value)
+}
+
+function selectCompanionVersion(versionId: string) {
+  selectVersion(versionId)
 }
 
 async function copyResearchPrompt(dialogue: AnyRecord) {
@@ -529,11 +557,15 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     :initialized="state.initialized"
     :busy="state.busy || state.autoRefreshing"
     :status="state.status"
+    :versions="versions"
     :current-version="companionCurrentVersion"
+    :selected-version-id="companionVersionId"
     :task-counts="companionTaskCounts"
     :task-progress="companionTaskProgress"
     :active-tasks="companionActiveTasks"
     :tasks="companionVersionTasks"
+    :latest-thoughts="companionLatestThoughts"
+    :thoughts="companionVersionThoughts"
     :attention-items="companionAttentionItems"
     :all-attention-items="companionAllAttentionItems"
     :attention-count="companionAttentionCount"
@@ -548,8 +580,10 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     :switching="companionSwitching"
     @restore="leaveCompanionMode"
     @create="openCompanionCreateMenu"
+    @switch-project="openRecentProjects"
     @toggle-pinned="toggleCompanionPinned"
     @refresh="refreshDashboard({ quiet: false })"
+    @select-version="selectCompanionVersion"
     @open-page="openCompanionPage"
     @open-record="openCompanionRecord"
     @back="backInCompanion"
@@ -790,7 +824,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   />
 
   <ProjectPickerDialog
-    v-if="companionStateReady && !companionMode"
+    v-if="companionStateReady"
     :open="state.projectOverlayOpen"
     :busy="state.busy"
     :projects="state.recentProjects"

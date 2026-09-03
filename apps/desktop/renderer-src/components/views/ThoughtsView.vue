@@ -3,6 +3,7 @@ import UiEmptyState from '../ui/UiEmptyState.vue'
 import UiIconButton from '../ui/UiIconButton.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
 import { formatTime } from '../../utils/record-presentation'
+import { thoughtDisplayTitle } from '../../utils/record-formatters'
 
 type ThoughtItem = Record<string, any>
 
@@ -15,11 +16,6 @@ defineProps<{
 const emit = defineEmits<{
   deleteThought: [thoughtId: string]
 }>()
-
-function thoughtDisplayTitle(thought: ThoughtItem) {
-  const title = String(thought.title || '').replace(/\s*想法\s*$/, '').trim()
-  return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?$/.test(title) ? '' : title
-}
 
 </script>
 

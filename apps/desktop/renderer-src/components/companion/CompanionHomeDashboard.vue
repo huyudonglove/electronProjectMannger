@@ -4,14 +4,19 @@ import UiIcon from '../ui/UiIcon.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
 import UiTag from '../ui/UiTag.vue'
 import type { CompanionPage, CompanionRecordKind } from '../../composables/useCompanionNavigation'
+import { thoughtPreview } from '../../utils/record-formatters'
 import type { AnyRecord, TaskCounts } from './types'
+import CompanionVersionPicker from './CompanionVersionPicker.vue'
 
 const props = defineProps<{
-  projectName: string
+  versions: AnyRecord[]
   currentVersion: AnyRecord | null
+  selectedVersionId: string
+  busy: boolean
   taskCounts: TaskCounts
   taskProgress: number
   activeTasks: AnyRecord[]
+  latestThoughts: AnyRecord[]
   attentionItems: AnyRecord[]
   attentionCount: number
   latestLogs: AnyRecord[]
@@ -20,6 +25,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   openPage: [page: CompanionPage]
   openRecord: [kind: CompanionRecordKind, record: AnyRecord]
+  selectVersion: [versionId: string]
 }>()
 
 function versionStatusText(status: string) {
@@ -35,7 +41,13 @@ function attentionKind(item: AnyRecord): CompanionRecordKind {
   <div class="companion-content">
     <section class="companion-version-card">
       <div class="companion-version-head">
-        <span><small>当前版本 · {{ props.currentVersion?.shortId }}</small><strong>{{ props.currentVersion?.label || props.currentVersion?.title || props.projectName }}</strong></span>
+        <CompanionVersionPicker
+          :versions="props.versions"
+          :current-version="props.currentVersion"
+          :selected-version-id="props.selectedVersionId"
+          :busy="props.busy"
+          @select="emit('selectVersion', $event)"
+        />
         <UiTag :label="versionStatusText(props.currentVersion?.status || 'planned')" :tone="props.currentVersion?.status === 'active' ? 'warning' : props.currentVersion?.status === 'completed' ? 'complete' : 'neutral'" variant="status" icon-name="circleDot" />
       </div>
       <div class="companion-progress-copy"><strong>{{ props.taskCounts.done }} / {{ props.taskCounts.total }}</strong></div>
@@ -43,6 +55,14 @@ function attentionKind(item: AnyRecord): CompanionRecordKind {
       <div class="companion-metrics">
         <span><strong>{{ props.taskCounts.doing }}</strong><small>进行中</small></span><span><strong>{{ props.taskCounts.todo }}</strong><small>待处理</small></span><span><strong>{{ props.taskCounts.backlog }}</strong><small>待规划</small></span><span><strong>{{ props.taskCounts.done }}</strong><small>已完成</small></span>
       </div>
+    </section>
+
+    <section class="companion-section">
+      <button class="companion-section-head" type="button" @click="emit('openPage', 'thoughts')"><span><UiIcon name="messageCircle" />想法</span></button>
+      <div v-if="props.latestThoughts.length" class="companion-list">
+        <button v-for="thought in props.latestThoughts" :key="thought.id || thought.shortId" class="companion-row" type="button" @click="emit('openRecord', 'thought', thought)"><span class="companion-row-main"><small>{{ thought.shortId }}</small><strong>{{ thoughtPreview(thought) }}</strong></span><UiIcon name="chevronRight" /></button>
+      </div>
+      <UiEmptyState v-else message="暂无想法" compact />
     </section>
 
     <section class="companion-section">

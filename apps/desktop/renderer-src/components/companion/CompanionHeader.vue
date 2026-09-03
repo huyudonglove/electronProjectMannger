@@ -14,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   back: []
   create: []
+  switchProject: []
   togglePinned: []
   refresh: []
   restore: []
@@ -31,6 +32,7 @@ const emit = defineEmits<{
       </span>
     </div>
     <div class="companion-actions">
+      <UiIconButton icon="folderOpen" label="切换项目" variant="ghost" size="sm" :disabled="props.busy" @click="emit('switchProject')" />
       <UiIconButton class="companion-create" icon="plus" label="新增记录" variant="ghost" size="sm" :disabled="props.busy" @click="emit('create')" />
       <UiIconButton :icon="props.pinned ? 'pinOff' : 'pin'" :label="props.pinned ? '取消窗口置顶' : '窗口置顶'" variant="ghost" size="sm" :disabled="props.switching" @click="emit('togglePinned')" />
       <UiIconButton icon="refresh" label="刷新记录" variant="ghost" size="sm" :disabled="props.busy" @click="emit('refresh')" />

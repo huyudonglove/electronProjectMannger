@@ -1,14 +1,24 @@
 import { computed, type Ref } from 'vue'
 import type { AnyRecord } from '../utils/record-formatters'
 
-export function useCompanionViewModel(
-  dashboard: Readonly<Ref<AnyRecord | null>>,
-) {
-  const currentVersion = computed(() => dashboard.value?.currentVersion
-    || (dashboard.value?.versions || []).find(
-      (version: AnyRecord) => version.shortId === dashboard.value?.config?.currentVersionId,
-    )
-    || null)
+export function useCompanionViewModel(options: {
+  dashboard: Readonly<Ref<AnyRecord | null>>
+  selectedVersionId: Readonly<Ref<string>>
+}) {
+  const { dashboard, selectedVersionId } = options
+  const currentVersion = computed(() => {
+    const versions = dashboard.value?.versions || []
+    const selectedVersion = selectedVersionId.value !== 'all'
+      ? versions.find((version: AnyRecord) => version.shortId === selectedVersionId.value)
+      : null
+    const fallbackVersionId = dashboard.value?.currentVersion?.shortId
+      || dashboard.value?.config?.currentVersionId
+      || ''
+    return selectedVersion
+      || versions.find((version: AnyRecord) => version.shortId === fallbackVersionId)
+      || dashboard.value?.currentVersion
+      || null
+  })
   const currentVersionId = computed(() => String(currentVersion.value?.shortId || ''))
   const versionTasks = computed(() => (dashboard.value?.tasks || []).filter(
     (task: AnyRecord) => task.version === currentVersionId.value,
@@ -36,6 +46,14 @@ export function useCompanionViewModel(
   const activeTasks = computed(() => sortedTasks.value
     .filter((task: AnyRecord) => ['doing', 'todo', 'backlog'].includes(task.status))
     .slice(0, 4))
+  const versionThoughts = computed(() => currentVersionId.value
+    ? (dashboard.value?.thoughts || [])
+      .filter((thought: AnyRecord) => thought.version === currentVersionId.value)
+      .slice()
+      .sort((left: AnyRecord, right: AnyRecord) => displayTime(right.created) - displayTime(left.created)
+        || recordSequence(right.shortId) - recordSequence(left.shortId))
+    : [])
+  const latestThoughts = computed(() => versionThoughts.value.slice(0, 3))
   const allAttentionItems = computed(() => {
     const questions = (dashboard.value?.questions || [])
       .filter((item: AnyRecord) => ['open', 'decided'].includes(item.status))
@@ -63,10 +81,13 @@ export function useCompanionViewModel(
 
   return {
     currentVersion,
+    currentVersionId,
     versionTasks: sortedTasks,
     taskCounts,
     taskProgress,
     activeTasks,
+    versionThoughts,
+    latestThoughts,
     attentionItems,
     allAttentionItems,
     attentionCount,

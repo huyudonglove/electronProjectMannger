@@ -4,11 +4,13 @@ import UiIcon from '../ui/UiIcon.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
 import type { CompanionPage, CompanionRecordKind } from '../../composables/useCompanionNavigation'
 import { formatTime } from '../../utils/record-presentation'
+import { hasThoughtAnswer, thoughtPreview } from '../../utils/record-formatters'
 import type { AnyRecord } from './types'
 
 const props = defineProps<{
   page: Exclude<CompanionPage, 'home'>
   tasks: AnyRecord[]
+  thoughts: AnyRecord[]
   attentionItems: AnyRecord[]
   logs: AnyRecord[]
 }>()
@@ -33,6 +35,16 @@ function attentionKind(item: AnyRecord): CompanionRecordKind {
     <UiEmptyState v-else message="暂无任务" compact />
   </div>
 
+  <div v-else-if="props.page === 'thoughts'" class="companion-content companion-list-page">
+    <div v-if="props.thoughts.length" class="companion-section companion-list">
+      <button v-for="thought in props.thoughts" :key="thought.id || thought.shortId" class="companion-log-row" type="button" @click="emit('openRecord', 'thought', thought)">
+        <span><small>{{ thought.shortId }}<template v-if="thought.created"> · {{ formatTime(thought.created) }}</template></small><strong>{{ thoughtPreview(thought) }}</strong></span>
+        <p v-if="hasThoughtAnswer(thought.answer)">{{ thought.answer }}</p>
+      </button>
+    </div>
+    <UiEmptyState v-else message="暂无想法" compact />
+  </div>
+
   <div v-else-if="props.page === 'collaboration'" class="companion-content companion-list-page">
     <div v-if="props.attentionItems.length" class="companion-section companion-list">
       <button v-for="item in props.attentionItems" :key="item.id" class="companion-row" type="button" @click="emit('openRecord', attentionKind(item), item)">
@@ -43,7 +55,7 @@ function attentionKind(item: AnyRecord): CompanionRecordKind {
     <UiEmptyState v-else message="暂无待处理协作" compact />
   </div>
 
-  <div v-else class="companion-content companion-list-page">
+  <div v-else-if="props.page === 'logs'" class="companion-content companion-list-page">
     <div v-if="props.logs.length" class="companion-section companion-list">
       <button v-for="log in props.logs" :key="log.id || log.shortId" class="companion-log-row" type="button" @click="emit('openRecord', 'log', log)">
         <span><small>{{ log.shortId }} · {{ formatTime(log.created) }}</small><strong>{{ log.title }}</strong></span>

@@ -1,5 +1,19 @@
 export type AnyRecord = Record<string, any>
 
+export function thoughtDisplayTitle(thought: AnyRecord) {
+  const title = String(thought.title || '').replace(/\s*想法\s*$/, '').trim()
+  return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2})?$/.test(title) ? '' : title
+}
+
+export function thoughtPreview(thought: AnyRecord) {
+  return firstMeaningfulLine(thought.content || '') || thoughtDisplayTitle(thought) || '想法'
+}
+
+export function hasThoughtAnswer(value: unknown) {
+  const answer = String(value || '').trim()
+  return Boolean(answer && !['暂无。', '暂无', '待处理。', '待处理'].includes(answer))
+}
+
 export function dialogueDisplayTitle(dialogue: AnyRecord) {
   return firstMeaningfulLine(dialogue.recordContent || dialogue.answer || dialogue.title || '') || dialogueTitle(dialogue)
 }
