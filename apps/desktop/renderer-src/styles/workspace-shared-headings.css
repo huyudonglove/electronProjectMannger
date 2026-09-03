@@ -17,6 +17,9 @@
 }
 
 .quick-task-heading small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   color: var(--muted);
   font-size: var(--font-size-sm);
 }
@@ -32,4 +35,3 @@
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-

@@ -31,17 +31,10 @@ const emit = defineEmits<{
 
 <template>
   <section id="board" class="section view active-view">
-    <div class="section-head task-board-head">
-      <div>
-        <h2>任务</h2>
-        <span>{{ props.selectedVersionLabel ? `${props.selectedVersionLabel} · ` : '' }}{{ props.tasks.length }} 个任务</span>
-      </div>
-    </div>
     <div class="board">
       <section v-for="[status, label] in props.columns" :key="status" class="column">
         <div class="column-head"><h3>{{ label }}</h3><span class="column-count">{{ props.tasks.filter((task) => task.status === status).length }}</span></div>
         <div class="tasks">
-          <p v-if="!props.boardItems(status).length" class="empty">暂无任务</p>
           <TaskCard
             v-for="task in props.boardItems(status)"
             :key="task.id"
@@ -55,6 +48,7 @@ const emit = defineEmits<{
             @status-action="(item, nextStatus) => emit('taskStatusAction', item, nextStatus)"
           />
           <button v-if="status === 'done' && props.tasks.filter((task) => task.status === 'done').length > 6" class="done-toggle" type="button" @click="emit('toggleDone')">
+            <UiIcon name="chevronDown" :class="{ expanded: props.doneExpanded }" />
             {{ props.doneExpanded ? '收起已完成任务' : `展开 ${props.hiddenDoneCount(status)} 个已完成任务` }}
           </button>
         </div>

@@ -22,11 +22,10 @@ defineEmits<{
     title-id="initDialogTitle"
     panel-class="init-dialog"
   >
-    <h2 id="initDialogTitle">初始化项目管理数据</h2>
-    <p>为当前项目创建本地管理数据和记录目录。</p>
+    <h2 id="initDialogTitle">初始化项目</h2>
     <div class="init-dialog-actions">
       <UiIconButton
-        icon="archive"
+        icon="plus"
         label="初始化"
         variant="primary"
         data-dialog-initial
@@ -34,8 +33,8 @@ defineEmits<{
         @click="$emit('initialize')"
       />
       <UiIconButton
-        icon="history"
-        label="重新选择项目"
+        icon="folderOpen"
+        label="选择其他项目"
         :disabled="busy"
         @click="$emit('chooseProject')"
       />

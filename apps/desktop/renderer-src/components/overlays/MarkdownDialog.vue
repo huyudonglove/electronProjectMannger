@@ -31,7 +31,7 @@ defineEmits<{
   >
     <DialogHeader class="markdown-dialog-head" title-id="markdownDialogTitle" :title="title" :subtitle="subtitle" initial-focus @close="$emit('close')" />
     <div class="markdown-dialog-meta">
-      <UiTag :label="`出处：${origin}`" icon-name="fileText" />
+      <UiTag :label="origin" icon-name="fileText" />
       <UiTag v-for="label in badges" :key="label" :label="label" icon-name="tag" />
     </div>
     <div class="markdown-dialog-body rendered-markdown" v-html="contentHtml" />

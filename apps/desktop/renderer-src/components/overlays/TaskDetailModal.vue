@@ -4,7 +4,6 @@ import {
   priorityIcon,
   priorityTone,
   workLevelIcon,
-  workLevelLabel,
   workLevelLabelWithReason,
 } from '../../utils/record-presentation'
 import TaskDetailContent, { type TaskDetailRecord } from '../details/TaskDetailContent.vue'
@@ -34,7 +33,7 @@ defineEmits<{
       <DialogHeader
         title-id="taskDetailTitle"
         :title="task.title || '未命名任务'"
-        :subtitle="task.updated ? `更新于 ${formatTime(task.updated)} · ${workLevelLabel(task.workLevel)}` : `未标注更新时间 · ${workLevelLabel(task.workLevel)}`"
+        :subtitle="task.updated ? `更新于 ${formatTime(task.updated)}` : ''"
         initial-focus
         @close="$emit('close')"
       >

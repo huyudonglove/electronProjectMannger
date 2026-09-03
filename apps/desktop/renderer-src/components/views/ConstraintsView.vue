@@ -30,7 +30,6 @@ const emit = defineEmits<{
         aria-label="搜索约束"
         @update:model-value="emit('update:query', $event)"
       />
-      <span>{{ props.items.length }} 项目约束 · {{ props.systemItems.length }} 系统规则</span>
     </div>
 
     <div class="constraint-shelf library-shelf">
@@ -61,7 +60,7 @@ const emit = defineEmits<{
       <section class="constraint-group">
         <div class="knowledge-group-head">
           <strong>系统规则</strong>
-          <span>{{ props.systemItems.length }} 条 · 只读</span>
+          <span>只读 · {{ props.systemItems.length }}</span>
         </div>
         <UiEmptyState
           v-if="!props.systemItems.length"

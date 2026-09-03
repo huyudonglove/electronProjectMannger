@@ -5,8 +5,8 @@ import CompanionHeader from '../companion/CompanionHeader.vue'
 import CompanionHomeDashboard from '../companion/CompanionHomeDashboard.vue'
 import CompanionListPage from '../companion/CompanionListPage.vue'
 import UiEmptyState from '../ui/UiEmptyState.vue'
+import UiIcon from '../ui/UiIcon.vue'
 import type { CompanionPage, CompanionRecordKind } from '../../composables/useCompanionNavigation'
-import { formatTime } from '../../utils/record-presentation'
 import type { AnyRecord, TaskCounts } from '../companion/types'
 
 const props = defineProps<{
@@ -29,7 +29,6 @@ const props = defineProps<{
   detailRecord: AnyRecord | null
   showingDetail: boolean
   canGoBack: boolean
-  generatedAt: string
   pinned: boolean
   switching: boolean
 }>()
@@ -55,10 +54,14 @@ const pageTitle = computed(() => {
 })
 
 const pageSubtitle = computed(() => props.showingDetail
-  ? '当前版本记录'
-  : props.page === 'home'
-    ? `${props.currentVersion?.shortId || '当前项目'} · 记录陪伴中`
-    : `${props.currentVersion?.shortId || '当前版本'} · ${props.currentVersion?.label || ''}`)
+  ? props.currentVersion?.shortId || ''
+  : props.page === 'tasks'
+    ? `${props.currentVersion?.shortId || '当前版本'} · ${props.tasks.length} 条`
+    : props.page === 'collaboration'
+      ? `${props.currentVersion?.shortId || '当前版本'} · ${props.allAttentionItems.length} 条`
+      : props.page === 'logs'
+        ? `${props.currentVersion?.shortId || '当前版本'} · ${props.logs.length} 条`
+        : props.currentVersion?.shortId || '')
 </script>
 
 <template>
@@ -79,7 +82,7 @@ const pageSubtitle = computed(() => props.showingDetail
 
     <div v-if="!props.initialized" class="companion-empty-panel">
       <UiEmptyState message="请恢复完整模式后选择并初始化项目。" />
-      <button class="btn btn-primary" type="button" @click="emit('restore')">恢复完整模式</button>
+      <button class="btn btn-primary" type="button" @click="emit('restore')"><UiIcon name="maximize" />恢复完整模式</button>
     </div>
 
     <CompanionDetailPage
@@ -118,6 +121,6 @@ const pageSubtitle = computed(() => props.showingDetail
       @open-record="(kind, record) => emit('openRecord', kind, record)"
     />
 
-    <footer class="companion-footer" aria-live="polite"><span class="sync-status-dot" :class="{ busy: props.busy, ready: props.initialized && !props.busy }"></span><span>{{ props.busy ? (props.status || '正在同步记录') : `自动跟随记录更新 · ${formatTime(props.generatedAt)}` }}</span></footer>
+    <footer v-if="props.busy || props.status" class="companion-footer" aria-live="polite"><span class="sync-status-dot" :class="{ busy: props.busy }"></span><span>{{ props.status || '正在同步记录' }}</span></footer>
   </main>
 </template>

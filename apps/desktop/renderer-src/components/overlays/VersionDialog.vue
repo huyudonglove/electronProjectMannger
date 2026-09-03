@@ -45,14 +45,14 @@ function updateForm(patch: Partial<VersionForm>) {
     @close="emit('close')"
     @submit="emit('submit')"
   >
-    <DialogHeader title-id="versionDialogTitle" title="创建新版本" subtitle="版本独立管理；创建后可从顶部选择它来记录内容。" @close="emit('close')" />
+    <DialogHeader title-id="versionDialogTitle" title="创建版本" @close="emit('close')" />
     <div class="record-dialog-grid">
       <label>
-        <span>版本名称</span>
+        <span>版本号</span>
         <input :value="form.label" type="text" data-dialog-initial placeholder="v0.2" @input="updateForm({ label: eventValue($event) })" />
       </label>
       <label>
-        <span>版本标题</span>
+        <span>标题</span>
         <input :value="form.title" type="text" placeholder="真实数据联调" @input="updateForm({ title: eventValue($event) })" />
       </label>
     </div>
@@ -62,12 +62,12 @@ function updateForm(patch: Partial<VersionForm>) {
     </label>
     <label>
       <span>版本目标</span>
-      <textarea :value="form.goal" rows="3" placeholder="这一阶段完成后，项目应达到什么状态。" @input="updateForm({ goal: eventValue($event) })"></textarea>
+      <textarea :value="form.goal" rows="3" placeholder="本版本要达成什么？" @input="updateForm({ goal: eventValue($event) })"></textarea>
     </label>
     <label>
       <span>内容描述</span>
-      <textarea :value="form.summary" rows="3" placeholder="大致包含哪些工作。" @input="updateForm({ summary: eventValue($event) })"></textarea>
+      <textarea :value="form.summary" rows="3" placeholder="包含哪些工作？" @input="updateForm({ summary: eventValue($event) })"></textarea>
     </label>
-    <FormActions :status="form.feedback" submit-label="创建版本" />
+    <FormActions :status="form.feedback" submit-label="创建版本" submit-icon="plus" />
   </ModalLayer>
 </template>

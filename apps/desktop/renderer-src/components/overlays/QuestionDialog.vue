@@ -53,16 +53,16 @@ function updateForm(patch: Partial<QuestionForm>) {
     @close="emit('close')"
     @submit="emit('submit')"
   >
-    <DialogHeader title-id="questionDialogTitle" title="发起协作记录" subtitle="提交后会进入“待跟进”。" @close="emit('close')" />
-    <label><span>标题</span><input :value="form.title" type="text" data-dialog-initial placeholder="需要继续跟进什么" @input="updateForm({ title: eventValue($event) })" /></label>
-    <label><span>内容</span><textarea :value="form.question" rows="3" placeholder="写下问题、决定或需要落实的事项。" @input="updateForm({ question: eventValue($event) })"></textarea></label>
-    <label><span>背景</span><textarea :value="form.background" rows="2" placeholder="补充必要的上下文。" @input="updateForm({ background: eventValue($event) })"></textarea></label>
-    <label><span>建议</span><textarea :value="form.recommendation" rows="2" placeholder="可选：你倾向的处理方式。" @input="updateForm({ recommendation: eventValue($event) })"></textarea></label>
+    <DialogHeader title-id="questionDialogTitle" title="发起协作" @close="emit('close')" />
+    <label><span>标题</span><input :value="form.title" type="text" data-dialog-initial @input="updateForm({ title: eventValue($event) })" /></label>
+    <label><span>内容</span><textarea :value="form.question" rows="3" placeholder="需要讨论或落实什么？" @input="updateForm({ question: eventValue($event) })"></textarea></label>
+    <label><span>背景</span><textarea :value="form.background" rows="2" placeholder="必要上下文" @input="updateForm({ background: eventValue($event) })"></textarea></label>
+    <label><span>建议</span><textarea :value="form.recommendation" rows="2" placeholder="处理建议（可选）" @input="updateForm({ recommendation: eventValue($event) })"></textarea></label>
     <div class="record-dialog-grid">
       <label><span>类型</span><UiSelect :model-value="form.kind" :options="questionKindOptions" aria-label="类型" @update:model-value="updateForm({ kind: $event })" /></label>
       <label><span>范围</span><UiSelect :model-value="form.scope" :options="questionScopeOptions" aria-label="范围" @update:model-value="updateForm({ scope: $event })" /></label>
     </div>
     <label class="checkbox-row"><input :checked="form.blocking" type="checkbox" @change="updateForm({ blocking: eventChecked($event) })" /><span>阻塞当前工作</span></label>
-    <FormActions :status="form.status" submit-label="提交记录" />
+    <FormActions :status="form.status" submit-label="提交记录" submit-icon="check" />
   </ModalLayer>
 </template>

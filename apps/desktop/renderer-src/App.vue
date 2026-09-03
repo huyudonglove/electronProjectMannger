@@ -54,7 +54,6 @@ import {
 import { naiveThemeOverrides } from './ui/naive-theme'
 import { renderReadableMarkdown } from './utils/markdown'
 import {
-  formatTime,
   projectDisplayName,
   type AnyRecord,
 } from './utils/record-formatters'
@@ -422,12 +421,6 @@ const showVersionSwitcher = computed(() => versionScopedSections.has(state.secti
 const showCreate = computed(() => Boolean(createLabels[state.section]))
 const createLabel = computed(() => createLabels[state.section] || '新建')
 
-const generatedAtText = computed(() => {
-  if (!state.projectRoot) return '尚未读取'
-  if (!state.initialized || !dashboard.value) return '尚未初始化'
-  return `更新于 ${formatTime(dashboard.value.recordSummary?.generatedAt)}`
-})
-
 const statusTitle = computed(() => {
   if (!state.projectRoot) return '选择任意项目开始'
   if (!state.initialized || !dashboard.value) return '项目尚未初始化'
@@ -551,7 +544,6 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     :detail-record="companionDetailRecord"
     :showing-detail="companionShowingDetail"
     :can-go-back="companionCanGoBack"
-    :generated-at="dashboard?.recordSummary?.generatedAt || ''"
     :pinned="companionPinned"
     :switching="companionSwitching"
     @restore="leaveCompanionMode"
@@ -589,7 +581,6 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
       <AppTopbar
         :status="state.status"
         :page-title="pageMeta.title"
-        :page-description="pageMeta.description"
         :show-version-switcher="showVersionSwitcher"
         :show-create="showCreate"
         :create-label="createLabel"
@@ -610,14 +601,10 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
 
       <OverviewView
         v-if="state.section === 'overview'"
-        :generated-at-text="generatedAtText"
-        :project-root="state.projectRoot ? projectDisplayName(state.projectRoot) : ''"
         :initialized="state.initialized"
         :status-title="statusTitle"
         :status-description="statusDescription"
-        :selected-version-label="selectedVersion ? (state.selectedVersionId === 'all' ? '全部版本' : `${selectedVersion.shortId} · ${selectedVersion.label}`) : ''"
         :selected-version-title="selectedVersion?.title || ''"
-        :selected-version-status="state.selectedVersionId === 'all' ? '' : selectedVersion?.status || ''"
         :counts="{
           tasks: tasks.length,
           thoughts: thoughts.length,

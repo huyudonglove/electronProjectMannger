@@ -38,7 +38,6 @@ const emit = defineEmits<{
     <button class="project-switcher" type="button" :disabled="props.disabled" @click="emit('openProjects')">
       <span class="project-switcher-mark"><UiIcon name="folderOpen" /></span>
       <span class="project-switcher-copy">
-        <small>当前项目</small>
         <strong>{{ props.projectName || '选择项目' }}</strong>
       </span>
       <span v-if="props.initialized" class="project-switcher-status" title="项目已就绪"></span>

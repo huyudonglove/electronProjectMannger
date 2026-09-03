@@ -28,6 +28,11 @@ function replyDialogTitle(item: AnyRecord) {
   return '回复协作问题'
 }
 
+function replyContext(item: AnyRecord) {
+  const content = String(item.question || '协作内容').trim()
+  return content.length > 60 ? `${content.slice(0, 60).trimEnd()}…` : content
+}
+
 function updateAnswer(event: Event) {
   emit('update:form', {
     ...props.form,
@@ -47,12 +52,12 @@ function updateAnswer(event: Event) {
     @submit="emit('submit')"
   >
     <template v-if="item">
-      <DialogHeader title-id="replyDialogTitle" :title="replyDialogTitle(item)" :subtitle="item.question || '协作内容'" @close="emit('close')" />
+      <DialogHeader title-id="replyDialogTitle" :title="replyDialogTitle(item)" :subtitle="replyContext(item)" @close="emit('close')" />
       <textarea
         :value="form.answer"
         rows="5"
         data-dialog-initial
-        placeholder="写下回复、补充说明或新的问题。"
+        placeholder="输入回复…"
         @input="updateAnswer"
       ></textarea>
       <FormActions :status="form.status" submit-label="发送回复" submit-icon="check" />

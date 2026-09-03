@@ -47,7 +47,7 @@
 
 #board.active-view {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   overflow: hidden;
 }
 
@@ -60,16 +60,20 @@
 
 #dialogues.active-view {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   padding-bottom: 24px;
   overflow: hidden;
 }
 
+#dialogues.active-view > .dialogue-layout {
+  grid-row: 2;
+}
+
 #collaboration.active-view {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   padding-bottom: 24px;

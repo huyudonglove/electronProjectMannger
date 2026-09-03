@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import FormActions from '../ui/FormActions.vue'
+import UiIcon from '../ui/UiIcon.vue'
 import UiIconButton from '../ui/UiIconButton.vue'
 
 const props = withDefaults(defineProps<{
@@ -28,7 +29,7 @@ const emit = defineEmits<{
     <div class="quick-task-head">
       <div class="quick-task-heading">
         <strong>{{ props.title }}</strong>
-        <small>记录到 {{ props.targetLabel }}</small>
+        <small><UiIcon name="layers" />{{ props.targetLabel }}</small>
       </div>
       <UiIconButton icon="x" label="关闭" size="sm" @click="emit('close')" />
     </div>

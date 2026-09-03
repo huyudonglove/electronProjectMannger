@@ -51,26 +51,26 @@ function primaryLogPrompt(log: RecordItem) {
     <div class="work-log-layout">
       <aside class="work-log-index">
         <div class="work-log-index-head">
-          <IndexPaneHeader title="目录" :count-text="`${logs.length} 条`" />
+          <IndexPaneHeader title="记录" :count-text="`${logs.length} 条`" />
           <UiSearchField :model-value="logQuery" class="work-log-search" placeholder="搜索记录、任务或内容" aria-label="搜索工作记录" @update:model-value="emit('update:logQuery', $event)" />
         </div>
         <div class="work-log-toc">
-          <UiEmptyState v-if="!logs.length" :message="logQuery.trim() ? '没有匹配的工作记录。' : '暂无工作记录。'" compact />
+          <UiEmptyState v-if="!logs.length" :message="logQuery.trim() ? '无匹配记录' : '暂无记录'" compact />
           <RecordIndexButton v-for="(log, index) in logs" :key="log.id || index" class="work-log-toc-item" :active="index === selectedLogIndex" @click="emit('openWorkLog', index)">
             <span class="work-log-toc-meta">
               <span v-if="log.shortId" class="task-short-id">{{ log.shortId }}</span>
               <UiStatusTag v-if="log.status && log.status !== 'done'" :status="log.status" />
               <UiTag :label="logLevelLabel(log.recordLevel)" :icon-name="logLevelIcon(log.recordLevel)" />
             </span>
-            <span class="work-log-toc-relations"><UiTag v-if="!resolveLogTasks(log).length" label="general" icon-name="tag" /><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
+            <span v-if="resolveLogTasks(log).length" class="work-log-toc-relations"><span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span></span>
             <strong>{{ primaryLogPrompt(log) }}</strong>
-            <small>{{ log.title }} · {{ formatTime(log.created) || '未标注日期' }}</small>
+            <small v-if="formatTime(log.created)">{{ formatTime(log.created) }}</small>
           </RecordIndexButton>
         </div>
       </aside>
       <div class="work-log-list-wrap">
         <div class="work-log-list work-log-detail">
-          <UiEmptyState v-if="!visibleLog" message="选择一条工作记录查看详情。" compact />
+          <UiEmptyState v-if="!visibleLog" message="选择一条记录" compact />
           <WorkLogDetail
             v-else
             :key="visibleLog.id || visibleLog.shortId || selectedLogIndex"

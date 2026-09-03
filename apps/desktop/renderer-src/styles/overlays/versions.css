@@ -196,4 +196,7 @@
 .version-status-control.is-completed .n-base-selection-input__content {
   color: var(--complete);
 }
+.version-page-toolbar {
+  justify-content: flex-end;
+}
 

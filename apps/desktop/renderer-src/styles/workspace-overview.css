@@ -254,7 +254,7 @@
   grid-column: span 4;
   display: grid;
   min-height: 300px;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   padding: 20px;
 }
 

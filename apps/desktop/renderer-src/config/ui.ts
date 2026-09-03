@@ -13,13 +13,12 @@ export type NavigationGroup = {
 
 export type PageMeta = {
   title: string
-  description: string
 }
 
 export const boardColumns = [
-  ['todo', 'Todo'],
-  ['doing', 'Doing'],
-  ['done', 'Done'],
+  ['todo', '待办'],
+  ['doing', '进行中'],
+  ['done', '已完成'],
 ] as const
 
 export const versionStatusOptions: SelectOption[] = [
@@ -82,25 +81,25 @@ export const versionScopedSections: ReadonlySet<string> = new Set([
 ])
 
 export const createLabels: Readonly<Record<string, string>> = {
-  overview: '新建',
-  board: '新建任务',
-  dialogues: '新建研究',
-  collaboration: '新建协作',
-  capture: '记录想法',
-  constraints: '新建约束',
+  overview: '新增',
+  board: '新增',
+  dialogues: '新增',
+  collaboration: '新增',
+  capture: '新增',
+  constraints: '新增',
 }
 
 export const pageMetaBySection: Readonly<Record<string, PageMeta>> = {
-  overview: { title: '总览', description: '聚焦当前版本的进展和需要处理的事项' },
-  board: { title: '任务', description: '按状态推进当前版本的工作' },
-  dialogues: { title: '研究', description: '记录问题、证据与结论' },
-  collaboration: { title: '协作', description: '集中处理决策、回复和风险' },
-  capture: { title: '想法', description: '保留未整理的输入和初步判断' },
-  'work-logs': { title: '工作记录', description: '回看执行过程、改动与验证' },
-  documents: { title: '文档', description: '浏览项目产出的长文档' },
-  knowledge: { title: '知识库', description: '跨版本沉淀可复用的项目知识' },
-  versions: { title: '版本', description: '管理项目阶段与状态' },
-  constraints: { title: '约束', description: '维护项目需要长期遵守的规则' },
+  overview: { title: '总览' },
+  board: { title: '任务' },
+  dialogues: { title: '研究' },
+  collaboration: { title: '协作' },
+  capture: { title: '想法' },
+  'work-logs': { title: '工作记录' },
+  documents: { title: '文档' },
+  knowledge: { title: '知识库' },
+  versions: { title: '版本' },
+  constraints: { title: '约束' },
 }
 
-export const defaultPageMeta: PageMeta = { title: '总览', description: '' }
+export const defaultPageMeta: PageMeta = { title: '总览' }

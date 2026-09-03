@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import UiIcon from '../ui/UiIcon.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import UiSelect from '../ui/UiSelect.vue'
 import UiTag from '../ui/UiTag.vue'
 
@@ -30,11 +30,8 @@ function versionRecordCount(versionId: string, records: RecordItem[]) {
 
 <template>
   <section id="versions" class="section view active-view">
-    <div class="page-toolbar">
-      <span>{{ versions.length }} 个版本阶段</span>
-      <button class="btn btn-primary btn-sm" type="button" @click="emit('openVersionDialog')">
-        <UiIcon class="button-icon" name="plus" />新版本
-      </button>
+    <div class="page-toolbar version-page-toolbar">
+      <UiIconButton icon="plus" label="新版本" variant="primary" size="sm" @click="emit('openVersionDialog')" />
     </div>
     <div class="version-list-surface">
       <article v-for="version in versions" :key="version.shortId" class="version-row" :class="[`is-${version.status || 'planned'}`, { 'is-selected': version.shortId === selectedVersionId }]">

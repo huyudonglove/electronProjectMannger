@@ -48,20 +48,20 @@ function resolveLogTasks(log: WorkLogRecord) {
           <UiTag v-if="log.source" :label="log.source" icon-name="tag" />
         </div>
         <h3>{{ log.title }}</h3>
-        <small>{{ formatTime(log.created) || '未标注日期' }}</small>
+        <small v-if="formatTime(log.created)">{{ formatTime(log.created) }}</small>
       </div>
       <div class="log-task-relations">
-        <UiTag v-if="!resolveLogTasks(log).length" label="general" icon-name="tag" />
         <span v-for="task in resolveLogTasks(log)" :key="task.shortId" class="task-short-id">{{ task.shortId }}</span>
       </div>
     </div>
     <section v-if="log.userGoal" class="user-goal"><strong>用户目标</strong><div v-html="renderTextBlock(log.userGoal)" /></section>
-    <section :class="{ 'missing-field': !log.result }"><strong>结果</strong><div v-if="log.result" v-html="renderListTextBlock(log.result)" /><p v-else>未记录</p></section>
+    <section v-if="log.result"><strong>结果</strong><div v-html="renderListTextBlock(log.result)" /></section>
     <section v-if="log.recordLevel === 'deep' && log.decisions?.length"><strong>关键判断</strong><ul><li v-for="item in log.decisions" :key="item" v-html="renderInlineMarkdown(item)" /></ul></section>
-    <section v-for="[title, items] in [['修改文件', log.changedFiles], ['验证', log.verification]]" :key="title" :class="{ 'missing-field': !(items && items.length) }">
-      <strong>{{ title }}</strong>
-      <ul v-if="items && items.length"><li v-for="item in items" :key="item" v-html="renderInlineMarkdown(item)" /></ul>
-      <p v-else>未记录</p>
-    </section>
+    <template v-for="[title, items] in [['修改文件', log.changedFiles], ['验证', log.verification]]" :key="title">
+      <section v-if="items && items.length">
+        <strong>{{ title }}</strong>
+        <ul><li v-for="item in items" :key="item" v-html="renderInlineMarkdown(item)" /></ul>
+      </section>
+    </template>
   </article>
 </template>

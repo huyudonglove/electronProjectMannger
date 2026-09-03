@@ -8,7 +8,6 @@ type AnyRecord = Record<string, any>
 const props = defineProps<{
   status: string
   pageTitle: string
-  pageDescription: string
   showVersionSwitcher: boolean
   showCreate: boolean
   createLabel: string
@@ -71,12 +70,11 @@ function handleVersionMenuKeydown(event: KeyboardEvent) {
     <div class="topbar-context">
       <div class="topbar-title-row">
         <h1>{{ props.pageTitle }}</h1>
-        <span v-if="props.status || props.initialized" class="sync-status" :title="props.status || '项目记录已同步'">
+        <span v-if="props.busy || props.status || !props.initialized" class="sync-status" :title="props.status || (props.busy ? '处理中' : '等待项目')">
           <span class="sync-status-dot" :class="{ busy: props.busy, ready: props.initialized && !props.busy }"></span>
-          {{ props.busy ? props.status : (props.initialized ? '已同步' : '等待项目') }}
+          {{ props.status || (props.busy ? '处理中' : '等待项目') }}
         </span>
       </div>
-      <p>{{ props.pageDescription }}</p>
     </div>
     <div class="topbar-actions">
       <div v-if="props.showVersionSwitcher && props.initialized && props.versions.length" class="version-switcher" @focusout="emit('closeVersionMenu', $event)" @keydown="handleVersionMenuKeydown">
@@ -116,26 +114,23 @@ function handleVersionMenuKeydown(event: KeyboardEvent) {
             :aria-selected="props.selectedVersionId === 'all'"
             @click="emit('selectVersion', 'all')"
           >
-            <span class="version-menu-copy"><strong>全部版本</strong><small>仅查看，不作为新记录目标</small></span>
+            <span class="version-menu-copy"><strong>全部版本</strong><small>仅查看</small></span>
             <UiIcon v-if="props.selectedVersionId === 'all'" class="version-menu-check" name="check" />
           </button>
         </div>
       </div>
       <UiIconButton icon="refresh" label="手动刷新" variant="ghost" :disabled="props.busy || !props.initialized" @click="emit('refresh')" />
-      <button
+      <UiIconButton
         v-if="props.showCreate"
-        class="btn btn-primary topbar-create"
+        class="topbar-create"
         :class="{ active: props.quickOpen }"
-        type="button"
-        :title="props.createDisabledReason || props.createLabel"
+        icon="plus"
+        :label="props.createDisabledReason || props.createLabel"
+        variant="primary"
         :disabled="props.busy || Boolean(props.createDisabledReason)"
         :aria-expanded="props.quickOpen"
         @click="emit('create')"
-      >
-        <UiIcon name="plus" />
-        <span>{{ props.createLabel }}</span>
-        <UiIcon v-if="props.createLabel === '新建'" class="topbar-create-chevron" name="chevronDown" />
-      </button>
+      />
     </div>
   </header>
 </template>

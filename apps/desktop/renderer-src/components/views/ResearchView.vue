@@ -100,14 +100,13 @@ function dialogueRefsList(dialogue: AnyRecord) {
 
 <template>
   <section id="dialogues" class="section view active-view">
-    <div class="section-head"><h2>研究</h2><span>{{ props.activeCount }} 条待处理</span></div>
     <div v-if="props.totalCount" class="segmented-control research-tabs" role="tablist" aria-label="研究状态">
       <button type="button" role="tab" :aria-selected="props.tab === 'active'" :class="{ active: props.tab === 'active' }" @click="emit('update:tab', 'active')">待研究 <span>{{ props.activeCount }}</span></button>
       <button type="button" role="tab" :aria-selected="props.tab === 'done'" :class="{ active: props.tab === 'done' }" @click="emit('update:tab', 'done')">已完成 <span>{{ props.completedCount }}</span></button>
     </div>
     <div class="dialogue-layout" :class="{ 'toc-collapsed': props.tocCollapsed }">
-      <UiEmptyState v-if="!props.totalCount" message="暂无研究。" compact />
-      <UiEmptyState v-else-if="!props.visibleDialogues.length" :message="props.tab === 'active' ? '暂无待研究事项。' : '暂无已完成研究。'" compact />
+      <UiEmptyState v-if="!props.totalCount" message="暂无研究" compact />
+      <UiEmptyState v-else-if="!props.visibleDialogues.length" :message="props.tab === 'active' ? '暂无待研究' : '暂无已完成研究'" compact />
       <template v-else-if="activeDialogue">
         <div class="dialogue-list-wrap">
           <div class="dialogue-list">
@@ -132,12 +131,11 @@ function dialogueRefsList(dialogue: AnyRecord) {
                 </div>
               </div>
               <section class="dialogue-block dialogue-prompt"><strong>概要</strong><p>{{ dialogueSummary(activeDialogue) }}</p></section>
-              <section class="dialogue-block dialogue-answer">
-                <div class="dialogue-block-head"><strong>{{ dialogueHasResult(activeDialogue) ? '研究结果' : '研究状态' }}</strong><span v-if="activeDocument">{{ activeDocument.shortId }}</span></div>
-                <div v-if="dialogueHasResult(activeDialogue)" class="rendered-markdown" v-html="props.renderMarkdown(activeDialogue.answer)" />
-                <p v-else>{{ activeDialogue.status === 'doing' ? '正在研究。' : '等待处理。' }}</p>
+              <section v-if="dialogueHasResult(activeDialogue)" class="dialogue-block dialogue-answer">
+                <div class="dialogue-block-head"><strong>研究结果</strong><span v-if="activeDocument">{{ activeDocument.shortId }}</span></div>
+                <div class="rendered-markdown" v-html="props.renderMarkdown(activeDialogue.answer)" />
               </section>
-              <section class="dialogue-block dialogue-meta-block"><strong>验收标准</strong><p>{{ activeDialogue.acceptance || '无。' }}</p></section>
+              <section v-if="activeDialogue.acceptance" class="dialogue-block dialogue-meta-block"><strong>验收标准</strong><p>{{ activeDialogue.acceptance }}</p></section>
               <div v-if="dialogueRefsList(activeDialogue).length" class="dialogue-relations"><UiTag v-for="ref in dialogueRefsList(activeDialogue)" :key="ref" :label="ref" icon-name="link" /></div>
             </article>
           </div>

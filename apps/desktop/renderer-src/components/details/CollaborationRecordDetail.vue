@@ -57,10 +57,10 @@ function riskKindText(kind: string) {
       </div>
       <div class="collab-record-actions">
         <UiIconButton v-if="mode === 'open' && item.relations?.length" icon="eye" label="查看关联记录" size="sm" @click="emit('openQuestionTarget', item)" />
-        <button v-if="mode === 'open'" class="btn btn-primary btn-sm" type="button" @click="emit('openReplyDialog', item)">回复</button>
-        <button v-else-if="mode === 'decided'" class="btn btn-outline-secondary btn-sm" type="button" @click="emit('openReplyDialog', item)">补充说明</button>
-        <button v-if="mode === 'decided'" class="btn btn-primary btn-sm" type="button" @click="emit('completeQuestion', item)">标记已完成</button>
-        <button v-if="mode === 'risks'" class="btn btn-primary btn-sm" type="button" @click="emit('resolveRisk', item)">标记已处理</button>
+        <UiIconButton v-if="mode === 'open'" icon="messageCircle" label="回复" variant="primary" size="sm" @click="emit('openReplyDialog', item)" />
+        <UiIconButton v-else-if="mode === 'decided'" icon="edit" label="补充说明" size="sm" @click="emit('openReplyDialog', item)" />
+        <UiIconButton v-if="mode === 'decided'" icon="circleCheck" label="标记已完成" variant="primary" size="sm" @click="emit('completeQuestion', item)" />
+        <UiIconButton v-if="mode === 'risks'" icon="circleCheck" label="标记已处理" variant="primary" size="sm" @click="emit('resolveRisk', item)" />
       </div>
     </div>
     <div class="collab-detail-title">

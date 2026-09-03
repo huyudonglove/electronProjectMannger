@@ -25,7 +25,6 @@ function thoughtDisplayTitle(thought: ThoughtItem) {
 
 <template>
   <section id="capture" class="section view active-view">
-    <div class="section-head"><h2>想法</h2><span></span></div>
     <div class="thoughts">
       <UiEmptyState v-if="!thoughts.length" message="暂无想法" compact />
       <article
@@ -47,7 +46,7 @@ function thoughtDisplayTitle(thought: ThoughtItem) {
         </div>
         <p>{{ thought.content }}</p>
         <div v-if="thought.answer" class="answer"><span>摘要</span><p>{{ thought.answer }}</p></div>
-        <small>{{ formatTime(thought.created) || '未标注日期' }}</small>
+        <small v-if="formatTime(thought.created)">{{ formatTime(thought.created) }}</small>
       </article>
     </div>
   </section>

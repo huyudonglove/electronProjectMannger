@@ -3,6 +3,7 @@ import CollaborationRecordDetail, { type CollaborationRecordMode } from '../deta
 import UiEmptyState from '../ui/UiEmptyState.vue'
 import IndexPaneHeader from '../ui/IndexPaneHeader.vue'
 import RecordIndexButton from '../ui/RecordIndexButton.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import UiTag from '../ui/UiTag.vue'
 import { formatTime } from '../../utils/record-presentation'
 
@@ -77,7 +78,6 @@ function riskKindText(kind: string) {
 
 <template>
   <section id="collaboration" class="section view active-view">
-    <div class="page-toolbar"><span>{{ selectedVersion?.shortId || '所选版本' }} · 需要继续处理的记录</span></div>
     <div class="segmented-control collab-tabs" role="tablist" aria-label="协作记录类型">
       <button type="button" :class="{ active: collabTab === 'open' }" @click="setCollabTab('open')">待我回复 <span>{{ openQuestions.length }}</span></button>
       <button type="button" :class="{ active: collabTab === 'decided' }" @click="setCollabTab('decided')">待跟进 <span>{{ pendingDecisions.length }}</span></button>
@@ -87,11 +87,11 @@ function riskKindText(kind: string) {
 
     <div v-if="collabTab !== 'history'" class="collab-workspace">
       <aside class="collab-index">
-        <IndexPaneHeader title="记录" :count-text="`${activeCollabItems.length} 条`" />
+        <IndexPaneHeader title="记录" />
         <div class="collab-index-list">
           <UiEmptyState
             v-if="!activeCollabItems.length"
-            :message="collabTab === 'open' ? '当前没有等待你回复的协作问题。' : collabTab === 'decided' ? '当前没有等待跟进的记录。' : '所选范围没有未处理的风险或后续事项。'"
+            :message="collabTab === 'open' ? '暂无待回复' : collabTab === 'decided' ? '暂无待跟进' : '暂无风险或后续'"
             compact
           />
           <RecordIndexButton
@@ -104,8 +104,7 @@ function riskKindText(kind: string) {
             <span class="collab-index-meta">
               <span class="task-short-id">{{ item.shortId }}</span>
               <UiTag v-if="collabTab === 'open'" :label="questionKindText(item.kind)" icon-name="messageCircle" />
-              <UiTag v-else-if="collabTab === 'decided'" label="待跟进" tone="warning" variant="status" icon-name="clock" />
-              <UiTag v-else :label="riskKindText(item.kind)" tone="warning" icon-name="alertTriangle" />
+              <UiTag v-else-if="collabTab === 'risks'" :label="riskKindText(item.kind)" tone="warning" icon-name="alertTriangle" />
             </span>
             <strong>{{ item.title }}</strong>
             <small>{{ item.question || item.content || '暂无内容。' }}</small>
@@ -115,7 +114,7 @@ function riskKindText(kind: string) {
       </aside>
 
       <div class="collab-detail-wrap">
-        <UiEmptyState v-if="!selectedCollabItem" class="collab-detail-empty" message="选择一条协作记录查看详情。" compact />
+        <UiEmptyState v-if="!selectedCollabItem" class="collab-detail-empty" message="选择一条记录" compact />
         <CollaborationRecordDetail
           v-else
           :item="selectedCollabItem"
@@ -135,7 +134,7 @@ function riskKindText(kind: string) {
           <span>{{ versionHistoryCount(version.shortId) }} 条</span>
         </summary>
         <div class="collab-history-records">
-          <UiEmptyState v-if="!versionHistoryCount(version.shortId)" message="这个版本暂无已归档协作记录。" compact />
+          <UiEmptyState v-if="!versionHistoryCount(version.shortId)" message="暂无归档记录" compact />
           <article v-for="item in versionHistoryQuestions(version.shortId)" :key="item.id" class="collab-history-row">
             <span class="task-short-id">{{ item.shortId }}</span>
             <div class="collab-history-main">
@@ -150,7 +149,7 @@ function riskKindText(kind: string) {
             </div>
             <div class="collab-history-actions">
               <UiTag :label="item.status === 'resolved' ? '已完成' : '已归档'" :tone="item.status === 'resolved' ? 'complete' : 'neutral'" variant="status" :icon-name="item.status === 'resolved' ? 'circleCheck' : 'archive'" />
-              <button class="btn btn-outline-secondary btn-sm" type="button" @click="emit('openReplyDialog', item)">继续讨论</button>
+              <UiIconButton icon="messagesSquare" label="继续讨论" size="sm" @click="emit('openReplyDialog', item)" />
             </div>
           </article>
           <article v-for="item in versionHistoryRisks(version.shortId)" :key="item.id" class="collab-history-row">

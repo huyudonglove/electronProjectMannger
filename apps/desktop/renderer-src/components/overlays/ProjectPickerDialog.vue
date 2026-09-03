@@ -28,7 +28,7 @@ defineEmits<{
     panel-class="project-dialog"
     @close="$emit('close')"
   >
-    <DialogHeader title-id="projectDialogTitle" title="打开项目" subtitle="选择最近项目，或打开其他项目文件夹。" :close-disabled="busy" @close="$emit('close')" />
+    <DialogHeader title-id="projectDialogTitle" title="打开项目" :close-disabled="busy" @close="$emit('close')" />
     <div class="recent-project-list">
       <UiEmptyState v-if="!projects.length" message="暂无最近项目。" compact />
       <div v-for="(project, index) in projects" :key="project.projectId" class="recent-project-row">
@@ -56,15 +56,13 @@ defineEmits<{
       </div>
     </div>
     <div class="init-dialog-actions">
-      <button
-        class="btn btn-primary"
-        type="button"
+      <UiIconButton
+        icon="folderOpen"
+        label="打开其他项目"
+        variant="primary"
         :data-dialog-initial="!projects.length ? '' : null"
         @click="$emit('browse')"
-      >
-        <UiIcon name="folderOpen" />
-        <span>打开其他项目</span>
-      </button>
+      />
     </div>
   </ModalLayer>
 </template>

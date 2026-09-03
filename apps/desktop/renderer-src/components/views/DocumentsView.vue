@@ -36,7 +36,7 @@ const groups = computed<DocumentGroup[]>(() => {
   return [...grouped.entries()].map(([folder, items]) => ({ folder, items }))
 })
 
-const countText = computed(() => `${props.items.length} / ${props.totalCount ?? props.items.length} 条`)
+const countText = computed(() => `${props.items.length} / ${props.totalCount ?? props.items.length}`)
 </script>
 
 <template>
@@ -49,7 +49,7 @@ const countText = computed(() => `${props.items.length} / ${props.totalCount ?? 
         aria-label="搜索文档"
         @update:model-value="emit('update:query', $event)"
       />
-      <span>{{ countText }}</span>
+      <span v-if="props.query.trim()">{{ countText }}</span>
     </div>
 
     <div class="library-shelf">

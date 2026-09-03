@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import CollaborationRecordDetail, { type CollaborationRecordMode } from '../details/CollaborationRecordDetail.vue'
 import TaskDetailContent from '../details/TaskDetailContent.vue'
 import WorkLogDetail from '../details/WorkLogDetail.vue'
+import UiIcon from '../ui/UiIcon.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
 import type { CompanionRecordKind } from '../../composables/useCompanionNavigation'
 import type { AnyRecord } from './types'
@@ -42,6 +43,7 @@ function nextTaskStatus(task: AnyRecord): 'doing' | 'done' | null {
         <div><span class="task-short-id">{{ props.record.shortId }}</span><UiStatusTag :status="props.record.status" /></div>
         <h2>{{ props.record.title }}</h2>
         <button v-if="nextTaskStatus(props.record)" class="btn btn-primary btn-sm" type="button" :disabled="props.busy" @click="emit('updateTaskStatus', props.record, nextTaskStatus(props.record)!)">
+          <UiIcon :name="props.record.status === 'todo' ? 'play' : 'circleCheck'" />
           {{ props.record.status === 'todo' ? '开始任务' : '完成任务' }}
         </button>
       </section>

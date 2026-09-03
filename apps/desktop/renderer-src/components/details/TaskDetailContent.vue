@@ -27,30 +27,25 @@ defineProps<{
 
 <template>
   <div class="task-detail-body">
-    <section>
+    <section v-if="task.userOriginal">
       <strong>用户原话</strong>
-      <div v-if="task.userOriginal" v-html="renderTextBlock(task.userOriginal)" />
-      <p v-else>暂无记录</p>
+      <div v-html="renderTextBlock(task.userOriginal)" />
     </section>
-    <section>
+    <section v-if="task.detail">
       <strong>执行定义</strong>
-      <div v-if="task.detail" v-html="renderTextBlock(task.detail)" />
-      <p v-else>暂无执行定义</p>
+      <div v-html="renderTextBlock(task.detail)" />
     </section>
-    <section>
+    <section v-if="task.acceptance">
       <strong>验收标准</strong>
-      <div v-if="task.acceptance" v-html="renderListTextBlock(task.acceptance)" />
-      <p v-else>暂无验收标准</p>
+      <div v-html="renderListTextBlock(task.acceptance)" />
     </section>
-    <section v-if="task.workLevel === 'deep'">
+    <section v-if="task.workLevel === 'deep' && task.constraints">
       <strong>关键约束</strong>
-      <div v-if="task.constraints" v-html="renderTextBlock(task.constraints)" />
-      <p v-else>暂无关键约束</p>
+      <div v-html="renderTextBlock(task.constraints)" />
     </section>
-    <section v-if="task.workLevel === 'deep'">
+    <section v-if="task.workLevel === 'deep' && task.planRollback">
       <strong>方案与回退</strong>
-      <div v-if="task.planRollback" v-html="renderTextBlock(task.planRollback)" />
-      <p v-else>暂无方案与回退</p>
+      <div v-html="renderTextBlock(task.planRollback)" />
     </section>
   </div>
 </template>
