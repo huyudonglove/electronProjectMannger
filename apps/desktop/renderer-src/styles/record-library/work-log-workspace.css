@@ -117,6 +117,9 @@
 }
 
 .work-log-detail > .work-log-card {
+  align-self: start;
+  width: 100%;
+  height: max-content;
   min-height: 100%;
   box-shadow: none;
 }

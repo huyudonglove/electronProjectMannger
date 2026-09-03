@@ -78,6 +78,7 @@ export const versionScopedSections: ReadonlySet<string> = new Set([
   'work-logs',
   'documents',
   'constraints',
+  'versions',
 ])
 
 export const createLabels: Readonly<Record<string, string>> = {

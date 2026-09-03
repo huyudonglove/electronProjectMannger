@@ -437,7 +437,11 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
 </script>
 
 <template>
-  <NConfigProvider :theme="theme === 'dark' ? darkTheme : null" :theme-overrides="naiveThemeOverrides">
+  <NConfigProvider
+    :theme="theme === 'dark' ? darkTheme : null"
+    :theme-overrides="naiveThemeOverrides"
+    preflight-style-disabled
+  >
   <main class="page-shell" :inert="Boolean(activeModal)" :aria-hidden="activeModal ? 'true' : undefined">
     <AppSidebar
       :navigation-groups="navigationGroups"
