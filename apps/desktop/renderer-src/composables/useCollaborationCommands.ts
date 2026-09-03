@@ -25,7 +25,7 @@ export type QuestionForm = {
 }
 
 export type CollaborationCommandOptions = {
-  requireCreationVersion: (form?: StatusForm) => string
+  requireCreationVersion: (form?: StatusForm, requestedVersionId?: string) => string
   runAction: (message: string, action: () => Promise<void>) => Promise<unknown>
   ensureReady: () => CollaborationApi | null
   projectRoot: MaybeRefOrGetter<string>
@@ -40,6 +40,7 @@ export function useCollaborationCommands(options: CollaborationCommandOptions) {
   const replyItem = ref<AnyRecord | null>(null)
   const replyForm = reactive<ReplyForm>({ answer: '', status: '' })
   const questionDialogOpen = ref(false)
+  const questionVersionId = ref('')
   const questionForm = reactive<QuestionForm>({
     title: '',
     question: '',
@@ -90,21 +91,24 @@ export function useCollaborationCommands(options: CollaborationCommandOptions) {
     })
   }
 
-  function openQuestionDialog() {
-    if (!options.requireCreationVersion()) return
+  function openQuestionDialog(requestedVersionId?: string) {
+    const versionId = options.requireCreationVersion(undefined, requestedVersionId)
+    if (!versionId) return
     resetQuestionForm()
+    questionVersionId.value = versionId
     questionDialogOpen.value = true
   }
 
   function closeQuestionDialog() {
     questionDialogOpen.value = false
+    questionVersionId.value = ''
   }
 
   async function submitQuestion() {
     await options.runAction('正在保存问题...', async () => {
       const api = options.ensureReady()
       if (!api) return
-      const versionId = options.requireCreationVersion(questionForm)
+      const versionId = options.requireCreationVersion(questionForm, questionVersionId.value)
       if (!versionId) return
       if (!questionForm.title.trim() || !questionForm.question.trim()) {
         questionForm.status = '请填写标题和问题'

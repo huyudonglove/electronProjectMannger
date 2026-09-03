@@ -76,7 +76,7 @@ async function focusDialog() {
 function restoreFocus() {
   const target = returnFocus?.isConnected
     ? returnFocus
-    : document.querySelector<HTMLElement>('.topbar-create, .project-switcher')
+    : document.querySelector<HTMLElement>('.companion-create, .topbar-create, .project-switcher')
   target?.focus({ preventScroll: true })
   returnFocus = null
 }

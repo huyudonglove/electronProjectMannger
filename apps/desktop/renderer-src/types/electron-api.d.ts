@@ -1,6 +1,14 @@
 export type ElectronRecord = Record<string, any>
 
+export type CompanionWindowState = {
+  enabled: boolean
+  alwaysOnTop: boolean
+}
+
 export interface ElectronManagerApi {
+  getCompanionWindowState: () => Promise<CompanionWindowState>
+  setCompanionMode: (enabled: boolean) => Promise<CompanionWindowState>
+  setCompanionAlwaysOnTop: (alwaysOnTop: boolean) => Promise<CompanionWindowState>
   openFolder: () => Promise<any>
   listRecentProjects: () => Promise<any[]>
   removeRecentProject: (projectId: string) => Promise<any[]>

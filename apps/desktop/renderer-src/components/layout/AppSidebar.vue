@@ -23,6 +23,7 @@ const emit = defineEmits<{
   selectSection: [key: string]
   openProjects: []
   toggleTheme: []
+  enterCompanionMode: []
 }>()
 </script>
 
@@ -63,6 +64,16 @@ const emit = defineEmits<{
     </nav>
 
     <div class="sidebar-footer">
+      <button
+        class="theme-toggle sidebar-companion-toggle"
+        type="button"
+        title="切换到陪伴模式"
+        :disabled="props.disabled"
+        @click="emit('enterCompanionMode')"
+      >
+        <UiIcon class="theme-toggle-icon" name="minimize" />
+        <span class="theme-toggle-label">陪伴模式</span>
+      </button>
       <a
         class="sidebar-knowledge-link"
         :href="`#${props.knowledgeItem[0]}`"

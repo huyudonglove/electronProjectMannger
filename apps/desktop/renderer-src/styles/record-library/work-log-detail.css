@@ -60,6 +60,7 @@
 .collab-log li {
   color: var(--text);
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .collab-log .missing-field p {

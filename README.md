@@ -8,6 +8,7 @@ Telance Records is a local-first desktop workspace for keeping durable project r
 - Stores readable Markdown records outside the source repository.
 - Separates records by project and version.
 - Provides task, idea, research, question, risk, constraint, document, knowledge, and work-log views.
+- Offers a compact 360 × 720 companion window for watching and updating active work without opening the full workspace.
 - Maintains a neutral `record-summary.json`, `index.json`, and human-readable project baseline.
 - Generates a project-specific `skills/project-records/SKILL.md` for Agents.
 - Keeps a shared global knowledge directory across managed projects.
@@ -163,6 +164,7 @@ Telance Records 是一个本地优先的项目记录桌面工具。它用 Markdo
 - 每个项目生成 `skills/project-records/SKILL.md`，可从总览复制其路径。
 - 任务、想法、研究、问题、风险和工作记录必须归属明确的 `versions/Vxxx/`；界面当前所选版本决定新记录的写入位置。
 - 版本状态为 `planned | active | paused | completed`，允许多个未完成版本并存；新建版本不会自动完成或改变旧版本。
+- 可切换为 360 × 720 竖向陪伴窗口，在其他 Agent 工作时直接查看和处理任务、协作事项及最新记录。
 - “全部版本”视图中新建版本级记录时必须明确选择目标版本；`completed` 版本默认只读。
 - `project.json.currentVersionId` 仅作为兼容默认版本指针，不表示最新版本、唯一活动版本或固定写入目标。
 - 项目文档使用 `Wxxx`，共享知识使用 `Kxxx`。

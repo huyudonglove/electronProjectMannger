@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import CollaborationRecordDetail, { type CollaborationRecordMode } from '../details/CollaborationRecordDetail.vue'
 import UiEmptyState from '../ui/UiEmptyState.vue'
-import UiIconButton from '../ui/UiIconButton.vue'
 import IndexPaneHeader from '../ui/IndexPaneHeader.vue'
 import RecordIndexButton from '../ui/RecordIndexButton.vue'
 import UiTag from '../ui/UiTag.vue'
@@ -116,43 +116,15 @@ function riskKindText(kind: string) {
 
       <div class="collab-detail-wrap">
         <UiEmptyState v-if="!selectedCollabItem" class="collab-detail-empty" message="选择一条协作记录查看详情。" compact />
-        <article v-else class="collab-detail" :class="{ 'risk-record': collabTab === 'risks' }">
-          <div class="collab-record-head">
-            <div>
-              <span class="task-short-id">{{ selectedCollabItem.shortId }}</span>
-              <UiTag v-if="collabTab === 'open'" :label="questionKindText(selectedCollabItem.kind)" icon-name="messageCircle" />
-              <UiTag v-else-if="collabTab === 'decided'" label="待跟进" tone="warning" variant="status" icon-name="clock" />
-              <UiTag v-else :label="riskKindText(selectedCollabItem.kind)" tone="warning" icon-name="alertTriangle" />
-              <UiTag v-if="selectedCollabItem.blocking" label="阻塞" tone="warning" variant="status" icon-name="alertTriangle" />
-            </div>
-            <div class="collab-record-actions">
-              <UiIconButton v-if="collabTab === 'open' && selectedCollabItem.relations?.length" icon="eye" label="查看关联记录" size="sm" @click="emit('openQuestionTarget', selectedCollabItem)" />
-              <button v-if="collabTab === 'open'" class="btn btn-primary btn-sm" type="button" @click="emit('openReplyDialog', selectedCollabItem)">回复</button>
-              <button v-else-if="collabTab === 'decided'" class="btn btn-outline-secondary btn-sm" type="button" @click="emit('openReplyDialog', selectedCollabItem)">补充说明</button>
-              <button v-if="collabTab === 'decided'" class="btn btn-primary btn-sm" type="button" @click="emit('completeQuestion', selectedCollabItem)">标记已完成</button>
-              <button v-if="collabTab === 'risks'" class="btn btn-primary btn-sm" type="button" @click="emit('resolveRisk', selectedCollabItem)">标记已处理</button>
-            </div>
-          </div>
-          <div class="collab-detail-title">
-            <h2>{{ selectedCollabItem.title }}</h2>
-            <p>{{ selectedCollabItem.question || selectedCollabItem.content }}</p>
-          </div>
-          <div v-if="selectedCollabItem.background && selectedCollabItem.background !== '无。'" class="collab-context"><strong>背景</strong><span>{{ selectedCollabItem.background }}</span></div>
-          <div v-if="selectedCollabItem.recommendation && selectedCollabItem.recommendation !== '无。'" class="collab-recommendation"><strong>建议</strong><span>{{ selectedCollabItem.recommendation }}</span></div>
-          <div v-if="selectedCollabItem.handling && selectedCollabItem.handling !== '无。'" class="collab-context"><strong>处理建议</strong><span>{{ selectedCollabItem.handling }}</span></div>
-          <div v-if="questionThreadMessages(selectedCollabItem).length" class="collab-thread">
-            <div v-for="message in questionThreadMessages(selectedCollabItem)" :key="message.id" class="collab-message" :class="questionMessageClass(message.role)">
-              <div><strong>{{ questionMessageRole(message.role) }}</strong><time>{{ formatTime(message.created) }}</time></div>
-              <p>{{ message.content }}</p>
-            </div>
-          </div>
-          <div v-else-if="collabTab === 'decided' && selectedCollabItem.conclusion" class="collab-decision"><strong>最新说明</strong><span>{{ selectedCollabItem.conclusion }}</span></div>
-          <div class="collab-record-meta">
-            <span>{{ selectedCollabItem.scope === 'project' ? '项目级' : selectedCollabItem.version }}</span>
-            <span v-for="relation in selectedCollabItem.relations || []" :key="relation">{{ relation }}</span>
-            <time v-if="selectedCollabItem.updated">{{ formatTime(selectedCollabItem.updated) }}</time>
-          </div>
-        </article>
+        <CollaborationRecordDetail
+          v-else
+          :item="selectedCollabItem"
+          :mode="collabTab as CollaborationRecordMode"
+          @open-question-target="emit('openQuestionTarget', $event)"
+          @open-reply-dialog="emit('openReplyDialog', $event)"
+          @complete-question="emit('completeQuestion', $event)"
+          @resolve-risk="emit('resolveRisk', $event)"
+        />
       </div>
     </div>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, toRef } from 'vue'
+import { computed, onMounted, reactive, ref, toRef } from 'vue'
 import { darkTheme, NConfigProvider } from 'naive-ui'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AppTopbar from './components/layout/AppTopbar.vue'
@@ -12,6 +12,7 @@ import ReplyDialog from './components/overlays/ReplyDialog.vue'
 import TaskDetailModal from './components/overlays/TaskDetailModal.vue'
 import VersionDialog from './components/overlays/VersionDialog.vue'
 import CollaborationView from './components/views/CollaborationView.vue'
+import CompanionView from './components/views/CompanionView.vue'
 import ConstraintsView from './components/views/ConstraintsView.vue'
 import DocumentsView from './components/views/DocumentsView.vue'
 import KnowledgeView from './components/views/KnowledgeView.vue'
@@ -22,6 +23,9 @@ import ThoughtsView from './components/views/ThoughtsView.vue'
 import VersionsView from './components/views/VersionsView.vue'
 import WorkLogsView from './components/views/WorkLogsView.vue'
 import { useCollaborationCommands } from './composables/useCollaborationCommands'
+import { useCompanionMode } from './composables/useCompanionMode'
+import { useCompanionNavigation } from './composables/useCompanionNavigation'
+import { useCompanionViewModel } from './composables/useCompanionViewModel'
 import { useDashboardReconciliation } from './composables/useDashboardReconciliation'
 import { useGlobalDismiss } from './composables/useGlobalDismiss'
 import { useModalCoordinator } from './composables/useModalCoordinator'
@@ -56,6 +60,7 @@ import {
 
 const { theme, activeThemeIcon, toggleTheme } = useTheme()
 const { toasts, showToast } = useToasts()
+const workspaceReady = ref(false)
 
 const state = reactive({
   projectRoot: '',
@@ -108,6 +113,18 @@ const {
 })
 
 const dashboard = computed(() => state.dashboard)
+const {
+  currentVersion: companionCurrentVersion,
+  versionTasks: companionVersionTasks,
+  taskCounts: companionTaskCounts,
+  taskProgress: companionTaskProgress,
+  activeTasks: companionActiveTasks,
+  attentionItems: companionAttentionItems,
+  allAttentionItems: companionAllAttentionItems,
+  attentionCount: companionAttentionCount,
+  latestLogs: companionLatestLogs,
+  versionLogs: companionVersionLogs,
+} = useCompanionViewModel(dashboard)
 const {
   versions,
   selectedVersion,
@@ -167,6 +184,7 @@ const {
   dialogueForm: quickDialogueForm,
   constraintForm: quickConstraintForm,
   openPrimaryCreate,
+  openCompanionCreate,
   selectMode: selectQuickCreate,
   close: closeQuickTask,
 } = useQuickCreateController({
@@ -368,6 +386,35 @@ const { closeVersionMenu } = useGlobalDismiss({
   closeQuickCreate: closeQuickTask,
   versionMenuOpen: toRef(state, 'versionMenuOpen'),
 })
+const {
+  companionMode,
+  companionPinned,
+  companionSwitching,
+  companionStateReady,
+  setCompanionMode,
+  toggleCompanionPinned,
+} = useCompanionMode({
+  beforeEnter: prepareCompanionMode,
+  showToast,
+})
+const {
+  page: companionPage,
+  detailKind: companionDetailKind,
+  detailRecord: companionDetailRecord,
+  showingDetail: companionShowingDetail,
+  canGoBack: companionCanGoBack,
+  openPage: openCompanionPage,
+  openRecord: openCompanionRecord,
+  openQuestionTarget: openCompanionQuestionTarget,
+  back: backInCompanion,
+  reset: resetCompanionNavigation,
+} = useCompanionNavigation({
+  currentVersion: companionCurrentVersion,
+  tasks: companionVersionTasks,
+  collaborationItems: companionAllAttentionItems,
+  logs: companionVersionLogs,
+  showToast,
+})
 const projectName = computed(() => dashboard.value?.config?.name || projectDisplayName(state.projectRoot) || '')
 const pageMeta = computed(() => pageMetaBySection[state.section] || defaultPageMeta)
 const showVersionSwitcher = computed(() => versionScopedSections.has(state.section))
@@ -392,12 +439,13 @@ const statusDescription = computed(() => {
   return selectedVersion.value?.goal || selectedVersion.value?.summary || ''
 })
 
-onMounted(() => {
+onMounted(async () => {
   if (window.electronManager) {
-    restoreLastProject()
+    await restoreLastProject()
   } else {
     state.status = 'preload API 未注入，请重新启动 Electron。'
   }
+  workspaceReady.value = true
 })
 
 function requireCreationVersion(form?: { status: string }, requestedVersionId = creationVersionId.value) {
@@ -415,6 +463,35 @@ function openTaskDetail(task: AnyRecord) {
 
 function closeTaskDetail() {
   state.selectedTask = null
+}
+
+function prepareCompanionMode() {
+  closeQuickTask({ restoreFocus: false })
+  closeTaskDetail()
+  closeReplyDialog()
+  closeVersionDialog()
+  closeQuestionDialog()
+  closeMarkdownDocument()
+  state.projectOverlayOpen = false
+  state.versionMenuOpen = false
+  resetCompanionNavigation()
+}
+
+async function leaveCompanionMode() {
+  closeQuickTask({ restoreFocus: false })
+  closeReplyDialog()
+  closeQuestionDialog()
+  resetCompanionNavigation()
+  await setCompanionMode(false)
+}
+
+function openCompanionCreateMenu() {
+  openCompanionCreate(String(companionCurrentVersion.value?.shortId || ''))
+}
+
+function openCompanionCollaborationCreate() {
+  closeQuickTask({ restoreFocus: false })
+  openQuestionDialog(String(companionCurrentVersion.value?.shortId || ''))
 }
 
 async function copyResearchPrompt(dialogue: AnyRecord) {
@@ -442,7 +519,55 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     :theme-overrides="naiveThemeOverrides"
     preflight-style-disabled
   >
-  <main class="page-shell" :inert="Boolean(activeModal)" :aria-hidden="activeModal ? 'true' : undefined">
+  <main v-if="!companionStateReady || !workspaceReady" class="companion-boot-shell" aria-label="正在准备窗口" aria-busy="true">
+    <span class="companion-mark">T</span>
+    <span class="companion-boot-copy">
+      <strong>Telance Records</strong>
+      <small>正在准备窗口…</small>
+    </span>
+  </main>
+
+  <CompanionView
+    v-else-if="companionMode"
+    :inert="Boolean(activeModal) || quickOpen"
+    :aria-hidden="activeModal || quickOpen ? 'true' : undefined"
+    :project-name="projectName"
+    :initialized="state.initialized"
+    :busy="state.busy || state.autoRefreshing"
+    :status="state.status"
+    :current-version="companionCurrentVersion"
+    :task-counts="companionTaskCounts"
+    :task-progress="companionTaskProgress"
+    :active-tasks="companionActiveTasks"
+    :tasks="companionVersionTasks"
+    :attention-items="companionAttentionItems"
+    :all-attention-items="companionAllAttentionItems"
+    :attention-count="companionAttentionCount"
+    :latest-logs="companionLatestLogs"
+    :logs="companionVersionLogs"
+    :page="companionPage"
+    :detail-kind="companionDetailKind"
+    :detail-record="companionDetailRecord"
+    :showing-detail="companionShowingDetail"
+    :can-go-back="companionCanGoBack"
+    :generated-at="dashboard?.recordSummary?.generatedAt || ''"
+    :pinned="companionPinned"
+    :switching="companionSwitching"
+    @restore="leaveCompanionMode"
+    @create="openCompanionCreateMenu"
+    @toggle-pinned="toggleCompanionPinned"
+    @refresh="refreshDashboard({ quiet: false })"
+    @open-page="openCompanionPage"
+    @open-record="openCompanionRecord"
+    @back="backInCompanion"
+    @update-task-status="(task, status) => updateTaskStatus(task.id, status)"
+    @open-question-target="openCompanionQuestionTarget"
+    @reply="openReplyDialog"
+    @complete-question="completeQuestion"
+    @resolve-risk="resolveRisk"
+  />
+
+  <main v-else class="page-shell" :inert="Boolean(activeModal)" :aria-hidden="activeModal ? 'true' : undefined">
     <AppSidebar
       :navigation-groups="navigationGroups"
       :knowledge-item="knowledgeNavigationItem"
@@ -456,6 +581,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
       @select-section="setActiveSection"
       @open-projects="openRecentProjects"
       @toggle-theme="toggleTheme"
+      @enter-companion-mode="setCompanionMode(true)"
     />
 
     <section class="content">
@@ -638,7 +764,9 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   </main>
 
   <QuickCreatePanel
+    v-if="companionStateReady"
     :open="!activeModal && quickOpen"
+    :compact="companionMode"
     :mode="quickCreateMode"
     :target-version-label="quickCreateVersionLabel"
     :task-form="quickTaskForm"
@@ -651,6 +779,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     @submit-thought="saveThought"
     @submit-dialogue="saveDialogue"
     @submit-constraint="saveConstraint"
+    @create-collaboration="openCompanionCollaborationCreate"
     @update:task-form="Object.assign(quickTaskForm, $event)"
     @update:thought-form="Object.assign(quickThoughtForm, $event)"
     @update:dialogue-form="Object.assign(quickDialogueForm, $event)"
@@ -661,9 +790,10 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     <div v-for="toast in toasts" :key="toast.id" class="toast-message" :class="{ 'is-leaving': toast.leaving }">{{ toast.message }}</div>
   </div>
 
-  <TaskDetailModal :task="state.selectedTask" @close="closeTaskDetail" />
+  <TaskDetailModal v-if="companionStateReady && !companionMode" :task="state.selectedTask" @close="closeTaskDetail" />
 
   <ProjectInitDialog
+    v-if="companionStateReady && !companionMode"
     :open="Boolean(state.projectRoot && !state.initialized && !state.projectOverlayOpen)"
     :busy="state.busy"
     :can-initialize="Boolean(state.projectRoot && !state.initialized)"
@@ -672,6 +802,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   />
 
   <ProjectPickerDialog
+    v-if="companionStateReady && !companionMode"
     :open="state.projectOverlayOpen"
     :busy="state.busy"
     :projects="state.recentProjects"
@@ -682,6 +813,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   />
 
   <ReplyDialog
+    v-if="companionStateReady"
     :open="Boolean(replyItem)"
     :busy="state.busy"
     :item="replyItem"
@@ -692,6 +824,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   />
 
   <VersionDialog
+    v-if="companionStateReady && !companionMode"
     :open="versionDialogOpen"
     :busy="state.busy"
     :form="versionForm"
@@ -701,6 +834,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   />
 
   <QuestionDialog
+    v-if="companionStateReady"
     :open="questionDialogOpen"
     :busy="state.busy"
     :form="questionForm"
@@ -710,6 +844,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
   />
 
   <MarkdownDialog
+    v-if="companionStateReady && !companionMode"
     :open="Boolean(state.markdownDocument)"
     :busy="state.busy"
     :title="markdownDialogTitle"

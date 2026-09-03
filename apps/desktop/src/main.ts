@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions, type WebContents } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,6 +30,7 @@ import {
   updateAllProjectMetadata,
   updateTaskStatus,
 } from '@telance-records/project-core'
+import { WindowController } from './window-controller.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -38,15 +39,17 @@ let managerDataRoot = ''
 let projectWatchers: FSWatcher[] = []
 let watchedProjectRoot = ''
 let watcherTimer: NodeJS.Timeout | null = null
+let windowController: WindowController | null = null
+let quitAfterWindowFlush = false
+let quitFlushInProgress = false
 
 app.setPath('userData', path.join(app.getPath('appData'), 'electron-manager'))
 
 async function createWindow() {
+  windowController ||= await WindowController.load(managerDataRoot)
+  const windowOptions = windowController.initialWindowOptions()
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 960,
-    minHeight: 640,
+    ...windowOptions,
     title: 'Telance Records',
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     webPreferences: {
@@ -55,6 +58,9 @@ async function createWindow() {
       nodeIntegration: false,
     },
   })
+
+  windowController.attach(mainWindow)
+  mainWindow.once('closed', () => { mainWindow = null })
 
   await mainWindow.loadFile(path.join(__dirname, '..', 'renderer-vue', 'index.html'))
 
@@ -80,11 +86,45 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+app.on('before-quit', (event) => {
+  stopProjectWatcher()
+  if (quitAfterWindowFlush || !windowController) return
+
+  event.preventDefault()
+  if (quitFlushInProgress) return
+  quitFlushInProgress = true
+  void windowController.flush()
+    .catch((error) => console.warn('failed to flush window preferences before quit', error))
+    .finally(() => {
+      quitAfterWindowFlush = true
+      app.quit()
+    })
+})
+
 app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0) await createWindow()
 })
 
 function registerIpc() {
+  ipcMain.handle('window:get-companion-state', (event) => {
+    assertMainWindowSender(event.sender)
+    return windowController?.state() || { enabled: false, alwaysOnTop: true }
+  })
+
+  ipcMain.handle('window:set-companion-mode', async (event, enabled: boolean) => {
+    assertMainWindowSender(event.sender)
+    if (typeof enabled !== 'boolean') throw new Error('陪伴模式参数无效')
+    if (!windowController) throw new Error('窗口控制器尚未就绪')
+    return windowController.setCompanionMode(enabled)
+  })
+
+  ipcMain.handle('window:set-companion-always-on-top', async (event, alwaysOnTop: boolean) => {
+    assertMainWindowSender(event.sender)
+    if (typeof alwaysOnTop !== 'boolean') throw new Error('窗口置顶参数无效')
+    if (!windowController) throw new Error('窗口控制器尚未就绪')
+    return windowController.setCompanionAlwaysOnTop(alwaysOnTop)
+  })
+
   ipcMain.handle('project:open-folder', async () => {
     mainWindow?.focus()
     const options: OpenDialogOptions = {
@@ -221,6 +261,12 @@ function registerIpc() {
     return replyOpenQuestion(managerDataRoot, projectRoot, payload)
   })
 
+}
+
+function assertMainWindowSender(sender: WebContents) {
+  if (!mainWindow || mainWindow.isDestroyed() || sender !== mainWindow.webContents) {
+    throw new Error('无效的窗口请求来源')
+  }
 }
 
 async function openProject(projectRoot: string) {

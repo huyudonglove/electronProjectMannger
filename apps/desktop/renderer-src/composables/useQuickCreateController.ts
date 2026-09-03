@@ -6,7 +6,7 @@ export type QuickCreateMode = '' | 'task' | 'thought' | 'dialogue' | 'constraint
 type QuickCreateControllerOptions = {
   section: Readonly<Ref<string>>
   versions: Readonly<Ref<AnyRecord[]>>
-  requireCreationVersion: () => string
+  requireCreationVersion: (form?: { status: string }, requestedVersionId?: string) => string
   openCollaborationCreate: () => void
   hasActiveModal: () => boolean
 }
@@ -89,11 +89,24 @@ export function useQuickCreateController(options: QuickCreateControllerOptions) 
 
     const versionId = requireCreationVersion()
     if (!versionId) return
-    if (!hasDraft() || !quickCreateVersionId.value) quickCreateVersionId.value = versionId
+    openCreate(versionId, modeBySection[section.value] || '')
+  }
 
+  function openCompanionCreate(versionId: string) {
+    if (quickOpen.value) {
+      close()
+      return
+    }
+    const targetVersionId = requireCreationVersion(undefined, versionId)
+    if (!targetVersionId) return
+    openCreate(targetVersionId, '', true)
+  }
+
+  function openCreate(versionId: string, mode: QuickCreateMode, forceVersion = false) {
+    if (forceVersion || !hasDraft() || !quickCreateVersionId.value) quickCreateVersionId.value = versionId
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     quickOpen.value = true
-    quickCreateMode.value = modeBySection[section.value] || ''
+    quickCreateMode.value = mode
     nextTick(() => {
       document.querySelector<HTMLElement>(
         '.quick-task-panel input, .quick-task-panel textarea, .quick-create-option',
@@ -122,7 +135,7 @@ export function useQuickCreateController(options: QuickCreateControllerOptions) 
     nextTick(() => {
       const target = returnFocus?.isConnected
         ? returnFocus
-        : document.querySelector<HTMLElement>('.topbar-create')
+        : document.querySelector<HTMLElement>('.companion-create, .topbar-create')
       target?.focus({ preventScroll: true })
       returnFocus = null
     })
@@ -144,6 +157,7 @@ export function useQuickCreateController(options: QuickCreateControllerOptions) 
     constraintForm,
     hasDraft,
     openPrimaryCreate,
+    openCompanionCreate,
     selectMode,
     close,
   }

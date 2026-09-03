@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronManager', {
+  getCompanionWindowState: () => ipcRenderer.invoke('window:get-companion-state'),
+  setCompanionMode: (enabled) => ipcRenderer.invoke('window:set-companion-mode', enabled),
+  setCompanionAlwaysOnTop: (alwaysOnTop) =>
+    ipcRenderer.invoke('window:set-companion-always-on-top', alwaysOnTop),
   openFolder: () => ipcRenderer.invoke('project:open-folder'),
   listRecentProjects: () => ipcRenderer.invoke('project:list-recent'),
   removeRecentProject: (projectId) => ipcRenderer.invoke('project:remove-recent', projectId),

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiIcon from '../ui/UiIcon.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import UiSelect from '../ui/UiSelect.vue'
 import QuickCreateFormShell from './QuickCreateFormShell.vue'
 
@@ -43,6 +44,7 @@ const props = defineProps<{
   thoughtForm: QuickThoughtForm
   dialogueForm: QuickDialogueForm
   constraintForm: QuickConstraintForm
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -52,6 +54,7 @@ const emit = defineEmits<{
   submitThought: []
   submitDialogue: []
   submitConstraint: []
+  createCollaboration: []
   'update:taskForm': [form: QuickTaskForm]
   'update:thoughtForm': [form: QuickThoughtForm]
   'update:dialogueForm': [form: QuickDialogueForm]
@@ -101,11 +104,16 @@ function updateConstraintForm(patch: Partial<QuickConstraintForm>) {
 </script>
 
 <template>
-  <div v-if="open" class="quick-task is-open" :data-mode="mode">
+  <div v-if="open" class="quick-task is-open" :class="{ 'is-companion': compact }" :data-mode="mode">
     <div v-if="!mode" class="card quick-create-menu" aria-label="新建类型">
+      <div v-if="compact" class="quick-create-menu-head">
+        <strong>新增记录</strong>
+        <UiIconButton icon="x" label="关闭" size="sm" @click="emit('close')" />
+      </div>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'task')"><UiIcon class="quick-create-icon" name="listChecks" /><span>任务</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'thought')"><UiIcon class="quick-create-icon" name="messageCircle" /><span>想法</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'dialogue')"><UiIcon class="quick-create-icon" name="messagesSquare" /><span>研究</span></button>
+      <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('createCollaboration')"><UiIcon class="quick-create-icon" name="gitPullRequest" /><span>协作</span></button>
       <button class="btn btn-outline-primary quick-create-option" type="button" @click="emit('selectMode', 'constraint')"><UiIcon class="quick-create-icon" name="shield" /><span>约束</span></button>
     </div>
 

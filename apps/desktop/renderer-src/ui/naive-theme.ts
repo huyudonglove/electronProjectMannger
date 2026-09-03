@@ -2,10 +2,13 @@ import type { GlobalThemeOverrides } from 'naive-ui'
 
 export const naiveThemeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: 'var(--primary)',
-    primaryColorHover: 'var(--primary-text)',
-    primaryColorPressed: 'color-mix(in srgb, var(--primary) 82%, var(--bg))',
-    primaryColorSuppl: 'var(--primary)',
+    // Naive derives translucent variants with JS color utilities, which cannot
+    // resolve CSS custom properties. Keep these source colors parseable and let
+    // the component-level CSS tokens continue to control the surrounding UI.
+    primaryColor: '#a45f2a',
+    primaryColorHover: '#d08a50',
+    primaryColorPressed: '#874b23',
+    primaryColorSuppl: '#a45f2a',
     borderRadius: 'var(--radius-control)',
     borderRadiusSmall: 'var(--radius-control)',
     fontSize: 'var(--font-size-md)',
