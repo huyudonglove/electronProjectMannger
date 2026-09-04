@@ -1,0 +1,20 @@
+.collab-record-head,
+.collab-record-actions,
+.collab-record-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.collab-record h3,
+.collab-record p,
+.collab-history-row p {
+  margin: 0;
+}
+
+.collab-record-meta,
+.collab-record-head > time {
+  color: var(--muted);
+}
+

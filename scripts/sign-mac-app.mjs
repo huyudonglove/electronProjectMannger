@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 
 const root = process.cwd()
-const appPath = process.argv[2] ?? path.join(root, 'release', 'mac-arm64', 'Electron Manager.app')
+const appPath = process.argv[2] ?? path.join(root, 'release', 'mac-arm64', 'Telance Records.app')
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit' })

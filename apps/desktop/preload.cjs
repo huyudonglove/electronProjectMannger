@@ -1,16 +1,24 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronManager', {
+  getCompanionWindowState: () => ipcRenderer.invoke('window:get-companion-state'),
+  setCompanionMode: (enabled) => ipcRenderer.invoke('window:set-companion-mode', enabled),
+  setCompanionAlwaysOnTop: (alwaysOnTop) =>
+    ipcRenderer.invoke('window:set-companion-always-on-top', alwaysOnTop),
   openFolder: () => ipcRenderer.invoke('project:open-folder'),
   listRecentProjects: () => ipcRenderer.invoke('project:list-recent'),
   removeRecentProject: (projectId) => ipcRenderer.invoke('project:remove-recent', projectId),
   openPath: (projectRoot) => ipcRenderer.invoke('project:open-path', projectRoot),
   openFolderPath: (folderPath) => ipcRenderer.invoke('system:open-folder', folderPath),
   initProject: (projectRoot) => ipcRenderer.invoke('project:init', projectRoot),
-  refreshBrief: (projectRoot) => ipcRenderer.invoke('project:refresh-brief', projectRoot),
+  refreshSummary: (projectRoot) => ipcRenderer.invoke('project:refresh-summary', projectRoot),
   getDashboard: (projectRoot) => ipcRenderer.invoke('project:get-dashboard', projectRoot),
-  updateGuidance: (projectRoot) => ipcRenderer.invoke('project:update-guidance', projectRoot),
+  updateMetadata: (projectRoot) => ipcRenderer.invoke('project:update-metadata', projectRoot),
   createVersion: (projectRoot, payload) => ipcRenderer.invoke('project:create-version', projectRoot, payload),
+  updateVersionStatus: (projectRoot, versionId, status) =>
+    ipcRenderer.invoke('project:update-version-status', projectRoot, versionId, status),
+  updateRecord: (projectRoot, kind, target, patch) =>
+    ipcRenderer.invoke('project:update-record', projectRoot, kind, target, patch),
   addQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:add-question', projectRoot, payload),
   updateQuestionStatus: (projectRoot, questionId, status) =>
     ipcRenderer.invoke('project:update-question-status', projectRoot, questionId, status),
@@ -20,8 +28,12 @@ contextBridge.exposeInMainWorld('electronManager', {
   updateTaskStatus: (projectRoot, taskId, status) =>
     ipcRenderer.invoke('project:update-task-status', projectRoot, taskId, status),
   deleteTask: (projectRoot, taskId) => ipcRenderer.invoke('project:delete-task', projectRoot, taskId),
-  addThought: (projectRoot, content) => ipcRenderer.invoke('project:add-thought', projectRoot, content),
+  addThought: (projectRoot, payload) => ipcRenderer.invoke('project:add-thought', projectRoot, payload),
+  updateThoughtStatus: (projectRoot, thoughtId, status, answer) =>
+    ipcRenderer.invoke('project:update-thought-status', projectRoot, thoughtId, status, answer),
   addDialogue: (projectRoot, payload) => ipcRenderer.invoke('project:add-dialogue', projectRoot, payload),
+  updateDialogueStatus: (projectRoot, dialogueId, status) =>
+    ipcRenderer.invoke('project:update-dialogue-status', projectRoot, dialogueId, status),
   deleteDialogue: (projectRoot, dialogueId) => ipcRenderer.invoke('project:delete-dialogue', projectRoot, dialogueId),
   addConstraint: (projectRoot, payload) => ipcRenderer.invoke('project:add-constraint', projectRoot, payload),
   deleteConstraint: (projectRoot, constraintId) => ipcRenderer.invoke('project:delete-constraint', projectRoot, constraintId),

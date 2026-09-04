@@ -1,0 +1,329 @@
+.collab-tabs {
+  align-self: start;
+  margin: 0 0 10px;
+}
+
+.collab-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.collab-index {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface-soft) 62%, transparent);
+  padding: var(--space-3);
+}
+
+.collab-index-list {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 6px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.collab-index-item {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  padding: 10px;
+  text-align: left;
+  transition: background var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
+}
+
+.collab-index-item:hover,
+.collab-index-item.active {
+  border-color: transparent;
+  background: var(--hover);
+  box-shadow: inset 3px 0 0 var(--primary-text);
+}
+
+.collab-index-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.collab-index-item > strong,
+.collab-index-item > small,
+.collab-index-foot {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.collab-index-item > strong {
+  font-size: var(--font-size-md);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collab-index-item > small {
+  display: -webkit-box;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.collab-index-foot {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collab-detail-wrap {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.collab-detail {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+  height: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  padding: var(--space-4);
+}
+
+.collab-detail.risk-record {
+  border-left: 3px solid var(--warning);
+}
+
+.collab-detail-title {
+  display: grid;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-4);
+}
+
+.collab-detail-title h2,
+.collab-detail-title p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.collab-detail-title h2 {
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.collab-detail-title p {
+  color: var(--muted);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.collab-detail-empty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+}
+
+.collab-history-view {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.collab-thread {
+  display: grid;
+  gap: 7px;
+  border-top: 1px solid var(--border);
+  padding-top: 9px;
+}
+
+.collab-message {
+  display: grid;
+  gap: 5px;
+  border-left: 2px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+  padding: 8px 10px;
+}
+
+.collab-message.is-user {
+  border-left-color: var(--primary);
+}
+
+.collab-message.is-record {
+  border-left-color: var(--warning);
+}
+
+.collab-message > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.collab-message strong {
+  font-size: var(--font-size-sm);
+}
+
+.collab-message time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.collab-message p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.compact-thread {
+  margin-top: 8px;
+}
+
+.collab-record-actions {
+  justify-content: flex-end;
+}
+
+.collab-context,
+.collab-recommendation,
+.collab-decision {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: var(--font-size-md);
+}
+
+.collab-recommendation,
+.collab-decision {
+  border-left-color: var(--primary);
+}
+
+.collab-context strong,
+.collab-recommendation strong,
+.collab-decision strong {
+  color: var(--text);
+}
+
+.collab-context span,
+.collab-recommendation span,
+.collab-decision span,
+.collab-record-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.collab-record-meta {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  font-size: var(--font-size-xs);
+}
+
+.collab-record-meta time {
+  margin-left: auto;
+}
+
+.version-history-list {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 8px;
+}
+
+.version-history-group {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.version-history-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.version-history-group summary > span:first-child {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.version-history-group summary > span:last-child {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.collab-history-records {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.collab-history-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.collab-history-row:last-child {
+  border-bottom: 0;
+}
+
+.collab-history-row p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.collab-history-main {
+  min-width: 0;
+}
+
+.collab-history-actions {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 7px;
+}

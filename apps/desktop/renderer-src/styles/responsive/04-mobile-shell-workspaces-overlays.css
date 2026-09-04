@@ -1,0 +1,174 @@
+@media (max-width: 760px) {
+  .page-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .navigation-groups {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .navigation-group {
+    display: contents;
+  }
+
+  .navigation-group-label {
+    display: none;
+  }
+
+  .navigation-group a {
+    text-align: center;
+  }
+
+  .sidebar-footer {
+    margin-top: 12px;
+  }
+
+  .content {
+    height: auto;
+    padding: 0;
+    overflow: visible;
+  }
+
+  body {
+    overflow: auto;
+  }
+
+  .view.active-view {
+    overflow: visible;
+    padding: 20px;
+  }
+
+  #collaboration.active-view,
+  #knowledge.active-view,
+  #documents.active-view,
+  #constraints.active-view {
+    display: block;
+    height: auto;
+    overflow: visible;
+    padding-bottom: 24px;
+  }
+
+  .topbar,
+  .section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .version-switcher {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .version-switcher-trigger {
+    width: 100%;
+  }
+
+  .version-menu {
+    right: auto;
+    left: 0;
+    width: min(320px, calc(100vw - 40px));
+  }
+
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-focus,
+  .overview-summary,
+  .project-details {
+    grid-column: 1;
+  }
+
+  .version-row {
+    grid-template-columns: 18px minmax(0, 1fr) 112px;
+  }
+
+  .version-metrics {
+    grid-column: 2 / -1;
+  }
+
+  .task-form-grid,
+  .capture-hint,
+  .records,
+  .collab-rules,
+  .dialogue-layout,
+  .work-log-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .dialogue-index,
+  .dialogue-list-wrap {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .dialogue-index {
+    order: 1;
+  }
+
+  .dialogue-list-wrap {
+    order: 2;
+  }
+
+  .dialogue-layout,
+  .work-log-layout,
+  .collab-workspace {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .dialogue-list-wrap,
+  .dialogue-list,
+  .dialogue-index,
+  .dialogue-toc,
+  .work-log-index,
+  .work-log-list-wrap,
+  .work-log-list,
+  .collab-index,
+  .collab-index-list,
+  .collab-detail-wrap,
+  .collab-detail {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .collab-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .collab-index-list {
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  .resource-search {
+    width: 100%;
+  }
+
+  .dialogue-layout.toc-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .dialogue-index.is-collapsed {
+    justify-items: start;
+  }
+
+}

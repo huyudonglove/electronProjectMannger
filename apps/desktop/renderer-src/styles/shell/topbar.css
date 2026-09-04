@@ -1,0 +1,133 @@
+.content {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 94%, var(--bg) 6%);
+  padding: 9px 28px;
+}
+
+.topbar-context {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.topbar-title-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.topbar h1 {
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--font-size-title);
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-context > p {
+  overflow: hidden;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.sync-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+  background: var(--muted);
+}
+
+.sync-status-dot.ready {
+  border: 1px solid var(--brand-ink);
+  background: var(--brand-acid);
+}
+
+.sync-status-dot.busy {
+  background: var(--brand-purple);
+  animation: sync-pulse 1s ease-in-out infinite alternate;
+}
+
+.topbar-actions,
+.capture-actions,
+.quick-task-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topbar-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.topbar-create {
+  min-width: max-content;
+  padding: 0 12px;
+}
+
+.topbar-create-chevron {
+  margin-left: 2px;
+  opacity: 0.72;
+}
+
+.topbar-create-chevron svg {
+  width: 13px;
+  height: 13px;
+}
+
+.topbar-create.active .topbar-create-chevron {
+  transform: rotate(180deg);
+}
+
+.capture-actions,
+.quick-task-actions {
+  justify-content: flex-end;
+}
+
+.capture-actions span,
+.quick-task-actions span {
+  margin-right: auto;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.eyebrow:empty {
+  display: none;
+}

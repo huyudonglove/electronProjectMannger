@@ -1,0 +1,70 @@
+.work-log-toc-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-self: start;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  padding: 9px;
+  text-align: left;
+}
+
+.work-log-toc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.work-log-toc-relations {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.work-log-toc-item strong,
+.work-log-toc-item small {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.work-log-index *,
+.work-log-toc-item > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.work-log-toc-item .ui-tag,
+.work-log-toc-item .task-short-id {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.work-log-toc-item.active,
+.work-log-toc-item:hover {
+  border-color: transparent;
+  background: var(--hover);
+  box-shadow: inset 3px 0 0 var(--primary-text);
+}
+
+.work-log-toc-item strong {
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+}
+
+.work-log-toc-item small {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}

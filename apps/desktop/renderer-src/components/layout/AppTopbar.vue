@@ -1,34 +1,83 @@
 <script setup lang="ts">
+import { nextTick } from 'vue'
+import UiIcon from '../ui/UiIcon.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
+
 type AnyRecord = Record<string, any>
 
 const props = defineProps<{
   status: string
+  pageTitle: string
+  showVersionSwitcher: boolean
+  showCreate: boolean
+  createLabel: string
+  createDisabledReason: string
+  quickOpen: boolean
   initialized: boolean
   busy: boolean
   versions: AnyRecord[]
   selectedVersionId: string
   selectedVersion: AnyRecord | null
   versionMenuOpen: boolean
-  icon: (name: string) => string
 }>()
 
 const emit = defineEmits<{
   toggleVersionMenu: []
   closeVersionMenu: [event: FocusEvent]
   selectVersion: [versionId: string]
-  openProjects: []
+  create: []
   refresh: []
 }>()
+
+function versionStatusText(status: string) {
+  return ({ planned: '规划中', active: '进行中', paused: '已暂停', completed: '已完成' } as Record<string, string>)[status] || status
+}
+
+function toggleVersionMenu() {
+  const opening = !props.versionMenuOpen
+  emit('toggleVersionMenu')
+  if (opening) {
+    nextTick(() => {
+      document.querySelector<HTMLElement>('.version-menu-item.active, .version-menu-item')?.focus({ preventScroll: true })
+    })
+  }
+}
+
+function handleVersionMenuKeydown(event: KeyboardEvent) {
+  if (!props.versionMenuOpen) return
+  const container = event.currentTarget as HTMLElement
+  const items = [...container.querySelectorAll<HTMLButtonElement>('.version-menu-item')]
+  if (!items.length) return
+  const currentIndex = Math.max(items.indexOf(document.activeElement as HTMLButtonElement), 0)
+  let nextIndex = currentIndex
+  if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length
+  else if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = items.length - 1
+  else if (event.key === 'Escape') {
+    event.preventDefault()
+    emit('closeVersionMenu', event as unknown as FocusEvent)
+    nextTick(() => container.querySelector<HTMLButtonElement>('.version-switcher-trigger')?.focus())
+    return
+  } else return
+  event.preventDefault()
+  items[nextIndex]?.focus()
+}
 </script>
 
 <template>
   <header class="topbar">
-    <div>
-      <p class="eyebrow" aria-hidden="true"></p>
-      <small>{{ props.status }}</small>
+    <div class="topbar-context">
+      <div class="topbar-title-row">
+        <h1>{{ props.pageTitle }}</h1>
+        <span v-if="props.busy || props.status || !props.initialized" class="sync-status" :title="props.status || (props.busy ? '处理中' : '等待项目')">
+          <span class="sync-status-dot" :class="{ busy: props.busy, ready: props.initialized && !props.busy }"></span>
+          {{ props.status || (props.busy ? '处理中' : '等待项目') }}
+        </span>
+      </div>
     </div>
     <div class="topbar-actions">
-      <div v-if="props.initialized && props.versions.length" class="version-switcher" @focusout="emit('closeVersionMenu', $event)">
+      <div v-if="props.showVersionSwitcher && props.initialized && props.versions.length" class="version-switcher" @focusout="emit('closeVersionMenu', $event)" @keydown="handleVersionMenuKeydown">
         <button
           class="version-switcher-trigger"
           :class="{ 'is-open': props.versionMenuOpen }"
@@ -36,11 +85,11 @@ const emit = defineEmits<{
           aria-haspopup="listbox"
           :aria-expanded="props.versionMenuOpen"
           aria-label="选择版本"
-          @click="emit('toggleVersionMenu')"
+          @click="toggleVersionMenu"
         >
-          <span class="version-switcher-icon" v-html="props.icon('layers')" />
+          <UiIcon class="version-switcher-icon" name="layers" />
           <span class="version-switcher-label">{{ props.selectedVersionId === 'all' ? '全部版本' : `${props.selectedVersion?.shortId || ''} · ${props.selectedVersion?.label || ''}` }}</span>
-          <span class="version-switcher-chevron" v-html="props.icon('chevronDown')" />
+          <UiIcon class="version-switcher-chevron" name="chevronDown" />
         </button>
         <div v-if="props.versionMenuOpen" class="version-menu" role="listbox" aria-label="版本">
           <button
@@ -54,8 +103,8 @@ const emit = defineEmits<{
             @click="emit('selectVersion', version.shortId)"
           >
             <span class="version-menu-copy"><strong>{{ version.shortId }} · {{ version.label }}</strong><small>{{ version.title }}</small></span>
-            <span v-if="version.status === 'active'" class="version-menu-current">当前</span>
-            <span v-if="props.selectedVersionId === version.shortId" class="version-menu-check" v-html="props.icon('check')" />
+            <span class="version-menu-current" :class="`is-${version.status || 'planned'}`">{{ versionStatusText(version.status || 'planned') }}</span>
+            <UiIcon v-if="props.selectedVersionId === version.shortId" class="version-menu-check" name="check" />
           </button>
           <button
             class="version-menu-item"
@@ -65,13 +114,23 @@ const emit = defineEmits<{
             :aria-selected="props.selectedVersionId === 'all'"
             @click="emit('selectVersion', 'all')"
           >
-            <span class="version-menu-copy"><strong>全部版本</strong><small>查看当前与历史记录</small></span>
-            <span v-if="props.selectedVersionId === 'all'" class="version-menu-check" v-html="props.icon('check')" />
+            <span class="version-menu-copy"><strong>全部版本</strong><small>仅查看</small></span>
+            <UiIcon v-if="props.selectedVersionId === 'all'" class="version-menu-check" name="check" />
           </button>
         </div>
       </div>
-      <button class="btn icon-button btn-outline-primary" type="button" title="打开项目" aria-label="打开项目" :disabled="props.busy" @click="emit('openProjects')" v-html="props.icon('history')" />
-      <button class="btn icon-button btn-ghost" type="button" title="手动刷新" aria-label="手动刷新" :disabled="props.busy || !props.initialized" @click="emit('refresh')" v-html="props.icon('refresh')" />
+      <UiIconButton icon="refresh" label="手动刷新" variant="ghost" :disabled="props.busy || !props.initialized" @click="emit('refresh')" />
+      <UiIconButton
+        v-if="props.showCreate"
+        class="topbar-create"
+        :class="{ active: props.quickOpen }"
+        icon="plus"
+        :label="props.createDisabledReason || props.createLabel"
+        variant="primary"
+        :disabled="props.busy || Boolean(props.createDisabledReason)"
+        :aria-expanded="props.quickOpen"
+        @click="emit('create')"
+      />
     </div>
   </header>
 </template>

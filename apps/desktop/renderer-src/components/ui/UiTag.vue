@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
+
 withDefaults(defineProps<{
   label: string
-  iconSvg?: string
+  iconName?: string
   tone?: 'neutral' | 'complete' | 'warning' | 'danger'
   variant?: 'meta' | 'status'
 }>(), {
-  iconSvg: '',
+  iconName: '',
   tone: 'neutral',
   variant: 'meta',
 })
@@ -13,7 +15,7 @@ withDefaults(defineProps<{
 
 <template>
   <span class="ui-tag" :class="[`ui-tag--${variant}`, `ui-tag--${tone}`]">
-    <span v-if="iconSvg" class="ui-tag-icon" aria-hidden="true" v-html="iconSvg" />
+    <UiIcon v-if="iconName" class="ui-tag-icon" :name="iconName" :size="12" />
     <span>{{ label }}</span>
   </span>
 </template>

@@ -1,0 +1,153 @@
+.collab-log,
+.collab-log section {
+  display: grid;
+  gap: 8px;
+}
+
+.collab-log {
+  gap: 12px;
+  border-left: 2px solid var(--record-level-light);
+  padding: 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+  scroll-margin-top: 48px;
+}
+
+.collab-log[data-record-level="standard"] {
+  border-left-width: 3px;
+  border-left-color: var(--record-level-standard);
+}
+
+.collab-log[data-record-level="deep"] {
+  border-left-width: 4px;
+  border-left-color: var(--record-level-deep);
+}
+
+.collab-log.active {
+  border-top-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-right-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-bottom-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.collab-log section {
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface-soft) 78%, var(--surface) 22%);
+  padding: 11px 13px;
+}
+
+.collab-log section:first-child {
+  border-top: 0;
+}
+
+.collab-log section > strong,
+.collab-log .answer > span {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.collab-log p,
+.collab-log ul,
+.collab-log details {
+  margin: 0;
+}
+
+.collab-log p,
+.collab-log li {
+  color: var(--text);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.collab-log .missing-field p {
+  color: var(--muted);
+}
+
+.collab-log ul {
+  min-width: 0;
+  max-width: 100%;
+  padding-left: 18px;
+  list-style-type: disc;
+}
+
+.collab-log li {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.collab-card-head--meta {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  margin: -14px -14px 0;
+  padding: 14px;
+}
+
+.collab-card-head--meta h3 {
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.log-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.log-task-relations {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.collab-log section.user-goal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--log-user-bg);
+  padding: 14px 16px;
+}
+
+.collab-log .answer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--log-answer-bg);
+  padding: 11px 13px;
+}
+
+.related-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.related-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.related-task:hover {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: var(--hover);
+}
+
+.collab-log-highlight {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}

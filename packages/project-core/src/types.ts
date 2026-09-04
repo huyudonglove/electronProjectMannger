@@ -8,31 +8,41 @@ export type ProjectConfig = {
   currentVersionId: string
 }
 
+export type ProjectWorkLevel = 'light' | 'standard' | 'deep'
+export type ProjectDepthReason = 'architecture' | 'migration' | 'cross_system' | 'security' | 'irreversible' | 'decision'
+export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done' | 'abandoned'
+export type ProjectThoughtStatus = 'inbox' | 'handled'
+
 export type ProjectTask = {
   id: string
   shortId: string
   title: string
-  status: string
+  status: TaskStatus
   priority: string
+  workLevel: ProjectWorkLevel
+  depthReason: ProjectDepthReason | ''
   area: string
   updated: string
   version: string
+  userOriginal: string
   detail: string
   acceptance: string
+  constraints: string
+  planRollback: string
 }
 
 export type ProjectThought = {
   id: string
   shortId: string
   title: string
-  status: string
+  status: ProjectThoughtStatus
   created: string
   version: string
   content: string
   answer: string
 }
 
-export type ProjectLogLevel = 'light' | 'standard' | 'deep'
+export type ProjectLogLevel = ProjectWorkLevel
 
 export type ProjectLog = {
   shortId: string
@@ -43,20 +53,10 @@ export type ProjectLog = {
   recordLevel: ProjectLogLevel
   version: string
   userGoal: string
-  userOriginal: string
-  understanding: string
-  answer: string
-  executionScope: string
-  acceptance: string
-  outputs: string[]
-  keySteps: string[]
+  result: string
   decisions: string[]
-  actions: string[]
   changedFiles: string[]
   verification: string[]
-  acceptanceResult: string
-  risks: string[]
-  followUps: string[]
   relatedTasks: Array<{ shortId: string; id: string; title: string; status: string }>
   content: string
 }
@@ -139,13 +139,13 @@ export type ProjectOpenQuestion = {
   created: string
   updated: string
   relations: string[]
-  origin: 'user' | 'agent'
+  origin: 'user' | 'system'
   messages: ProjectQuestionMessage[]
 }
 
 export type ProjectQuestionMessage = {
   id: string
-  role: 'user' | 'agent' | 'system'
+  role: 'user' | 'system'
   created: string
   content: string
 }
@@ -164,12 +164,19 @@ export type ProjectRisk = {
   relations: string[]
 }
 
+export type ProjectRiskSummary = Pick<
+  ProjectRisk,
+  'id' | 'shortId' | 'title' | 'kind' | 'status' | 'version' | 'updated' | 'relations'
+>
+
+export type ProjectVersionStatus = 'planned' | 'active' | 'paused' | 'completed'
+
 export type ProjectVersion = {
   id: string
   shortId: string
   label: string
   title: string
-  status: 'active' | 'completed'
+  status: ProjectVersionStatus
   created: string
   completed: string
   goal: string
@@ -178,12 +185,12 @@ export type ProjectVersion = {
   followUps: string[]
 }
 
-export type AgentBrief = {
+export type RecordSummary = {
   generatedAt: string
   projectRoot: string
   dataRoot: string
   knowledgeRoot: string
-  skillPath: string
+  recordSkillPath: string
   baselinePath: string
   currentVersionRoot: string
   currentDataPaths: {
@@ -199,9 +206,8 @@ export type AgentBrief = {
   activeResearch: ProjectDialogue[]
   openQuestions: ProjectOpenQuestion[]
   pendingDecisions: ProjectOpenQuestion[]
-  activeRisks: ProjectRisk[]
+  activeRisks: ProjectRiskSummary[]
   latestLogs: string[]
-  instructions: string[]
 }
 
 export type Dashboard = {
@@ -219,9 +225,9 @@ export type Dashboard = {
   risks: ProjectRisk[]
   activeTasks: ProjectTask[]
   activeResearch: ProjectDialogue[]
-  openQuestions: AgentBrief['openQuestions']
+  openQuestions: RecordSummary['openQuestions']
   latestLogs: string[]
-  agentBrief: AgentBrief
+  recordSummary: RecordSummary
 }
 
 export type ManagedProject = {
@@ -233,7 +239,7 @@ export type ManagedProject = {
   lastOpenedAt: string
 }
 
-export type ProjectGuidanceSyncResult = {
+export type ProjectMetadataSyncResult = {
   projectId: string
   projectName: string
   projectRoot: string
@@ -242,23 +248,34 @@ export type ProjectGuidanceSyncResult = {
 }
 
 export type NewTaskInput = {
+  versionId?: string
   title: string
-  status?: string
+  status?: TaskStatus
   priority?: string
+  workLevel?: ProjectWorkLevel
+  depthReason?: ProjectDepthReason
   area?: string
   userOriginal?: string
-  agentUnderstanding?: string
-  executionScope?: string
+  executionDefinition?: string
   acceptance?: string
+  constraints?: string
+  planRollback?: string
+}
+
+export type NewThoughtInput = {
+  versionId?: string
+  content: string
 }
 
 export type NewDialogueInput = {
+  versionId?: string
   content: string
   acceptance?: string
   mode?: Exclude<ResearchMode, 'legacy'>
 }
 
 export type NewConstraintInput = {
+  versionId?: string
   title: string
   content: string
   status?: string
@@ -275,9 +292,11 @@ export type NewVersionInput = {
   title: string
   goal: string
   summary?: string
+  status?: ProjectVersionStatus
 }
 
 export type NewQuestionInput = {
+  versionId?: string
   title: string
   question: string
   background?: string
@@ -286,5 +305,72 @@ export type NewQuestionInput = {
   scope?: ProjectOpenQuestion['scope']
   blocking?: boolean
   relations?: string[]
-  origin?: 'user' | 'agent'
+  origin?: 'user' | 'system'
+}
+
+export type ProjectRecordKind = 'task' | 'thought' | 'research' | 'constraint' | 'version' | 'question'
+
+export type UpdateTaskRecordPatch = {
+  title?: string
+  priority?: string
+  workLevel?: ProjectWorkLevel
+  depthReason?: ProjectDepthReason | ''
+  area?: string
+  userOriginal?: string
+  executionDefinition?: string
+  acceptance?: string
+  constraints?: string
+  planRollback?: string
+}
+
+export type UpdateThoughtRecordPatch = {
+  content?: string
+  answer?: string
+}
+
+export type UpdateResearchRecordPatch = {
+  content?: string
+  answer?: string
+  acceptance?: string
+  mode?: Exclude<ResearchMode, 'legacy'>
+  tags?: string[]
+  relatedTasks?: string[]
+  relatedThoughts?: string[]
+  relatedDocuments?: string[]
+}
+
+export type UpdateConstraintRecordPatch = {
+  title?: string
+  content?: string
+  status?: 'active' | 'draft' | 'archived'
+  scope?: 'project' | 'version'
+}
+
+export type UpdateVersionRecordPatch = {
+  label?: string
+  title?: string
+  goal?: string
+  summary?: string
+  outcomes?: string[]
+  followUps?: string[]
+}
+
+export type UpdateQuestionRecordPatch = {
+  title?: string
+  question?: string
+  background?: string
+  recommendation?: string
+  kind?: ProjectOpenQuestion['kind']
+  scope?: ProjectOpenQuestion['scope']
+  blocking?: boolean
+  relations?: string[]
+}
+
+export type UpdateProjectRecordPatchMap = {
+  task: UpdateTaskRecordPatch
+  thought: UpdateThoughtRecordPatch
+  research: UpdateResearchRecordPatch
+  constraint: UpdateConstraintRecordPatch
+  version: UpdateVersionRecordPatch
+  question: UpdateQuestionRecordPatch
 }

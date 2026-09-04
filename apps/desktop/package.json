@@ -1,5 +1,5 @@
 {
-  "name": "@electron-manager/desktop",
+  "name": "@telance-records/desktop",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,10 @@
     "start": "electron ."
   },
   "dependencies": {
-    "@electron-manager/project-core": "workspace:*",
+    "@lucide/vue": "^1.38.0",
+    "@telance-records/project-core": "workspace:*",
     "electron": "^39.2.6",
+    "naive-ui": "^2.45.3",
     "vue": "^3.5.39"
   },
   "devDependencies": {

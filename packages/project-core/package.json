@@ -1,5 +1,5 @@
 {
-  "name": "@electron-manager/project-core",
+  "name": "@telance-records/project-core",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm build && node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.13.2"

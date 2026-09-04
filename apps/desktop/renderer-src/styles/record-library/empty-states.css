@@ -1,0 +1,54 @@
+.empty,
+.empty-panel {
+  color: var(--muted);
+  font-size: var(--font-size-md);
+}
+
+.empty-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  margin: 0;
+  padding: 12px;
+}
+
+.empty-state {
+  display: grid;
+  min-height: 148px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.empty-state-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: var(--radius-card);
+  background: var(--surface-soft);
+  color: var(--icon-accent);
+}
+
+.empty-state-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--icon-stroke);
+}
+
+.documents-empty-state .empty-state-icon {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--icon-accent);
+}
+
+.empty-state strong {
+  color: var(--muted);
+  font-weight: 700;
+}
+

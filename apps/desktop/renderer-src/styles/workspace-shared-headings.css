@@ -1,0 +1,37 @@
+
+.column-head,
+.thought-header,
+.collab-open-head,
+.collab-card-head,
+.quick-task-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quick-task-heading {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.quick-task-heading small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.collab-open-head h3,
+.collab-card-head h3 {
+  margin: 4px 0 0;
+  font-size: var(--font-size-lg);
+}
+
+.brief-summary {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

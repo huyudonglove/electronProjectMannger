@@ -1,0 +1,141 @@
+.quick-task {
+  position: fixed;
+  top: 78px;
+  right: 28px;
+  bottom: auto;
+  z-index: 50;
+}
+
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 76px;
+  z-index: 70;
+  display: grid;
+  width: min(280px, calc(100vw - 40px));
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast-message {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-popover);
+  padding: 10px 12px;
+  font-weight: 700;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard);
+}
+
+.toast-message.is-leaving {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.quick-task-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: auto;
+  display: grid;
+  width: min(360px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
+  gap: 10px;
+  overflow-y: auto;
+  padding: 12px;
+  box-shadow: var(--shadow-popover);
+}
+
+.quick-task-panel[hidden] {
+  display: none;
+}
+
+.research-mode-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+}
+
+.research-mode-control button {
+  min-width: 0;
+  min-height: 36px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  transition: color var(--motion-base) var(--ease-standard), background var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
+}
+
+.research-mode-control button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.research-mode-control button:last-child {
+  border-right: 0;
+}
+
+.research-mode-control button.active {
+  background: var(--primary-soft);
+  color: var(--text);
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+
+.quick-create-menu {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: auto;
+  display: grid;
+  width: 168px;
+  gap: 8px;
+  padding: 10px;
+  box-shadow: var(--shadow-popover);
+}
+
+.quick-create-menu[hidden] {
+  display: none;
+}
+
+.quick-create-option {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  min-height: 40px;
+  gap: 8px;
+  text-align: left;
+}
+
+.quick-create-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-strong);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+.quick-create-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--icon-stroke);
+}
+
+.quick-task-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}

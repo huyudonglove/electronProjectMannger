@@ -1,0 +1,208 @@
+.library-shelf {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 4px var(--space-4) 0;
+}
+
+.document-group,
+.constraint-group {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.knowledge-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.knowledge-group-head strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-card {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 196px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color var(--motion-base) var(--ease-standard), background var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+
+.library-card-main {
+  display: grid;
+  grid-template-rows: auto auto minmax(38px, auto) minmax(54px, 1fr) auto;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  min-height: inherit;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  padding: var(--space-3);
+  text-align: left;
+}
+
+.library-card-frame:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: 3px 3px 0 var(--primary);
+  transform: none;
+}
+
+.library-card-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+.library-card-kicker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.library-card-kicker span,
+.library-card-origin {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-card strong {
+  display: -webkit-box;
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.library-card small {
+  display: -webkit-box;
+  overflow: hidden;
+  min-height: 0;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.library-card-origin {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.library-card-actions {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  gap: 4px;
+  opacity: 0.72;
+  transform: translateY(-2px);
+  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+
+.library-card:hover .library-card-actions,
+.library-card:focus-within .library-card-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.document-card {
+  height: 232px;
+  min-height: 232px;
+  max-height: 232px;
+}
+
+.constraint-shelf {
+  gap: var(--space-5);
+}
+
+.constraint-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.constraint-card {
+  min-height: 204px;
+}
+
+.system-constraint-card .library-card-icon {
+  color: var(--muted);
+}
+
+@media (max-width: 1500px) {
+  .library-grid,
+  .document-card-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .constraint-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1280px) {
+  .library-grid,
+  .document-card-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .constraint-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .library-grid,
+  .document-card-grid,
+  .constraint-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .library-grid,
+  .document-card-grid,
+  .constraint-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
