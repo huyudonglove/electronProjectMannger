@@ -8,6 +8,7 @@ import MarkdownDialog from './components/overlays/MarkdownDialog.vue'
 import ProjectInitDialog from './components/overlays/ProjectInitDialog.vue'
 import ProjectPickerDialog from './components/overlays/ProjectPickerDialog.vue'
 import QuickCreatePanel from './components/overlays/QuickCreatePanel.vue'
+import RecordEditDialog from './components/overlays/RecordEditDialog.vue'
 import QuestionDialog from './components/overlays/QuestionDialog.vue'
 import ReplyDialog from './components/overlays/ReplyDialog.vue'
 import TaskDetailModal from './components/overlays/TaskDetailModal.vue'
@@ -35,6 +36,7 @@ import { useProjectUiActions } from './composables/useProjectUiActions'
 import { useProjectWorkspace } from './composables/useProjectWorkspace'
 import { useQuickCreateController } from './composables/useQuickCreateController'
 import { useRecordCommands } from './composables/useRecordCommands'
+import { useRecordEditController, type EditableRecordKind } from './composables/useRecordEditController'
 import { useRecordCollections } from './composables/useRecordCollections'
 import { useRecordNavigation } from './composables/useRecordNavigation'
 import { useResourceLibrary } from './composables/useResourceLibrary'
@@ -341,6 +343,22 @@ const {
   onQuestionSaved: () => { state.collabTab = 'decided' },
 })
 const {
+  editKind,
+  editTarget,
+  editForm,
+  openRecordEdit,
+  closeRecordEdit,
+  saveRecordEdit,
+} = useRecordEditController({
+  projectRoot: toRef(state, 'projectRoot'),
+  runAction,
+  ensureReady,
+  replaceDashboard,
+  showToast,
+  setStatus: (message) => { state.status = message },
+  getStatus: () => state.status,
+})
+const {
   selectedDialogue,
   selectedCollabItem,
   visibleLog,
@@ -389,6 +407,7 @@ const { activeModal } = useModalCoordinator({
   questionDialogOpen,
   markdownDocument: toRef(state, 'markdownDocument'),
   thoughtResolveItem: thoughtResolveTarget,
+  recordEditItem: editTarget,
   projectRoot: toRef(state, 'projectRoot'),
   initialized: toRef(state, 'initialized'),
   closeQuickCreate: () => closeQuickTask({ restoreFocus: false }),
@@ -510,6 +529,19 @@ async function submitThoughtResolution() {
 
 async function reopenThought(thought: AnyRecord) {
   await updateThoughtStatus(thought.id || thought.shortId, 'inbox')
+}
+
+function openRecordEditor(kind: EditableRecordKind, record: AnyRecord) {
+  if (['task', 'thought', 'research', 'question'].includes(kind)) {
+    const ownerVersion = versions.value.find((version: AnyRecord) => version.shortId === record.version)
+    if (ownerVersion?.status === 'completed') {
+      showToast('已完成版本为只读，请先恢复版本状态')
+      return
+    }
+  }
+  closeTaskDetail()
+  closeMarkdownDocument()
+  openRecordEdit(kind, record)
 }
 
 function prepareCompanionMode() {
@@ -636,6 +668,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     @reply="openReplyDialog"
     @complete-question="completeQuestion"
     @resolve-risk="resolveRisk"
+    @edit-record="openRecordEditor"
   />
 
   <main v-else class="page-shell" :inert="Boolean(activeModal)" :aria-hidden="activeModal ? 'true' : undefined">
@@ -710,6 +743,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
         @delete-thought="deleteThought"
         @resolve-thought="openThoughtResolveDialog"
         @reopen-thought="reopenThought"
+        @edit-thought="openRecordEditor('thought', $event)"
       />
 
       <TaskBoardView
@@ -749,6 +783,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
         @select="openDialogue"
         @delete="deleteDialogueRecord"
         @copy="copyResearchPrompt"
+        @edit="openRecordEditor('research', $event)"
         @open-document="openMarkdownDocument($event, 'document')"
       />
 
@@ -764,6 +799,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
         :busy="state.busy"
         @open-version-dialog="openVersionDialog"
         @change-version-status="changeVersionStatus"
+        @edit-version="openRecordEditor('version', $event)"
       />
 
       <CollaborationView
@@ -785,6 +821,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
         @open-reply-dialog="openReplyDialog"
         @complete-question="completeQuestion"
         @resolve-risk="resolveRisk"
+        @edit-question="openRecordEditor('question', $event)"
       />
 
       <WorkLogsView
@@ -827,6 +864,7 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
         @update:query="state.constraintQuery = $event"
         @open="openMarkdownDocument($event.record, 'constraint')"
         @delete="deleteResourceViewItem('constraint', $event)"
+        @edit="openRecordEditor('constraint', $event.record)"
       />
     </section>
   </main>
@@ -858,7 +896,19 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     <div v-for="toast in toasts" :key="toast.id" class="toast-message" :class="{ 'is-leaving': toast.leaving }">{{ toast.message }}</div>
   </div>
 
-  <TaskDetailModal v-if="companionStateReady && !companionMode" :task="state.selectedTask" @close="closeTaskDetail" />
+  <TaskDetailModal v-if="companionStateReady && !companionMode" :task="state.selectedTask" @close="closeTaskDetail" @edit="openRecordEditor('task', $event)" />
+
+  <RecordEditDialog
+    v-if="companionStateReady"
+    :open="Boolean(editTarget)"
+    :busy="state.busy"
+    :kind="editKind"
+    :form="editForm"
+    :compact="companionMode"
+    @close="closeRecordEdit"
+    @submit="saveRecordEdit"
+    @update:form="Object.assign(editForm, $event)"
+  />
 
   <ThoughtResolveDialog
     v-if="companionStateReady"
@@ -932,7 +982,9 @@ async function copyResearchPrompt(dialogue: AnyRecord) {
     :origin="markdownDialogOrigin"
     :badges="markdownDialogBadges"
     :content-html="markdownDialogContentHtml"
+    :editable="state.markdownDocument?.kind === 'constraint' && state.markdownDocument?.source !== 'system'"
     @close="closeMarkdownDocument"
+    @edit="state.markdownDocument && openRecordEditor('constraint', state.markdownDocument)"
   />
   </NConfigProvider>
 </template>

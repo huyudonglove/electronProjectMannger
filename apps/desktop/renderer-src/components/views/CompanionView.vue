@@ -57,6 +57,7 @@ const emit = defineEmits<{
   completeQuestion: [item: AnyRecord]
   resolveRisk: [item: AnyRecord]
   selectVersion: [versionId: string]
+  editRecord: [kind: 'task' | 'thought' | 'research' | 'question', record: AnyRecord]
 }>()
 
 const pageTitle = computed(() => {
@@ -114,6 +115,7 @@ const pageSubtitle = computed(() => {
       @reply="emit('reply', $event)"
       @complete-question="emit('completeQuestion', $event)"
       @resolve-risk="emit('resolveRisk', $event)"
+      @edit-record="(kind, record) => emit('editRecord', kind, record)"
     />
 
     <CompanionListPage

@@ -10,6 +10,7 @@ import TaskDetailContent, { type TaskDetailRecord } from '../details/TaskDetailC
 import DialogHeader from '../ui/DialogHeader.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
 import UiTag from '../ui/UiTag.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import ModalLayer from './ModalLayer.vue'
 
 defineProps<{
@@ -18,6 +19,7 @@ defineProps<{
 
 defineEmits<{
   close: []
+  edit: [task: TaskDetailRecord]
 }>()
 
 </script>
@@ -37,6 +39,9 @@ defineEmits<{
         initial-focus
         @close="$emit('close')"
       >
+        <template #actions>
+          <UiIconButton icon="edit" label="编辑任务" size="sm" @click="$emit('edit', task)" />
+        </template>
         <template #badges>
           <div class="task-detail-badges">
             <span v-if="task.shortId" class="task-short-id">{{ task.shortId }}</span>

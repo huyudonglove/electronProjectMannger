@@ -18,6 +18,7 @@ const emit = defineEmits<{
   openReplyDialog: [item: CollaborationRecordItem]
   completeQuestion: [item: CollaborationRecordItem]
   resolveRisk: [item: CollaborationRecordItem]
+  editQuestion: [item: CollaborationRecordItem]
 }>()
 
 function questionThreadMessages(item: CollaborationRecordItem) {
@@ -56,9 +57,10 @@ function riskKindText(kind: string) {
         <UiTag v-if="item.blocking" label="阻塞" tone="warning" variant="status" icon-name="alertTriangle" />
       </div>
       <div class="collab-record-actions">
+        <UiIconButton v-if="mode !== 'risks'" icon="edit" label="编辑协作问题" size="sm" @click="emit('editQuestion', item)" />
         <UiIconButton v-if="mode === 'open' && item.relations?.length" icon="eye" label="查看关联记录" size="sm" @click="emit('openQuestionTarget', item)" />
         <UiIconButton v-if="mode === 'open'" icon="messageCircle" label="回复" variant="primary" size="sm" @click="emit('openReplyDialog', item)" />
-        <UiIconButton v-else-if="mode === 'decided'" icon="edit" label="补充说明" size="sm" @click="emit('openReplyDialog', item)" />
+        <UiIconButton v-else-if="mode === 'decided'" icon="messageCircle" label="补充说明" size="sm" @click="emit('openReplyDialog', item)" />
         <UiIconButton v-if="mode === 'decided'" icon="circleCheck" label="标记已完成" variant="primary" size="sm" @click="emit('completeQuestion', item)" />
         <UiIconButton v-if="mode === 'risks'" icon="circleCheck" label="标记已处理" variant="primary" size="sm" @click="emit('resolveRisk', item)" />
       </div>

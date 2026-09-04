@@ -7,13 +7,16 @@ const props = withDefaults(defineProps<{
   item: ResourceViewItem
   icon: string
   deleteLabel?: string
+  editLabel?: string
 }>(), {
   deleteLabel: '',
+  editLabel: '',
 })
 
 const emit = defineEmits<{
   open: [item: ResourceViewItem]
   delete: [item: ResourceViewItem]
+  edit: [item: ResourceViewItem]
 }>()
 </script>
 
@@ -33,13 +36,9 @@ const emit = defineEmits<{
         {{ props.item.detailMeta || props.item.origin }}
       </span>
     </button>
-    <UiIconButton
-      v-if="props.deleteLabel && props.item.deletable !== false"
-      class="library-card-delete"
-      icon="trash"
-      size="sm"
-      :label="props.deleteLabel"
-      @click="emit('delete', props.item)"
-    />
+    <div v-if="props.item.deletable !== false && (props.editLabel || props.deleteLabel)" class="library-card-actions">
+      <UiIconButton v-if="props.editLabel" icon="edit" size="sm" :label="props.editLabel" @click="emit('edit', props.item)" />
+      <UiIconButton v-if="props.deleteLabel" icon="trash" size="sm" :label="props.deleteLabel" @click="emit('delete', props.item)" />
+    </div>
   </article>
 </template>

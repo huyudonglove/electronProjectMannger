@@ -32,6 +32,7 @@ const emit = defineEmits<{
   openReplyDialog: [item: CollabItem]
   completeQuestion: [item: CollabItem]
   resolveRisk: [item: CollabItem]
+  editQuestion: [item: CollabItem]
 }>()
 
 function setCollabTab(tab: CollabTab) {
@@ -123,6 +124,7 @@ function riskKindText(kind: string) {
           @open-reply-dialog="emit('openReplyDialog', $event)"
           @complete-question="emit('completeQuestion', $event)"
           @resolve-risk="emit('resolveRisk', $event)"
+          @edit-question="emit('editQuestion', $event)"
         />
       </div>
     </div>
@@ -149,6 +151,7 @@ function riskKindText(kind: string) {
             </div>
             <div class="collab-history-actions">
               <UiTag :label="item.status === 'resolved' ? '已完成' : '已归档'" :tone="item.status === 'resolved' ? 'complete' : 'neutral'" variant="status" :icon-name="item.status === 'resolved' ? 'circleCheck' : 'archive'" />
+              <UiIconButton icon="edit" label="编辑协作问题" size="sm" @click="emit('editQuestion', item)" />
               <UiIconButton icon="messagesSquare" label="继续讨论" size="sm" @click="emit('openReplyDialog', item)" />
             </div>
           </article>

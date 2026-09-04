@@ -18,6 +18,7 @@ export interface ElectronManagerApi {
   getDashboard: (projectRoot: string) => Promise<any>
   createVersion: (projectRoot: string, payload: ElectronRecord) => Promise<any>
   updateVersionStatus: (projectRoot: string, versionId: string, status: string) => Promise<any>
+  updateRecord: (projectRoot: string, kind: string, target: string, patch: ElectronRecord) => Promise<any>
   addQuestion: (projectRoot: string, payload: ElectronRecord) => Promise<any>
   updateQuestionStatus: (projectRoot: string, questionId: string, status: string) => Promise<any>
   updateRiskStatus: (projectRoot: string, riskId: string, status: string) => Promise<any>

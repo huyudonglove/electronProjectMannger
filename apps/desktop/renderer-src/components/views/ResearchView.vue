@@ -36,6 +36,7 @@ const emit = defineEmits<{
   select: [index: number]
   delete: [dialogue: AnyRecord]
   copy: [dialogue: AnyRecord]
+  edit: [dialogue: AnyRecord]
   openDocument: [document: AnyRecord]
 }>()
 
@@ -125,6 +126,7 @@ function dialogueRefsList(dialogue: AnyRecord) {
                 </div>
                 <div class="dialogue-actions">
                   <small>{{ formatTime(activeDialogue.created) }}</small>
+                  <UiIconButton icon="edit" label="编辑研究" size="sm" @click="emit('edit', activeDialogue)" />
                   <UiIconButton icon="copy" :label="researchPromptLabel(activeDialogue)" size="sm" @click="emit('copy', activeDialogue)" />
                   <UiIconButton v-if="activeDocument" icon="fileText" label="打开详细文档" size="sm" @click="emit('openDocument', activeDocument)" />
                   <UiIconButton class="delete-action" icon="trash" label="删除研究" size="sm" @click="emit('delete', activeDialogue)" />

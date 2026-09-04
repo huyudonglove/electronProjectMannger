@@ -21,6 +21,7 @@ defineProps<{
 const emit = defineEmits<{
   openVersionDialog: []
   changeVersionStatus: [version: VersionItem, status: string]
+  editVersion: [version: VersionItem]
 }>()
 
 function versionRecordCount(versionId: string, records: RecordItem[]) {
@@ -53,6 +54,7 @@ function versionRecordCount(versionId: string, records: RecordItem[]) {
           <span><strong>{{ versionRecordCount(version.shortId, questions) }}</strong><small>问题</small></span>
         </div>
         <div class="version-status-control" :class="`is-${version.status || 'planned'}`">
+          <UiIconButton icon="edit" :label="`编辑 ${version.label}`" size="sm" :disabled="busy" @click="emit('editVersion', version)" />
           <UiSelect
             :model-value="version.status || 'planned'"
             :options="versionStatusOptions"

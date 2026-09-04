@@ -7,6 +7,7 @@ import ResearchDetailContent from '../details/ResearchDetailContent.vue'
 import WorkLogDetail from '../details/WorkLogDetail.vue'
 import UiIcon from '../ui/UiIcon.vue'
 import UiStatusTag from '../ui/UiStatusTag.vue'
+import UiIconButton from '../ui/UiIconButton.vue'
 import type { CompanionRecordKind } from '../../composables/useCompanionNavigation'
 import { dialogueDisplayTitle, thoughtDisplayTitle } from '../../utils/record-formatters'
 import { formatTime } from '../../utils/record-presentation'
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   reply: [item: AnyRecord]
   completeQuestion: [item: AnyRecord]
   resolveRisk: [item: AnyRecord]
+  editRecord: [kind: 'task' | 'thought' | 'research' | 'question', record: AnyRecord]
 }>()
 
 const collaborationMode = computed<CollaborationRecordMode>(() => props.kind === 'risk'
@@ -69,7 +71,7 @@ function dialogueActionLabel(status: string) {
   <div class="companion-content companion-detail-page">
     <template v-if="props.kind === 'task'">
       <section class="companion-detail-heading">
-        <div><span class="task-short-id">{{ props.record.shortId }}</span><UiStatusTag :status="props.record.status" /></div>
+        <div><span class="task-short-id">{{ props.record.shortId }}</span><UiStatusTag :status="props.record.status" /><UiIconButton icon="edit" label="编辑任务" size="sm" @click="emit('editRecord', 'task', props.record)" /></div>
         <h2>{{ props.record.title }}</h2>
         <button v-if="nextTaskStatus(props.record)" class="btn btn-primary btn-sm" type="button" :disabled="props.busy" @click="emit('updateTaskStatus', props.record, nextTaskStatus(props.record)!)">
           <UiIcon :name="props.record.status === 'doing' ? 'circleCheck' : 'play'" />
@@ -81,7 +83,7 @@ function dialogueActionLabel(status: string) {
 
     <template v-else-if="props.kind === 'thought'">
       <section class="companion-detail-heading">
-        <div><span class="task-short-id">{{ props.record.shortId }}</span><UiStatusTag :status="props.record.status" /></div>
+        <div><span class="task-short-id">{{ props.record.shortId }}</span><UiStatusTag :status="props.record.status" /><UiIconButton icon="edit" label="编辑想法" size="sm" @click="emit('editRecord', 'thought', props.record)" /></div>
         <h2 v-if="thoughtDisplayTitle(props.record)">{{ thoughtDisplayTitle(props.record) }}</h2>
         <small v-if="props.record.created">{{ formatTime(props.record.created) }}</small>
         <button
@@ -104,7 +106,7 @@ function dialogueActionLabel(status: string) {
 
     <template v-else-if="props.kind === 'research'">
       <section class="companion-detail-heading">
-        <div><span class="task-short-id">{{ props.record.shortId }}</span><UiStatusTag :status="props.record.status" domain="research" /></div>
+        <div><span class="task-short-id">{{ props.record.shortId }}</span><UiStatusTag :status="props.record.status" domain="research" /><UiIconButton icon="edit" label="编辑研究" size="sm" @click="emit('editRecord', 'research', props.record)" /></div>
         <h2>{{ dialogueDisplayTitle(props.record) }}</h2>
         <small v-if="props.record.updated || props.record.created">{{ formatTime(props.record.updated || props.record.created) }}</small>
         <button v-if="nextDialogueStatus(props.record.status)" class="btn btn-primary btn-sm" type="button" :disabled="props.busy" @click="emit('updateDialogueStatus', props.record, nextDialogueStatus(props.record.status)!)">
@@ -123,6 +125,7 @@ function dialogueActionLabel(status: string) {
       @open-reply-dialog="emit('reply', $event)"
       @complete-question="emit('completeQuestion', $event)"
       @resolve-risk="emit('resolveRisk', $event)"
+      @edit-question="emit('editRecord', 'question', $event)"
     />
 
     <WorkLogDetail v-else-if="props.kind === 'log'" :log="props.record" :tasks="props.tasks" />

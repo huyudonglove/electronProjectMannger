@@ -17,6 +17,7 @@ const emit = defineEmits<{
   deleteThought: [thoughtId: string]
   resolveThought: [thought: ThoughtItem]
   reopenThought: [thought: ThoughtItem]
+  editThought: [thought: ThoughtItem]
 }>()
 
 </script>
@@ -41,6 +42,7 @@ const emit = defineEmits<{
             </div>
           </div>
           <div class="thought-actions">
+            <UiIconButton icon="edit" label="编辑想法" size="sm" @click="emit('editThought', thought)" />
             <UiIconButton
               v-if="thought.status === 'handled'"
               icon="rotateLeft"

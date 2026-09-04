@@ -62,6 +62,7 @@ import {
   resolveWritableVersionId,
   versionRecordPath,
 } from './internal/version-files.js'
+import { isMeaningfulThoughtAnswer } from './internal/record-validation.js'
 
 export async function appendTask(managerDataRoot: string, projectRoot: string, input: NewTaskInput) {
   if (!input) throw new Error('任务内容不能为空')
@@ -395,23 +396,6 @@ async function deleteVersionRecord(
 function readThoughtAnswer(block: string) {
   const match = block.match(/###\s+回答\s+([\s\S]*?)(?=\n### |$)/)
   return match?.[1]?.trim() || ''
-}
-
-function isMeaningfulThoughtAnswer(answer: string) {
-  const normalized = String(answer || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[。.!！?？\s]+$/g, '')
-  return Boolean(normalized) && ![
-    '无',
-    '暂无',
-    '暂无回答',
-    '待回答',
-    '待处理',
-    '待补充',
-    'none',
-    'n/a',
-  ].includes(normalized)
 }
 
 function replaceRecordField(block: string, field: string, value: string) {

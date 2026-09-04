@@ -31,6 +31,7 @@ import {
   updateDialogueStatus,
   updateTaskStatus,
   updateThoughtStatus,
+  updateProjectRecord,
 } from '@telance-records/project-core'
 import { WindowController } from './window-controller.js'
 
@@ -198,6 +199,14 @@ function registerIpc() {
   ) => {
     return updateProjectVersionStatus(managerDataRoot, projectRoot, versionId, status as 'planned' | 'active' | 'paused' | 'completed')
   })
+
+  ipcMain.handle('project:update-record', async (
+    _event,
+    projectRoot: string,
+    kind: 'task' | 'thought' | 'research' | 'constraint' | 'version' | 'question',
+    target: string,
+    patch,
+  ) => updateProjectRecord(managerDataRoot, projectRoot, kind, target, patch))
 
   ipcMain.handle('project:add-question', async (_event, projectRoot: string, payload) => {
     return appendProjectQuestion(managerDataRoot, projectRoot, payload)

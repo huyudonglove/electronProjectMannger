@@ -8,6 +8,7 @@ export type ActiveModal =
   | 'question'
   | 'markdown'
   | 'thoughtResolve'
+  | 'recordEdit'
   | 'initialize'
   | ''
 
@@ -21,6 +22,7 @@ export type ModalCoordinatorOptions = {
   questionDialogOpen: ModalState
   markdownDocument: ModalState
   thoughtResolveItem: ModalState
+  recordEditItem: ModalState
   projectRoot: ModalState
   initialized: ModalState
   closeQuickCreate: () => void
@@ -30,6 +32,7 @@ export type ModalCoordinatorOptions = {
 export function useModalCoordinator(options: ModalCoordinatorOptions) {
   const activeModal = computed<ActiveModal>(() => {
     if (toValue(options.projectOverlayOpen)) return 'projects'
+    if (toValue(options.recordEditItem)) return 'recordEdit'
     if (toValue(options.selectedTask)) return 'task'
     if (toValue(options.replyItem)) return 'reply'
     if (toValue(options.versionDialogOpen)) return 'version'

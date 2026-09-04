@@ -31,6 +31,14 @@ export type {
   ResearchMode,
   ResearchStatus,
   TaskStatus,
+  ProjectRecordKind,
+  UpdateConstraintRecordPatch,
+  UpdateProjectRecordPatchMap,
+  UpdateQuestionRecordPatch,
+  UpdateResearchRecordPatch,
+  UpdateTaskRecordPatch,
+  UpdateThoughtRecordPatch,
+  UpdateVersionRecordPatch,
 } from './types.js'
 
 export { createProjectId, resolveDataRoot } from './internal/project-context.js'
@@ -72,3 +80,4 @@ export {
   createProjectVersion,
   updateProjectVersionStatus,
 } from './versions.js'
+export { updateProjectRecord } from './project-record-updates.js'

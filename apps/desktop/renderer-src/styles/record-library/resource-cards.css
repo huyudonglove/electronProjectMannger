@@ -130,17 +130,19 @@
   font-size: var(--font-size-xs);
 }
 
-.library-card-delete {
+.library-card-actions {
   position: absolute;
   top: var(--space-2);
   right: var(--space-2);
-  opacity: 0;
+  display: flex;
+  gap: 4px;
+  opacity: 0.72;
   transform: translateY(-2px);
   transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
 
-.library-card:hover .library-card-delete,
-.library-card:focus-within .library-card-delete {
+.library-card:hover .library-card-actions,
+.library-card:focus-within .library-card-actions {
   opacity: 1;
   transform: translateY(0);
 }

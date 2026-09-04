@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('electronManager', {
   createVersion: (projectRoot, payload) => ipcRenderer.invoke('project:create-version', projectRoot, payload),
   updateVersionStatus: (projectRoot, versionId, status) =>
     ipcRenderer.invoke('project:update-version-status', projectRoot, versionId, status),
+  updateRecord: (projectRoot, kind, target, patch) =>
+    ipcRenderer.invoke('project:update-record', projectRoot, kind, target, patch),
   addQuestion: (projectRoot, payload) => ipcRenderer.invoke('project:add-question', projectRoot, payload),
   updateQuestionStatus: (projectRoot, questionId, status) =>
     ipcRenderer.invoke('project:update-question-status', projectRoot, questionId, status),

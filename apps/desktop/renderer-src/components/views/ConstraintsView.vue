@@ -17,6 +17,7 @@ const emit = defineEmits<{
   'update:query': [value: string]
   open: [item: ResourceViewItem]
   delete: [item: ResourceViewItem]
+  edit: [item: ResourceViewItem]
 }>()
 </script>
 
@@ -51,8 +52,10 @@ const emit = defineEmits<{
             :item="item"
             icon="shield"
             delete-label="删除约束"
+            edit-label="编辑约束"
             @open="emit('open', $event)"
             @delete="emit('delete', $event)"
+            @edit="emit('edit', $event)"
           />
         </div>
       </section>

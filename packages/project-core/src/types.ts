@@ -307,3 +307,70 @@ export type NewQuestionInput = {
   relations?: string[]
   origin?: 'user' | 'system'
 }
+
+export type ProjectRecordKind = 'task' | 'thought' | 'research' | 'constraint' | 'version' | 'question'
+
+export type UpdateTaskRecordPatch = {
+  title?: string
+  priority?: string
+  workLevel?: ProjectWorkLevel
+  depthReason?: ProjectDepthReason | ''
+  area?: string
+  userOriginal?: string
+  executionDefinition?: string
+  acceptance?: string
+  constraints?: string
+  planRollback?: string
+}
+
+export type UpdateThoughtRecordPatch = {
+  content?: string
+  answer?: string
+}
+
+export type UpdateResearchRecordPatch = {
+  content?: string
+  answer?: string
+  acceptance?: string
+  mode?: Exclude<ResearchMode, 'legacy'>
+  tags?: string[]
+  relatedTasks?: string[]
+  relatedThoughts?: string[]
+  relatedDocuments?: string[]
+}
+
+export type UpdateConstraintRecordPatch = {
+  title?: string
+  content?: string
+  status?: 'active' | 'draft' | 'archived'
+  scope?: 'project' | 'version'
+}
+
+export type UpdateVersionRecordPatch = {
+  label?: string
+  title?: string
+  goal?: string
+  summary?: string
+  outcomes?: string[]
+  followUps?: string[]
+}
+
+export type UpdateQuestionRecordPatch = {
+  title?: string
+  question?: string
+  background?: string
+  recommendation?: string
+  kind?: ProjectOpenQuestion['kind']
+  scope?: ProjectOpenQuestion['scope']
+  blocking?: boolean
+  relations?: string[]
+}
+
+export type UpdateProjectRecordPatchMap = {
+  task: UpdateTaskRecordPatch
+  thought: UpdateThoughtRecordPatch
+  research: UpdateResearchRecordPatch
+  constraint: UpdateConstraintRecordPatch
+  version: UpdateVersionRecordPatch
+  question: UpdateQuestionRecordPatch
+}
